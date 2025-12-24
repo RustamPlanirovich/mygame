@@ -58,11 +58,13 @@ export function BuildingList() {
 
   return (
     <div className="p-3">
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {buildings.map((b) => {
           const Icon = getBuildingIcon(b.id);
           const isSelected = selectedBuildId === b.id;
           const canAfford = affordability[b.id];
+          const cost = calculateCost(b);
+          const req = requiredDepositForBuilding(b.id);
 
           return (
             <button
@@ -71,7 +73,7 @@ export function BuildingList() {
               title={buildTitle(b)}
               onClick={() => selectBuild(isSelected ? null : b.id)}
               className={
-                `w-full flex items-center gap-2 p-2 rounded transition-all border ` +
+                `w-full flex flex-col gap-1.5 p-2.5 rounded transition-all border ` +
                 (isSelected 
                   ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
                   : canAfford 
@@ -80,13 +82,68 @@ export function BuildingList() {
               }
               disabled={!canAfford && !isSelected}
             >
-              <Icon size={16} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
-              <div className="flex-1 text-left">
-                <div className="text-xs font-medium">{b.name}</div>
-                <div className="text-[10px] text-cyber-text-dim">Ур. {b.count}</div>
+              <div className="flex items-center gap-2 w-full">
+                <Icon size={18} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+                <div className="flex-1 text-left">
+                  <div className="text-xs font-medium">{b.name}</div>
+                  <div className="text-[10px] text-cyber-text-dim">Уровень {b.count}</div>
+                </div>
+                {isSelected && (
+                  <X size={14} className="text-cyber-green" />
+                )}
               </div>
-              {isSelected && (
-                <X size={14} className="text-cyber-green" />
+              
+              {/* Стоимость */}
+              {Object.keys(cost).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="text-cyber-text-dim">Стоимость:</span>
+                  {Object.entries(cost).map(([res, amt]) => {
+                    const currentAmount = resources[res as ResourceType]?.amount || 0;
+                    const hasEnough = typeof currentAmount === 'object' 
+                      ? currentAmount.gte(amt) 
+                      : currentAmount >= amt;
+                    
+                    return (
+                      <span 
+                        key={res} 
+                        className={hasEnough ? 'text-cyber-green' : 'text-red-400'}
+                      >
+                        {formatNumber(amt)} {res === 'energy' ? '⚡' : RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Производство */}
+              {Object.keys(b.production).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="text-cyber-text-dim">+</span>
+                  {Object.entries(b.production).map(([res, amt]) => (
+                    <span key={res} className="text-cyber-blue">
+                      {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Потребление */}
+              {b.consumption && Object.keys(b.consumption).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="text-cyber-text-dim">−</span>
+                  {Object.entries(b.consumption).map(([res, amt]) => (
+                    <span key={res} className="text-orange-400">
+                      {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Требование месторождения */}
+              {req && (
+                <div className="text-[10px] text-cyber-text-dim italic">
+                  Требует: {req === 'ore' ? '🪨 Руда' : req === 'ice' ? '🧊 Лёд' : '⚫ Углерод'}
+                </div>
               )}
             </button>
           );

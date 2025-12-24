@@ -65,13 +65,12 @@ export function ResourcePanel() {
                 title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${r.production.gt(0) ? '+' : ''}${formatNumber(r.production)}/с`}
               >
                 <Icon size={18} />
-                <div className="flex items-baseline gap-2">
-                  <span className={`font-mono text-base font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>{formatNumber(r.amount)}</span>
-                  <span className={`text-xs font-mono ${productionTone(r.production)}`}>
-                    ({r.production.gt(0) ? '+' : ''}{formatNumber(r.production)}/с)
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono text-base font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
+                    {formatNumber(r.amount)}
                   </span>
+                  {full ? <span className="text-[10px] text-cyber-red font-sans ml-1">ПОЛНО</span> : null}
                 </div>
-                {full ? <span className="text-[10px] text-cyber-red font-sans">ПОЛНО</span> : null}
               </div>
             );
           })}

@@ -29,6 +29,21 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyPositive, setShowOnlyPositive] = useState(true);
 
+  // Кэшируем бонусы эффективности для каждого здания - считаем один раз при выборе депозита
+  const buildingBonuses = useMemo(() => {
+    const bonuses: Record<string, number> = {};
+    buildings.forEach((b) => {
+      const reqDeposit = requiredDepositForBuilding(b.id);
+      if (reqDeposit && reqDeposit === deposit) {
+        // Генерируем стабильный бонус на основе ID здания и типа депозита
+        const seed = b.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) + deposit.charCodeAt(0);
+        const random = (Math.sin(seed) * 10000) % 1;
+        bonuses[b.id] = Math.floor(random * 20 + 10);
+      }
+    });
+    return bonuses;
+  }, [buildings, deposit]);
+
   // Фильтруем здания по месторождению и поисковому запросу
   const filteredBuildings = useMemo(() => {
     return buildings.filter((b) => {
@@ -159,7 +174,7 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-medium truncate">{b.name}</span>
                       {hasBonus && (
-                        <span className="text-[10px] font-bold text-cyber-green">+{(Math.random() * 20 + 10).toFixed(0)}%</span>
+                        <span className="text-[10px] font-bold text-cyber-green">+{buildingBonuses[b.id]}%</span>
                       )}
                     </div>
                     <div className="text-[10px] text-cyber-text-dim">Ур. {b.count}</div>

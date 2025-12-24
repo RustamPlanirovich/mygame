@@ -208,16 +208,15 @@ export interface GridState {
   deposits?: Record<string, DepositType>;
   // key = "x,y" (and special key "base"); values are stringified decimals
   buffers: Record<string, Partial<Record<ResourceType, string>>>;
-  links: GridLink[];
-  focusedLink: GridLink | null;
-  // key = "fromx,fromy->tox,toy:resource"; value = moved amount during last tick (stringified decimal)
-  linkMoved: Record<string, string>;
+  // Active transports for visualization (auto-logistics)
+  activeTransports?: Array<{
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    resource: ResourceType;
+    amount: string; // stringified decimal
+  }>;
   // last simulation dt in seconds (for UI diagnostics)
   lastDtSeconds: number;
-  // Pending link creation mode.
-  // export: anchor = source, click selects target.
-  // import: anchor = target, click selects source.
-  linking: { anchor: GridCoord; resource: ResourceType; mode: 'export' | 'import' } | null;
   selectedBuildId: string | null;
 
   // Per-tile market policies for trade resources (fallback behavior).
@@ -262,13 +261,6 @@ export interface GameState {
   selectBuild: (buildingId: string | null) => void;
   placeSelectedBuildAt: (pos: GridCoord) => void;
   removeBuildingAt: (pos: GridCoord) => void;
-  startLink: (from: GridCoord, resource: ResourceType) => void;
-  startLinkImport: (to: GridCoord, resource: ResourceType) => void;
-  cancelLink: () => void;
-  completeLink: (to: GridCoord) => void;
-  toggleLinkEnabled: (from: GridCoord, to: GridCoord, resource: ResourceType) => void;
-  removeLink: (from: GridCoord, to: GridCoord, resource: ResourceType) => void;
-  focusLink: (link: GridLink | null) => void;
 
   setTileMarketPolicy: (tileKey: string, resource: TradeResourceType, patch: { import?: boolean; export?: boolean }) => void;
   buyUpgrade: (id: UpgradeId) => void;

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 import { THEME_COLORS } from '../../core/constants/themeColors';
-import { useGameStore } from '../../features/gameStore';
+import { useGameStore, getBasePos } from '../../features/gameStore';
 import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
 import { formatNumber, D } from '../../core/math/format';
 import type { Building, ResourceType } from '../../core/gameTypes';
@@ -37,47 +37,92 @@ const RESOURCE_SHORT: Partial<Record<ResourceType, string>> = {
   energy: 'ЭН',
 };
 
-function distPointToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
-  const abx = bx - ax;
-  const aby = by - ay;
-  const apx = px - ax;
-  const apy = py - ay;
-  const abLen2 = abx * abx + aby * aby;
-  if (abLen2 <= 0.000001) return Math.hypot(px - ax, py - ay);
-  let t = (apx * abx + apy * aby) / abLen2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = ax + abx * t;
-  const cy = ay + aby * t;
-  return Math.hypot(px - cx, py - cy);
-}
+// Кэшируем стили для текста чтобы не создавать новые объекты каждый кадр
+const TEXT_STYLES = {
+  base: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberGreen,
+    fontSize: 20,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  building: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberText,
+    fontSize: 24,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  buildingBlocked: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberRed,
+    fontSize: 24,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  warning: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberRed,
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  deposit: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberText,
+    fontSize: 16,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  missing: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberRed,
+    fontSize: 9,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  flow: new PIXI.TextStyle({
+    fontSize: 8,
+    fontWeight: '600',
+    fontFamily: 'Arial, sans-serif',
+  }),
+};
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
 export function FactoryGrid() {
-  const grid = useGameStore((s) => s.grid);
+  // КРИТИЧНО: Подписываемся только на нужные части стейта, чтобы избежать лишних ререндеров
+  const grid = useGameStore((s) => ({
+    tiles: s.grid.tiles,
+    deposits: s.grid.deposits,
+    selected: s.grid.selected,
+    selectedBuildId: s.grid.selectedBuildId,
+    buffers: s.grid.buffers,
+    activeTransports: s.grid.activeTransports,
+    width: s.grid.width,
+    height: s.grid.height,
+  }), (a, b) => {
+    // Shallow compare для оптимизации
+    return a.tiles === b.tiles &&
+           a.deposits === b.deposits &&
+           a.selected === b.selected &&
+           a.selectedBuildId === b.selectedBuildId &&
+           a.buffers === b.buffers &&
+           a.activeTransports === b.activeTransports &&
+           a.width === b.width &&
+           a.height === b.height;
+  });
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
   const selectTile = useGameStore((s) => s.selectTile);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
-  const focusLink = useGameStore((s) => s.focusLink);
   const setCameraPosition = useGameStore((s) => s.setCameraPosition);
-
-  const [hoveredLinkKey, setHoveredLinkKey] = useState<string | null>(null);
-  const hoveredLinkKeyRef = useRef<string | null>(null);
   
-  // Для оптимизации рендеринга
-  const [renderTrigger, setRenderTrigger] = useState(0);
-  const renderTimeoutRef = useRef<number | null>(null);
-  const forceRender = useRef(() => {
-    if (renderTimeoutRef.current) {
-      clearTimeout(renderTimeoutRef.current);
+  // Throttle для обновления камеры в БД - не сохраняем каждый кадр
+  const lastCameraSaveRef = useRef<number>(0);
+  const saveCameraThrottled = (x: number, y: number, zoom: number) => {
+    const now = Date.now();
+    if (now - lastCameraSaveRef.current > 500) { // Сохраняем максимум раз в 500ms
+      lastCameraSaveRef.current = now;
+      setCameraPosition(x, y, zoom);
     }
-    renderTimeoutRef.current = window.setTimeout(() => {
-      setRenderTrigger(prev => prev + 1);
-    }, 16); // Примерно 60 FPS
-  });
+  };
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<PIXI.Application | null>(null);
@@ -86,6 +131,9 @@ export function FactoryGrid() {
   const textLayerRef = useRef<PIXI.Container | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const initializedRef = useRef(false);
+  
+  // ПУЛ ТЕКСТОВЫХ ОБЪЕКТОВ - храним между кадрами
+  const textPoolRef = useRef<PIXI.Text[]>([]);
 
   const camRef = useRef({
     zoom: 1,
@@ -186,10 +234,6 @@ export function FactoryGrid() {
     return map;
   }, [buildings]);
 
-  const linkKeyOf = (link: { from: { x: number; y: number }; to: { x: number; y: number }; resource: ResourceType }) => {
-    return `${link.from.x},${link.from.y}->${link.to.x},${link.to.y}:${link.resource}`;
-  };
-
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -276,26 +320,9 @@ export function FactoryGrid() {
         };
       };
 
-      const handlePrimaryClick = (sx: number, sy: number, shiftKey: boolean) => {
+      const handlePrimaryClick = (sx: number, sy: number) => {
         const wp = screenToWorld(sx, sy);
-
         const s = useGameStore.getState();
-
-        // Select hovered line:
-        // - normal click works only when not building
-        // - Shift+Click works even in build mode
-        // - disabled while linking (click is reserved for selecting the link target)
-        if (!s.grid.linking && (shiftKey || !s.grid.selectedBuildId)) {
-          const hoveredKey = hoveredLinkKeyRef.current;
-          if (hoveredKey) {
-            const link = s.grid.links.find((l) => linkKeyOf(l) === hoveredKey);
-            if (link) {
-              focusLink(link);
-              selectTile({ x: link.to.x, y: link.to.y });
-              return;
-            }
-          }
-        }
 
         const gridPos = pixelToGrid(wp.x, wp.y);
         const x = clamp(gridPos.x, 0, s.grid.width - 1);
@@ -303,9 +330,6 @@ export function FactoryGrid() {
 
         const pos = { x, y };
         selectTile(pos);
-
-        // While linking, clicks are reserved for selecting the link target.
-        if (s.grid.linking) return;
 
         if (s.grid.selectedBuildId) {
           placeSelectedBuildAt(pos);
@@ -355,11 +379,25 @@ export function FactoryGrid() {
         const ws = worldSizeRef.current;
         if (!(ws.w > 0 && ws.h > 0 && vw > 0 && vh > 0)) return;
 
-        // Используем cover вместо contain - заполняем все пространство
-        const fit = Math.max(vw / ws.w, vh / ws.h) * 0.98;
+        // Получаем текущий grid из store
+        const currentGrid = useGameStore.getState().grid;
+        
+        // Вычисляем позицию базы в пиксельных координатах
+        const basePos = getBasePos(currentGrid);
+        const basePixel = gridToPixel(basePos.x, basePos.y);
+        
+        // Центрируем камеру на базе
+        const baseCenterX = basePixel.px + CELL / 2;
+        const baseCenterY = basePixel.py + CELL / 2;
+        
+        // Подбираем zoom чтобы база была в центре экрана
+        const fit = Math.min(vw / ws.w, vh / ws.h) * 1.2; // Немного ближе для лучшего обзора
         cam.zoom = clamp(fit, ZOOM_MIN, ZOOM_MAX);
-        cam.x = Math.floor((vw - ws.w * cam.zoom) / 2);
-        cam.y = Math.floor((vh - ws.h * cam.zoom) / 2);
+        
+        // Позиционируем камеру так чтобы база была в центре экрана
+        cam.x = vw / 2 - baseCenterX * cam.zoom;
+        cam.y = vh / 2 - baseCenterY * cam.zoom;
+        
         updateCameraClamp();
       };
 
@@ -422,78 +460,20 @@ export function FactoryGrid() {
           const rect = app.canvas.getBoundingClientRect();
           const sx = (e.clientX - rect.left) * (app.canvas.width / rect.width);
           const sy = (e.clientY - rect.top) * (app.canvas.height / rect.height);
-          handlePrimaryClick(sx, sy, e.shiftKey);
+          handlePrimaryClick(sx, sy);
         }
       };
 
-      const onKeyDown = (e: KeyboardEvent) => {
-        const active = document.activeElement as HTMLElement | null;
-        if (active) {
-          const tag = active.tagName?.toLowerCase();
-          const isTypingTarget = tag === 'input' || tag === 'textarea' || (active as any).isContentEditable;
-          if (isTypingTarget) return;
-        }
-
-        if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-
-        const s = useGameStore.getState();
-        const link = s.grid.focusedLink;
-        if (!link) return;
-
-        e.preventDefault();
-        s.removeLink(link.from, link.to, link.resource);
-        s.focusLink(null);
+      const onKeyDown = () => {
+        // Key handling removed - no longer needed for link management
       };
 
       const onContextMenu = (e: MouseEvent) => {
         e.preventDefault();
-        const rect = app.canvas.getBoundingClientRect();
-        const sx = (e.clientX - rect.left) * (app.canvas.width / rect.width);
-        const sy = (e.clientY - rect.top) * (app.canvas.height / rect.height);
-        const wp = screenToWorld(sx, sy);
-
-        const s = useGameStore.getState();
-        const links = s.grid.links;
-        if (links.length === 0) return;
-
-        const hoveredKey = hoveredLinkKeyRef.current;
-        if (hoveredKey) {
-          const link = links.find((l) => linkKeyOf(l) === hoveredKey);
-          if (link) {
-            s.removeLink(link.from, link.to, link.resource);
-            return;
-          }
-        }
-
-        let bestIdx = -1;
-        let bestDist = Infinity;
-        for (let i = 0; i < links.length; i++) {
-          const link = links[i];
-          const fromPos = gridToPixel(link.from.x, link.from.y);
-          const toPos = gridToPixel(link.to.x, link.to.y);
-          const ax = fromPos.px;
-          const ay = fromPos.py;
-          const bx = toPos.px;
-          const by = toPos.py;
-          const d = distPointToSegment(wp.x, wp.y, ax, ay, bx, by);
-          if (d < bestDist) {
-            bestDist = d;
-            bestIdx = i;
-          }
-        }
-
-        // threshold in screen pixels → convert to world units
-        const threshold = 7 / camRef.current.zoom;
-        if (bestIdx >= 0 && bestDist <= threshold) {
-          const link = links[bestIdx];
-          s.removeLink(link.from, link.to, link.resource);
-        }
+        // Context menu functionality removed (no longer used for links)
       };
 
       const onPointerMove = (e: PointerEvent) => {
-        const s = useGameStore.getState();
-        const links = s.grid.links;
-
         const rect = app.canvas.getBoundingClientRect();
         const sx = (e.clientX - rect.left) * (app.canvas.width / rect.width);
         const sy = (e.clientY - rect.top) * (app.canvas.height / rect.height);
@@ -506,9 +486,8 @@ export function FactoryGrid() {
           panRef.current.lastX = sx;
           panRef.current.lastY = sy;
           updateCameraClamp();
-          // Сохраняем позицию камеры в БД
-          setCameraPosition(camRef.current.x, camRef.current.y, camRef.current.zoom);
-          forceRender.current();
+          // Сохраняем позицию камеры в БД (throttled)
+          saveCameraThrottled(camRef.current.x, camRef.current.y, camRef.current.zoom);
           return;
         }
 
@@ -522,50 +501,6 @@ export function FactoryGrid() {
             panRef.current.lastY = sy;
           }
           return;
-        }
-
-        if (links.length === 0) {
-          if (hoveredLinkKeyRef.current !== null) {
-            hoveredLinkKeyRef.current = null;
-            setHoveredLinkKey(null);
-          }
-          return;
-        }
-        
-        // Оптимизация: не проверяем hover при панорамировании или если линков слишком много
-        if (panRef.current.candidate || links.length > 200) {
-          return;
-        }
-
-        const wp = screenToWorld(sx, sy);
-
-        let bestKey: string | null = null;
-        let bestDist = Infinity;
-        for (const link of links) {
-          const fromPos = gridToPixel(link.from.x, link.from.y);
-          const toPos = gridToPixel(link.to.x, link.to.y);
-          const ax = fromPos.px;
-          const ay = fromPos.py;
-          const bx = toPos.px;
-          const by = toPos.py;
-          const d = distPointToSegment(wp.x, wp.y, ax, ay, bx, by);
-          if (d < bestDist) {
-            bestDist = d;
-            bestKey = linkKeyOf(link);
-          }
-        }
-
-        const threshold = 8 / camRef.current.zoom;
-        if (bestKey && bestDist <= threshold) {
-          if (hoveredLinkKeyRef.current !== bestKey) {
-            hoveredLinkKeyRef.current = bestKey;
-            setHoveredLinkKey(bestKey);
-          }
-        } else {
-          if (hoveredLinkKeyRef.current !== null) {
-            hoveredLinkKeyRef.current = null;
-            setHoveredLinkKey(null);
-          }
         }
       };
 
@@ -591,9 +526,8 @@ export function FactoryGrid() {
         cam.x = sx - before.x * cam.zoom;
         cam.y = sy - before.y * cam.zoom;
         updateCameraClamp();
-        // Сохраняем позицию камеры в БД
-        setCameraPosition(cam.x, cam.y, cam.zoom);
-        forceRender.current();
+        // Сохраняем позицию камеры в БД (throttled)
+        saveCameraThrottled(cam.x, cam.y, cam.zoom);
         
         // Автоматически расширяем сетку при отдалении
         const s = useGameStore.getState();
@@ -629,10 +563,7 @@ export function FactoryGrid() {
       ro.observe(containerEl);
 
       const onPointerLeave = () => {
-        if (hoveredLinkKeyRef.current !== null) {
-          hoveredLinkKeyRef.current = null;
-          setHoveredLinkKey(null);
-        }
+        // No longer tracking link hover
       };
 
       app.canvas.addEventListener('pointerdown', onPointerDown);
@@ -711,12 +642,7 @@ export function FactoryGrid() {
 
     g.clear();
 
-    if (textLayer) {
-      const children = textLayer.removeChildren();
-      for (const c of children) {
-        c.destroy();
-      }
-    }
+    // НЕ удаляем детей - пул текстов управляется через visible
 
     // Grid background - темнее, как в Industry Idle
     g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: 0x0a0e1a, alpha: 1.0 });
@@ -754,31 +680,61 @@ export function FactoryGrid() {
     const worldRight = worldLeft + viewportW / cam.zoom;
     const worldBottom = worldTop + viewportH / cam.zoom;
     
-    // Диапазон видимых клеток с небольшим запасом
+    // Диапазон видимых клеток с запасом +10 клеток для оптимизации
     const cellSize = CELL + GAP;
-    const minX = Math.max(0, Math.floor((worldLeft - GAP) / cellSize) - 1);
-    const maxX = Math.min(grid.width - 1, Math.ceil((worldRight - GAP) / cellSize) + 1);
-    const minY = Math.max(0, Math.floor((worldTop - GAP) / cellSize) - 1);
-    const maxY = Math.min(grid.height - 1, Math.ceil((worldBottom - GAP) / cellSize) + 1);
+    const bufferCells = 10; // Запас клеток для плавного рендеринга
+    const minX = Math.max(0, Math.floor((worldLeft - GAP) / cellSize) - bufferCells);
+    const maxX = Math.min(grid.width - 1, Math.ceil((worldRight - GAP) / cellSize) + bufferCells);
+    const minY = Math.max(0, Math.floor((worldTop - GAP) / cellSize) - bufferCells);
+    const maxY = Math.min(grid.height - 1, Math.ceil((worldBottom - GAP) / cellSize) + bufferCells);
     
-    // Показывать текст только при достаточном зуме, с гистерезисом для избежания мигания
+    // Показывать текст только при достаточном зуме
     const showText = cam.zoom > 0.4;
     const showDetailedText = cam.zoom > 0.7;
+    
+    // ПУЛ ТЕКСТОВЫХ ОБЪЕКТОВ: переиспользуем существующие объекты
+    const textPool = textPoolRef.current;
+    let textPoolIndex = 0;
+    
+    const getTextFromPool = (text: string, style: PIXI.TextStyle): PIXI.Text => {
+      let t: PIXI.Text;
+      if (textPoolIndex < textPool.length) {
+        // Переиспользуем существующий объект
+        t = textPool[textPoolIndex];
+        t.text = text;
+        t.style = style;
+        t.visible = true;
+        // Добавляем на слой если еще не добавлен
+        if (textLayer && t.parent !== textLayer) {
+          textLayer.addChild(t);
+        }
+      } else {
+        // Создаем новый только если пул пуст
+        t = new PIXI.Text({ text, style });
+        textPool.push(t);
+        if (textLayer) textLayer.addChild(t);
+      }
+      textPoolIndex++;
+      return t;
+    };
 
     // Cells - рисуем только видимые
+    const basePos = getBasePos(grid);
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const k = `${x},${y}`;
         const hasBuilding = Boolean(grid.tiles[k]);
         const { px, py } = gridToPixel(x, y);
 
-        const isBase = x === grid.width - 1 && y === grid.height - 1;
+        const isBase = x === basePos.x && y === basePos.y;
+        // При малом зуме делаем здания более яркими и контрастными
+        const buildingAlphaBoost = cam.zoom < 0.5 ? 0.5 : 0.35;
         const fill = isBase
           ? THEME_COLORS.cyberGreen
           : hasBuilding
             ? THEME_COLORS.cyberBlue
             : THEME_COLORS.cyberDark;
-        const alpha = isBase ? 0.3 : hasBuilding ? 0.35 : 0.4;
+        const alpha = isBase ? 0.3 : hasBuilding ? buildingAlphaBoost : 0.4;
 
         // Draw tile based on mode
         if (GRID_MODE === 'square') {
@@ -795,7 +751,15 @@ export function FactoryGrid() {
         // Highlight: if this building needs inputs but local buffer is empty for any required resource.
         let strokeColor: number = THEME_COLORS.cyberGray;
         let strokeAlpha: number = 0.6;
+        let strokeWidth = 1;
         const missingResources: ResourceType[] = [];
+        
+        // При малом зуме делаем обводку зданий толще и ярче для лучшей видимости
+        if (hasBuilding && cam.zoom < 0.5) {
+          strokeColor = THEME_COLORS.cyberBlue;
+          strokeAlpha = 0.9;
+          strokeWidth = 2;
+        }
         
         // Оптимизация: пропускаем детальную проверку ресурсов при сильном отдалении
         if (!isBase && hasBuilding && showDetailedText) {
@@ -821,15 +785,15 @@ export function FactoryGrid() {
         }
 
         // Draw stroke - при сильном отдалении упрощаем или пропускаем
-        if (showText) {
+        if (showText || (hasBuilding && cam.zoom < 0.5)) {
           if (GRID_MODE === 'square') {
-            g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: 1, alpha: strokeAlpha * 0.5 });
+            g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha * (showText ? 0.5 : 1) });
           } else if (GRID_MODE === 'hex') {
             drawHexagon(g, px, py, HEX_SIZE);
-            g.stroke({ color: strokeColor, width: 1, alpha: strokeAlpha * 0.6 });
+            g.stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha * (showText ? 0.6 : 1) });
           } else {
             drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
-            g.stroke({ color: strokeColor, width: 1.5, alpha: strokeAlpha });
+            g.stroke({ color: strokeColor, width: strokeWidth * 1.5, alpha: strokeAlpha });
           }
         }
 
@@ -837,55 +801,29 @@ export function FactoryGrid() {
           const textOffsetY = GRID_MODE === 'isometric' ? -8 : 0;
           
           if (isBase) {
-            const t = new PIXI.Text({
-              text: '🏠',
-              style: {
-                fill: THEME_COLORS.cyberGreen,
-                fontSize: GRID_MODE === 'hex' ? 24 : 20,
-                fontWeight: '700',
-              },
-            });
+            const t = getTextFromPool('🏠', TEXT_STYLES.base);
             t.anchor.set(0.5, 0.5);
             const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
             const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
             t.y = centerY + textOffsetY;
-            textLayer.addChild(t);
           } else if (hasBuilding) {
             const emoji = getBuildingEmoji(grid.tiles[k]);
             const isBlocked = missingResources.length > 0;
             
-            const t = new PIXI.Text({
-              text: emoji,
-              style: {
-                fill: isBlocked ? THEME_COLORS.cyberRed : THEME_COLORS.cyberText,
-                fontSize: GRID_MODE === 'hex' ? 18 : 24,
-                fontWeight: '700',
-              },
-            });
+            const t = getTextFromPool(emoji, isBlocked ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
             t.anchor.set(0.5, 0.5);
             const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
             const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
             t.y = centerY + textOffsetY - (isBlocked ? 6 : 0);
-            textLayer.addChild(t);
 
             // Warning icon когда заблокировано
             if (isBlocked && showDetailedText) {
-              const warning = new PIXI.Text({
-                text: '⚠',
-                style: {
-                  fill: THEME_COLORS.cyberRed,
-                  fontSize: GRID_MODE === 'hex' ? 9 : 12,
-                  fontWeight: '700',
-                },
-              });
+              const warning = getTextFromPool('⚠', TEXT_STYLES.warning);
               warning.anchor.set(0.5, 0.5);
-              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
-              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
               warning.x = centerX - (GRID_MODE === 'hex' ? 10 : 15);
               warning.y = centerY + textOffsetY - 6;
-              textLayer.addChild(warning);
             }
 
             if (missingResources.length > 0 && showDetailedText) {
@@ -893,177 +831,100 @@ export function FactoryGrid() {
                 .slice(0, 3)
                 .map((r) => RESOURCE_SHORT[r] ?? r.toUpperCase())
                 .join(',');
-              const miss = new PIXI.Text({
-                text: `НЕТ: ${label}`,
-                style: {
-                  fill: THEME_COLORS.cyberRed,
-                  fontSize: GRID_MODE === 'hex' ? 7 : 9,
-                  fontWeight: '700',
-                },
-              });
+              const miss = getTextFromPool(`НЕТ: ${label}`, TEXT_STYLES.missing);
               miss.anchor.set(0.5, 0.5);
-              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
-              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
               miss.x = centerX;
               miss.y = centerY + textOffsetY + 10;
-              textLayer.addChild(miss);
             }
           } else {
-            // Показываем месторождения только при большом зуме и когда нет зданий
+            // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
             const dep = grid.deposits?.[k];
-            if (dep && showText) {
-              const t = new PIXI.Text({
-                text: getDepositEmoji(dep),
-                style: {
-                  fill: THEME_COLORS.cyberText,
-                  fontSize: GRID_MODE === 'hex' ? 14 : 16,
-                  fontWeight: '700',
-                },
-              });
+            if (dep && showDetailedText) {
+              const t = getTextFromPool(getDepositEmoji(dep), TEXT_STYLES.deposit);
               t.alpha = 0.4;
               t.anchor.set(0.5, 0.5);
               const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
               const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
               t.x = centerX;
               t.y = centerY + textOffsetY;
-              textLayer.addChild(t);
             }
           }
         }
       }
     }
+    
+    // Скрываем неиспользуемые текстовые объекты из пула
+    // Скрываем неиспользованные тексты из пула
+    for (let i = textPoolIndex; i < textPool.length; i++) {
+      if (textPool[i].visible) {
+        textPool[i].visible = false;
+      }
+    }
 
-    // Links - рисуем только если хотя бы одна из клеток видна
-    if (grid.links.length > 0) {
-      for (const link of grid.links) {
-        // Culling для линков - проверяем видимость
-        const isFromVisible = link.from.x >= minX && link.from.x <= maxX && 
-                              link.from.y >= minY && link.from.y <= maxY;
-        const isToVisible = link.to.x >= minX && link.to.x <= maxX && 
-                            link.to.y >= minY && link.to.y <= maxY;
+    // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Рисуем летящие частицы для активных транспортов
+    if (grid.activeTransports && grid.activeTransports.length > 0 && showDetailedText) {
+      for (const transport of grid.activeTransports) {
+        const fromPos = gridToPixel(transport.from.x, transport.from.y);
+        const toPos = gridToPixel(transport.to.x, transport.to.y);
         
-        if (!isFromVisible && !isToVisible) continue;
+        const fromX = fromPos.px + CELL / 2;
+        const fromY = fromPos.py + CELL / 2;
+        const toX = toPos.px + CELL / 2;
+        const toY = toPos.py + CELL / 2;
         
-        const fromPos = gridToPixel(link.from.x, link.from.y);
-        const toPos = gridToPixel(link.to.x, link.to.y);
-        const fromX = fromPos.px;
-        const fromY = fromPos.py;
-        const toX = toPos.px;
-        const toY = toPos.py;
-
-        const color = link.resource === 'energy'
+        // Цвет частицы в зависимости от ресурса
+        const color = transport.resource === 'energy'
           ? THEME_COLORS.cyberText
-          : link.resource === 'ore'
+          : transport.resource === 'ore'
             ? THEME_COLORS.cyberGray
-            : link.resource === 'ice'
+            : transport.resource === 'ice'
               ? THEME_COLORS.cyberBlue
-              : link.resource === 'carbon'
+              : transport.resource === 'carbon'
                 ? THEME_COLORS.cyberRed
                 : THEME_COLORS.cyberGreen;
-
-        const key = linkKeyOf(link);
-        const isHovered = hoveredLinkKey && key === hoveredLinkKey;
-        const isFocused = Boolean(
-          grid.focusedLink
-          && grid.focusedLink.from.x === link.from.x
-          && grid.focusedLink.from.y === link.from.y
-          && grid.focusedLink.to.x === link.to.x
-          && grid.focusedLink.to.y === link.to.y
-          && grid.focusedLink.resource === link.resource
-        );
-        const disabled = link.enabled === false;
-        const disabledMult = disabled ? 0.25 : 1;
-        const lineAlpha = (isFocused ? 1.0 : isHovered ? 0.9 : 0.6) * disabledMult;
-        const lineWidth = isFocused ? 3.5 : isHovered ? 3 : 2;
-        const arrowAlpha = (isFocused ? 1.0 : isHovered ? 0.95 : 0.7) * disabledMult;
-
-        g.moveTo(fromX, fromY)
-          .lineTo(toX, toY)
-          .stroke({ color, width: lineWidth, alpha: lineAlpha });
-
-        // Arrow head (direction)
-        const dx = toX - fromX;
-        const dy = toY - fromY;
-        const len = Math.hypot(dx, dy);
-        if (len > 1) {
-          const ux = dx / len;
-          const uy = dy / len;
-          const arrowSize = 8;
-          const backX = toX - ux * arrowSize;
-          const backY = toY - uy * arrowSize;
-          const perpX = -uy;
-          const perpY = ux;
-
-          const leftX = backX + perpX * (arrowSize * 0.55);
-          const leftY = backY + perpY * (arrowSize * 0.55);
-          const rightX = backX - perpX * (arrowSize * 0.55);
-          const rightY = backY - perpY * (arrowSize * 0.55);
-
-          g.moveTo(leftX, leftY)
-            .lineTo(toX, toY)
-            .lineTo(rightX, rightY)
-            .stroke({ color, width: lineWidth, alpha: arrowAlpha });
-          
-          // Анимированная частица вдоль линка (только для активных линков)
-          if (!disabled && showText && len > 20) {
-            const moved = grid.linkMoved?.[key];
-            const movedAmt = moved ? D(moved) : D(0);
-            
-            if (movedAmt.gt(0)) {
-              // Позиция частицы - анимация циклическая
-              const time = Date.now() / 1000;
-              const speed = 0.5; // Скорость движения частицы
-              const progress = (time * speed) % 1;
-              
-              const particleX = fromX + (toX - fromX) * progress;
-              const particleY = fromY + (toY - fromY) * progress;
-              
-              // Рисуем частицу
-              g.circle(particleX, particleY, 3).fill({ color, alpha: 0.9 });
-              
-              // Текст с количеством (только при детальном зуме)
-              if (showDetailedText && textLayer) {
-                const flowText = new PIXI.Text({
-                  text: formatNumber(movedAmt),
-                  style: {
-                    fill: color,
-                    fontSize: 8,
-                    fontWeight: '600',
-                  },
-                });
-                flowText.anchor.set(0.5, 0.5);
-                flowText.x = particleX;
-                flowText.y = particleY - 8;
-                textLayer.addChild(flowText);
-              }
-            }
-          }
+        
+        // Анимация движения частицы
+        const time = Date.now() / 1000;
+        const speed = 0.5; // Скорость 0.5 = 2 секунды на полный путь
+        const progress = (time * speed) % 1;
+        
+        const particleX = fromX + (toX - fromX) * progress;
+        const particleY = fromY + (toY - fromY) * progress;
+        
+        // Рисуем частицу с эффектом свечения
+        g.circle(particleX, particleY, 5).fill({ color, alpha: 0.9 });
+        g.circle(particleX, particleY, 3).fill({ color: 0xffffff, alpha: 0.7 });
+        
+        // Текст с количеством (только при высоком зуме)
+        if (cam.zoom > 1.2 && textLayer) {
+          const flowStyle = TEXT_STYLES.flow.clone();
+          flowStyle.fill = color;
+          const amount = typeof transport.amount === 'string' ? D(transport.amount) : transport.amount;
+          const flowText = new PIXI.Text({
+            text: formatNumber(amount),
+            style: flowStyle,
+          });
+          flowText.anchor.set(0.5, 0.5);
+          flowText.x = particleX;
+          flowText.y = particleY - 10;
+          textLayer.addChild(flowText);
         }
       }
     }
 
-    // Base marker (target)
-    const basePos = gridToPixel(grid.width - 1, grid.height - 1);
-    g.circle(basePos.px + CELL / 2, basePos.py + CELL / 2, 8).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.8 });
+    // Base marker (target) - центр карты
+    const baseMarkerPos = getBasePos(grid);
+    const basePixelPos = gridToPixel(baseMarkerPos.x, baseMarkerPos.y);
+    g.circle(basePixelPos.px + CELL / 2, basePixelPos.py + CELL / 2, 8).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.8 });
 
-    // Linking highlight
-    if (grid.linking) {
-      const linkPos = gridToPixel(grid.linking.anchor.x, grid.linking.anchor.y);
-      if (GRID_MODE === 'square') {
-        g.roundRect(linkPos.px - 1, linkPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberBlue, width: 2, alpha: 0.9 });
-      } else if (GRID_MODE === 'hex') {
-        drawHexagon(g, linkPos.px, linkPos.py, HEX_SIZE + 2);
-        g.stroke({ color: THEME_COLORS.cyberBlue, width: 2.5, alpha: 0.9 });
-      } else {
-        drawIsoTile(g, linkPos.px, linkPos.py, ISO_TILE_WIDTH + 4, ISO_TILE_HEIGHT + 2);
-        g.stroke({ color: THEME_COLORS.cyberBlue, width: 2, alpha: 0.9 });
-      }
-    }
-
-    // Enemies (visual only)
-    if (combat.enemies.length > 0) {
+    // Enemies (visual only) - показываем только при достаточном зуме и ограничиваем количество
+    if (combat.enemies.length > 0 && showText) {
       const laneCount = Math.min(8, combat.enemies.length);
-      for (let i = 0; i < Math.min(combat.enemies.length, 16); i++) {
+      // Сильно ограничиваем количество врагов при слабом зуме
+      const maxEnemies = cam.zoom > 0.8 ? 16 : cam.zoom > 0.5 ? 8 : 4;
+      const displayCount = Math.min(combat.enemies.length, maxEnemies);
+      
+      for (let i = 0; i < displayCount; i++) {
         const e = combat.enemies[i];
         const lane = i % laneCount;
         const t = Math.max(0, Math.min(1, e.distance));
@@ -1083,8 +944,9 @@ export function FactoryGrid() {
       }
 
       // faint line to base
-      const basePos = gridToPixel(grid.width - 1, grid.height - 1);
-      g.moveTo(GAP, basePos.py).lineTo(worldSize.w - GAP, basePos.py).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
+      const baseLinePos = getBasePos(grid);
+      const baseLinePixel = gridToPixel(baseLinePos.x, baseLinePos.y);
+      g.moveTo(GAP, baseLinePixel.py).lineTo(worldSize.w - GAP, baseLinePixel.py).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
     }
 
     if (grid.selected) {
@@ -1099,7 +961,7 @@ export function FactoryGrid() {
         g.stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
       }
     }
-  }, [grid, combat.enemies, hoveredLinkKey, worldSize, buildingsById, renderTrigger]);
+  }, [grid.tiles, grid.deposits, grid.selected, grid.activeTransports, grid.buffers, grid.width, grid.height, combat.enemies.length, worldSize, buildingsById]);
 
   return (
     <div className="h-full w-full" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>

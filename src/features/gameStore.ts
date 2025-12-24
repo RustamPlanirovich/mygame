@@ -11,7 +11,6 @@ import type {
   ExpeditionState,
   GameState,
   GridCoord,
-  GridLink,
   MarketEvent,
   MetaState,
   NanoSwarmChannel,
@@ -31,7 +30,6 @@ import { D } from '../core/math/format.ts';
 import {
   DEMON_DEFS,
   UPGRADE_DEFS,
-  computeBandwidth,
   computeCapsMultiplier,
   computeCombatMultiplier,
   computeSpeedMultiplier,
@@ -229,7 +227,7 @@ const INITIAL_BUILDINGS: Building[] = [
     id: 'generator_mk1',
     name: 'Аварийный Генератор',
     description: "Старый, но надежный генератор. Вырабатывает мало энергии.",
-    baseCost: { energy: D(15) },
+    baseCost: { energy: D(5) },
     costFactor: 1.15,
     production: { energy: D(1) },
     count: 0
@@ -324,7 +322,7 @@ const INITIAL_BUILDINGS: Building[] = [
 ];
 
 const INITIAL_RESOURCES = {
-  energy: { amount: D(100), max: D(100), production: D(0) },
+  energy: { amount: D(50), max: D(100), production: D(0) },
   ore: { amount: D(0), max: D(1000), production: D(0) },
   ice: { amount: D(0), max: D(800), production: D(0) },
   carbon: { amount: D(0), max: D(800), production: D(0) },
@@ -375,6 +373,12 @@ const recomputeCaps = (resources: typeof INITIAL_RESOURCES, buildings: Building[
   return next;
 };
 
+// Функция для получения позиции базы - теперь это центр карты (должна быть до generateDeposits)
+export const getBasePos = (grid: { width: number; height: number }): GridCoord => ({
+  x: Math.floor(grid.width / 2),
+  y: Math.floor(grid.height / 2),
+});
+
 const generateDeposits = (width: number, height: number) => {
   const deposits: Record<string, DepositType> = {};
 
@@ -383,9 +387,12 @@ const generateDeposits = (width: number, height: number) => {
   const iceChance = 0.08;
   const carbonChance = 0.07;
 
+  const basePos = getBasePos({ width, height });
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (x === width - 1 && y === height - 1) continue;
+      // Пропускаем базу (центр карты)
+      if (x === basePos.x && y === basePos.y) continue;
       const roll = Math.random();
       if (roll < oreChance) deposits[`${x},${y}`] = 'ore';
       else if (roll < oreChance + iceChance) deposits[`${x},${y}`] = 'ice';
@@ -494,19 +501,23 @@ const DEFAULT_GRID = {
       dark_matter: INITIAL_RESOURCES.dark_matter.amount.toString(),
     },
   } as Record<string, Partial<Record<ResourceType, string>>>,
-  links: [] as GridLink[],
-  focusedLink: null as GridLink | null,
-  linkMoved: {} as Record<string, string>,
+  activeTransports: [] as Array<{
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    resource: ResourceType;
+    amount: string;
+  }>,
   lastDtSeconds: 0,
-  linking: null as { anchor: GridCoord; resource: ResourceType; mode: 'export' | 'import' } | null,
   selectedBuildId: null as string | null,
   marketPolicy: {} as Record<string, Partial<Record<TradeResourceType, { import?: boolean; export?: boolean }>>>,
 };
 
 const keyOf = (pos: GridCoord) => `${pos.x},${pos.y}`;
-const isBasePos = (grid: { width: number; height: number }, pos: GridCoord) => pos.x === grid.width - 1 && pos.y === grid.height - 1;
 
-const linkKeyOf = (link: GridLink) => `${link.from.x},${link.from.y}->${link.to.x},${link.to.y}:${link.resource}`;
+const isBasePos = (grid: { width: number; height: number }, pos: GridCoord) => {
+  const base = getBasePos(grid);
+  return pos.x === base.x && pos.y === base.y;
+};
 
 const parseKey = (k: string): GridCoord | null => {
   const [xs, ys] = k.split(',');
@@ -775,27 +786,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   selectTile: (pos) => {
     set((state) => {
-      // If we are in linking mode, the click is interpreted as link target
-      if (pos && state.grid.linking) {
-        const { anchor, resource, mode } = state.grid.linking;
-        // disallow self-link
-        if (anchor.x === pos.x && anchor.y === pos.y) {
-          return { grid: { ...state.grid, selected: pos, linking: null, focusedLink: null } };
-        }
-
-        const from = mode === 'import' ? pos : anchor;
-        const to = mode === 'import' ? anchor : pos;
-        const links = state.grid.links.filter(
-          (l) => !(l.from.x === from.x && l.from.y === from.y && l.to.x === to.x && l.to.y === to.y && l.resource === resource)
-        );
-        links.push({ from, to, resource, enabled: true });
-        const newLink: GridLink = { from, to, resource, enabled: true };
-        const key = linkKeyOf(newLink);
-        const nextLinkMoved = { ...state.grid.linkMoved, [key]: '0' };
-        return { grid: { ...state.grid, selected: pos, linking: null, links, focusedLink: null, linkMoved: nextLinkMoved } };
-      }
-
-      return { grid: { ...state.grid, selected: pos, focusedLink: null } };
+      // Link system removed - now just select tile
+      return { grid: { ...state.grid, selected: pos } };
     });
   },
 
@@ -889,6 +881,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           buffers: nextBuffers,
           tiles: { ...state.grid.tiles, [k]: buildId },
           selected: pos,
+          selectedBuildId: null, // Сбрасываем режим строительства после установки
         },
       };
     });
@@ -910,86 +903,35 @@ export const useGameStore = create<GameState>((set, get) => ({
       const b = newBuildings[buildingIndex];
       newBuildings[buildingIndex] = { ...b, count: Math.max(0, b.count - 1) };
 
+      // Возвращаем 75% стоимости здания при сносе
+      const building = state.buildings[buildingIndex];
+      const cost = calculateCost(building);
+      const refundRate = 0.75; // 75% возврат
+      
+      let newResources = { ...state.resources };
+      let buffers = state.grid.buffers;
+      
+      for (const [resType, amount] of Object.entries(cost)) {
+        const rType = resType as ResourceType;
+        const refund = D(amount).mul(refundRate);
+        if (newResources[rType]) {
+          const cur = getBuf(buffers, 'base', rType);
+          const next = cur.add(refund);
+          buffers = setBuf(buffers, 'base', rType, next);
+          newResources[rType] = { ...newResources[rType], amount: next };
+        }
+      }
+
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const capped = recomputeCaps(state.resources, newBuildings, capsMult);
-
-      // remove links that involve this tile
-      const links = state.grid.links.filter((l) => {
-        const hitFrom = l.from.x === pos.x && l.from.y === pos.y;
-        const hitTo = l.to.x === pos.x && l.to.y === pos.y;
-        return !(hitFrom || hitTo);
-      });
-
-      const focused = state.grid.focusedLink;
-      const focusedRemoved = Boolean(
-        focused && (
-          (focused.from.x === pos.x && focused.from.y === pos.y) ||
-          (focused.to.x === pos.x && focused.to.y === pos.y)
-        )
-      );
+      const capped = recomputeCaps(newResources, newBuildings, capsMult);
 
       // keep buffer record (so resources can remain, but it's ok). Optional cleanup later.
 
       return {
-        grid: { ...state.grid, tiles: nextTiles, links, focusedLink: focusedRemoved ? null : focused },
+        grid: { ...state.grid, tiles: nextTiles, buffers },
         buildings: newBuildings,
         resources: capped,
       };
-    });
-  },
-
-  startLink: (from, resource) => {
-    set((state) => ({ grid: { ...state.grid, linking: { anchor: from, resource, mode: 'export' }, focusedLink: null } }));
-  },
-
-  startLinkImport: (to, resource) => {
-    set((state) => ({ grid: { ...state.grid, linking: { anchor: to, resource, mode: 'import' }, focusedLink: null } }));
-  },
-
-  cancelLink: () => {
-    set((state) => ({ grid: { ...state.grid, linking: null } }));
-  },
-
-  completeLink: (to) => {
-    set((state) => {
-      const linking = state.grid.linking;
-      if (!linking) return state;
-      const resource = linking.resource;
-      const a = linking.anchor;
-      if (a.x === to.x && a.y === to.y) return { grid: { ...state.grid, linking: null } };
-
-      const from = linking.mode === 'import' ? to : a;
-      const realTo = linking.mode === 'import' ? a : to;
-      const links = state.grid.links.filter(
-        (l) => !(l.from.x === from.x && l.from.y === from.y && l.to.x === realTo.x && l.to.y === realTo.y && l.resource === resource)
-      );
-      links.push({ from, to: realTo, resource, enabled: true });
-      return { grid: { ...state.grid, links, linking: null, focusedLink: null } };
-    });
-  },
-
-  toggleLinkEnabled: (from, to, resource) => {
-    set((state) => {
-      const links = state.grid.links.map((l) => {
-        const hit = l.from.x === from.x && l.from.y === from.y && l.to.x === to.x && l.to.y === to.y && l.resource === resource;
-        if (!hit) return l;
-        return { ...l, enabled: !(l.enabled ?? true) };
-      });
-
-      const focused = state.grid.focusedLink;
-      const isFocused = Boolean(
-        focused &&
-        focused.from.x === from.x &&
-        focused.from.y === from.y &&
-        focused.to.x === to.x &&
-        focused.to.y === to.y &&
-        focused.resource === resource
-      );
-      const nextFocused = isFocused
-        ? (links.find((l) => l.from.x === from.x && l.from.y === from.y && l.to.x === to.x && l.to.y === to.y && l.resource === resource) ?? null)
-        : focused;
-
-      return { grid: { ...state.grid, links, focusedLink: nextFocused } };
     });
   },
 
@@ -1001,38 +943,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       const nextTile = { ...prevTile, [resource]: { ...prevRes, ...patch } };
       return { grid: { ...state.grid, marketPolicy: { ...prev, [tileKey]: nextTile } } };
     });
-  },
-
-  removeLink: (from, to, resource) => {
-    set((state) => {
-      const focused = state.grid.focusedLink;
-      const isFocused = Boolean(
-        focused &&
-          focused.from.x === from.x &&
-          focused.from.y === from.y &&
-          focused.to.x === to.x &&
-          focused.to.y === to.y &&
-          focused.resource === resource
-      );
-      const key = `${from.x},${from.y}->${to.x},${to.y}:${resource}`;
-      const nextLinkMoved = { ...state.grid.linkMoved };
-      delete nextLinkMoved[key];
-
-      return {
-        grid: {
-          ...state.grid,
-          links: state.grid.links.filter(
-            (l) => !(l.from.x === from.x && l.from.y === from.y && l.to.x === to.x && l.to.y === to.y && l.resource === resource)
-          ),
-          focusedLink: isFocused ? null : focused,
-          linkMoved: nextLinkMoved,
-        },
-      };
-    });
-  },
-
-  focusLink: (link) => {
-    set((state) => ({ grid: { ...state.grid, focusedLink: link } }));
   },
 
   sellResource: (type, amount) => {
@@ -1550,6 +1460,53 @@ export const useGameStore = create<GameState>((set, get) => ({
         dark_matter: getBuf(buffers, baseKey, 'dark_matter'),
       };
 
+      // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Находим ближайшие источники для каждого потребителя
+      // Структура для хранения активных транспортов (для визуализации)
+      const activeTransports: Array<{
+        from: { x: number; y: number };
+        to: { x: number; y: number };
+        resource: ResourceType;
+        amount: Decimal;
+      }> = [];
+
+      // Функция поиска ВСЕХ источников ресурса (отсортированных по расстоянию)
+      const findAllSources = (
+        targetX: number,
+        targetY: number,
+        resource: ResourceType,
+        exclude?: string
+      ): Array<{ x: number; y: number; key: string; dist: number }> => {
+        const sources: Array<{ x: number; y: number; key: string; dist: number }> = [];
+
+        // Проверяем базу
+        const baseAvailable = getBuf(buffers, baseKey, resource);
+        if (baseAvailable.gt(0)) {
+          const basePos = getBasePos(state.grid);
+          const baseDist = Math.abs(basePos.x - targetX) + Math.abs(basePos.y - targetY);
+          sources.push({ x: basePos.x, y: basePos.y, key: baseKey, dist: baseDist });
+        }
+
+        // Проверяем все здания-производители
+        for (const [k, buildingId] of Object.entries(state.grid.tiles)) {
+          if (k === exclude) continue;
+          
+          const building = state.buildings.find((b) => b.id === buildingId);
+          if (!building?.production?.[resource]) continue;
+
+          const pos = parseKey(k);
+          if (!pos) continue;
+
+          const available = getBuf(buffers, k, resource);
+          if (available.lte(0)) continue;
+
+          const dist = Math.abs(pos.x - targetX) + Math.abs(pos.y - targetY);
+          sources.push({ ...pos, key: k, dist });
+        }
+
+        // Сортируем по расстоянию (ближайшие первые)
+        return sources.sort((a, b) => a.dist - b.dist);
+      };
+
       // Produce/consume into local tile buffers
       state.buildings.forEach((b) => {
         if (b.count <= 0) return;
@@ -1607,6 +1564,74 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
 
+          // АВТОМАТИЧЕСКАЯ ДОСТАВКА: Собираем ресурсы от ВСЕХ доступных источников
+          if (b.consumption) {
+            // Проверяем - не переполнены ли выходные ресурсы. Если да - не доставляем входные
+            let outputsBlocked = false;
+            if (b.production) {
+              for (const [prodResType] of Object.entries(b.production)) {
+                const pType = prodResType as ResourceType;
+                if (newResources[pType]) {
+                  const baseCap = newResources[pType].max;
+                  if (baseCap.gt(0)) {
+                    const baseAmount = getBuf(buffers, baseKey, pType);
+                    const localAmount = getBuf(buffers, tileKey, pType);
+                    const productionRate = D(b.production[pType] || 0);
+                    const maxLocalBuffer = productionRate.mul(20);
+                    
+                    // Если выход переполнен - не доставляем входы
+                    if (localAmount.gte(maxLocalBuffer) || baseAmount.gte(baseCap.mul(0.98))) {
+                      outputsBlocked = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (!outputsBlocked) {
+              for (const [resType, perSecond] of Object.entries(b.consumption)) {
+              const rType = resType as ResourceType;
+              if (rType === 'energy') continue; // Энергия всегда доступна с базы
+              
+              const need = D(perSecond).mul(dtFacilities);
+              if (need.lte(0)) continue;
+
+              let currentAvailable = getBuf(buffers, tileKey, rType);
+              // Держим буфер на 5 секунд работы вместо одного тика
+              const targetBuffer = D(perSecond).mul(5);
+              let shortfall = targetBuffer.sub(currentAvailable).max(D(0));
+              
+              if (shortfall.gt(0)) {
+                // Ищем ВСЕ источники, отсортированные по расстоянию
+                const sources = findAllSources(tilePos.x, tilePos.y, rType, tileKey);
+                
+                // Собираем ресурсы от каждого источника пока не наберём нужное количество
+                for (const source of sources) {
+                  if (shortfall.lte(0)) break;
+                  
+                  const sourceAvailable = getBuf(buffers, source.key, rType);
+                  const toTransfer = sourceAvailable.min(shortfall);
+                  
+                  if (toTransfer.gt(0)) {
+                    buffers = setBuf(buffers, source.key, rType, sourceAvailable.sub(toTransfer));
+                    currentAvailable = getBuf(buffers, tileKey, rType);
+                    buffers = setBuf(buffers, tileKey, rType, currentAvailable.add(toTransfer));
+                    shortfall = shortfall.sub(toTransfer);
+                    
+                    activeTransports.push({
+                      from: { x: source.x, y: source.y },
+                      to: { x: tilePos.x, y: tilePos.y },
+                      resource: rType,
+                      amount: toTransfer,
+                    });
+                  }
+                }
+              }
+            }
+            }
+          }
+
           // Determine how much we can run given inputs.
           let ratio = D(1);
           if (b.consumption) {
@@ -1646,17 +1671,37 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (ratio.gt(0)) {
             for (const [resType, perSecond] of Object.entries(b.production)) {
               const rType = resType as ResourceType;
+              
+              // Проверяем переполнение с гистерезисом: останавливаем при 98%, возобновляем при <90%
+              if (newResources[rType]) {
+                const baseCap = newResources[rType].max;
+                if (baseCap.gt(0)) {
+                  const baseAmount = getBuf(buffers, baseKey, rType);
+                  const localAmount = getBuf(buffers, tileKey, rType);
+                  
+                  // Если уже есть локальный буфер >20 сек - не производим (переполнение)
+                  const productionRate = D(perSecond);
+                  const maxLocalBuffer = productionRate.mul(20);
+                  if (localAmount.gte(maxLocalBuffer)) {
+                    continue;
+                  }
+                  
+                  // Если база заполнена >98% - не производим
+                  if (baseAmount.gte(baseCap.mul(0.98))) {
+                    continue;
+                  }
+                }
+              }
+              
               let produced = D(perSecond).mul(dtFacilities).mul(ratio);
               if (rType !== 'energy' && produced.gt(0) && doubleChance > 0 && Math.random() < doubleChance) {
                 produced = produced.mul(2);
               }
               
-              // Базовые ресурсы (энергия, руда, лёд, углерод) идут сразу на базу для упрощения начала игры.
-              // Переработанные ресурсы (сталь, тёмная материя) остаются в локальном буфере.
-              const isBasicResource = ['energy', 'ore', 'ice', 'carbon'].includes(rType);
-              const targetKey = isBasicResource ? baseKey : tileKey;
-              const cur = getBuf(buffers, targetKey, rType);
-              buffers = setBuf(buffers, targetKey, rType, cur.add(produced));
+              // ВСЕ ресурсы производятся в локальный буфер здания
+              // Автоматическая логистика доставит их туда, где они нужны
+              const cur = getBuf(buffers, tileKey, rType);
+              buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
 
               if (rType === 'energy' && produced.gt(0)) {
                 lifetimeEnergyProduced = lifetimeEnergyProduced.add(produced);
@@ -1717,36 +1762,30 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       });
 
-      // Transport along links
-      const BANDWIDTH = computeBandwidth(levels); // units per second
-      const linkMoved: Record<string, string> = {};
-      for (const link of state.grid.links) {
-        if (link.enabled === false) {
-          linkMoved[linkKeyOf(link)] = '0';
-          continue;
+      // Автоматическая отправка ВСЕХ произведённых ресурсов на базу
+      // Отправляем излишки, оставляя 10 секунд для локальной доставки соседним зданиям
+      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+        if (tileKey === 'base') continue;
+        
+        const building = state.buildings.find((b) => b.id === buildingId);
+        if (!building?.production) continue;
+        
+        // Проходим по всем производимым ресурсам здания
+        for (const [rType, prodRate] of Object.entries(building.production)) {
+          const resourceType = rType as ResourceType;
+          const localAmount = getBuf(buffers, tileKey, resourceType);
+          if (localAmount.lte(0)) continue;
+          
+          // Оставляем буфер на 10 секунд производства для соседних потребителей
+          const keepAmount = D(prodRate).mul(10);
+          const toTransfer = localAmount.sub(keepAmount).max(D(0));
+          
+          if (toTransfer.gt(0)) {
+            buffers = setBuf(buffers, tileKey, resourceType, localAmount.sub(toTransfer));
+            const baseAmount = getBuf(buffers, baseKey, resourceType);
+            buffers = setBuf(buffers, baseKey, resourceType, baseAmount.add(toTransfer));
+          }
         }
-        const fromKey = keyOf(link.from);
-        const toKey = isBasePos(state.grid, link.to) ? baseKey : keyOf(link.to);
-        const k = linkKeyOf(link);
-        if (!buffers[fromKey]) {
-          linkMoved[k] = '0';
-          continue;
-        }
-        if (!buffers[toKey]) buffers[toKey] = {};
-
-        const move = BANDWIDTH.mul(dt);
-        const available = getBuf(buffers, fromKey, link.resource);
-        if (available.lte(0)) {
-          linkMoved[k] = '0';
-          continue;
-        }
-        const delta = available.min(move);
-
-        linkMoved[k] = delta.toString();
-
-        buffers = setBuf(buffers, fromKey, link.resource, available.sub(delta));
-        const toCur = getBuf(buffers, toKey, link.resource);
-        buffers = setBuf(buffers, toKey, link.resource, toCur.add(delta));
       }
 
       // Clamp base buffer to caps to avoid hidden overflow.
@@ -2211,7 +2250,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         resources: newResources,
         market: nextMarket,
         combat: nextCombat,
-        grid: { ...state.grid, buffers, linkMoved, lastDtSeconds: dt },
+        grid: { 
+          ...state.grid, 
+          buffers, 
+          activeTransports: activeTransports.map(t => ({
+            ...t,
+            amount: t.amount.toString(),
+          })),
+          lastDtSeconds: dt 
+        },
         demons: nextDemons,
         meta: { ...state.meta, lifetimeEnergyProduced, blueprints },
         expedition: nextExpedition,
@@ -2508,49 +2555,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               tiles: save.grid.tiles && typeof save.grid.tiles === 'object' ? save.grid.tiles : state.grid.tiles,
               deposits: save.grid.deposits && typeof save.grid.deposits === 'object' ? save.grid.deposits : state.grid.deposits,
               buffers: save.grid.buffers && typeof save.grid.buffers === 'object' ? save.grid.buffers : state.grid.buffers,
-              links: Array.isArray(save.grid.links)
-                ? (save.grid.links as any[])
-                    .filter((l: any) =>
-                      l
-                      && typeof l === 'object'
-                      && l.from
-                      && typeof l.from.x === 'number'
-                      && typeof l.from.y === 'number'
-                      && l.to
-                      && typeof l.to.x === 'number'
-                      && typeof l.to.y === 'number'
-                      && (l.resource === 'energy' || l.resource === 'ore' || l.resource === 'ice' || l.resource === 'carbon' || l.resource === 'steel')
-                    )
-                    .map((l: any) => ({
-                      from: { x: l.from.x, y: l.from.y },
-                      to: { x: l.to.x, y: l.to.y },
-                      resource: l.resource,
-                      enabled: l.enabled === false ? false : true,
-                    }))
-                : state.grid.links,
-              linkMoved: save.grid.linkMoved && typeof save.grid.linkMoved === 'object' ? save.grid.linkMoved : {},
+              activeTransports: [], // Reset transports on load
               lastDtSeconds: typeof save.grid.lastDtSeconds === 'number' ? save.grid.lastDtSeconds : 0,
-              focusedLink: save.grid.focusedLink
-                && typeof save.grid.focusedLink === 'object'
-                && save.grid.focusedLink.from
-                && typeof save.grid.focusedLink.from.x === 'number'
-                && typeof save.grid.focusedLink.from.y === 'number'
-                && save.grid.focusedLink.to
-                && typeof save.grid.focusedLink.to.x === 'number'
-                && typeof save.grid.focusedLink.to.y === 'number'
-                && (save.grid.focusedLink.resource === 'energy'
-                  || save.grid.focusedLink.resource === 'ore'
-                  || save.grid.focusedLink.resource === 'ice'
-                  || save.grid.focusedLink.resource === 'carbon'
-                  || save.grid.focusedLink.resource === 'steel')
-                ? {
-                    from: { x: save.grid.focusedLink.from.x, y: save.grid.focusedLink.from.y },
-                    to: { x: save.grid.focusedLink.to.x, y: save.grid.focusedLink.to.y },
-                    resource: save.grid.focusedLink.resource,
-                    enabled: (save.grid.focusedLink as any).enabled === false ? false : true,
-                  }
-                : null,
-              linking: null,
               marketPolicy: save.grid.marketPolicy && typeof save.grid.marketPolicy === 'object'
                 ? Object.fromEntries(
                     Object.entries(save.grid.marketPolicy as Record<string, any>)
