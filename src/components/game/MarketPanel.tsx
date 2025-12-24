@@ -110,115 +110,153 @@ export function MarketPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="space-y-3">
+        {/* Выбор ресурса */}
         <div className="cyber-panel">
-          <div className="text-xs text-cyber-text-dim mb-2">Ресурсы</div>
-          <div className="space-y-1">
+          <div className="text-xs text-cyber-text-dim mb-2">📦 Ресурсы</div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {TRADEABLE.map((r) => {
               const isActive = r === selected;
               return (
                 <button
                   key={r}
-                  className={`w-full text-left px-3 py-2 rounded border border-cyber-gray/60 hover:border-cyber-blue transition-colors ${isActive ? 'bg-cyber-dark/40' : ''}`}
+                  className={`flex-shrink-0 px-3 py-2 rounded-lg border transition-all ${
+                    isActive 
+                      ? 'bg-cyber-blue/10 border-cyber-blue' 
+                      : 'border-cyber-gray/40 hover:border-cyber-blue/60'
+                  }`}
                   onClick={() => setSelected(r)}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="text-cyber-text">{TRADE_LABEL[r]}</div>
-                    <div className="text-xs text-cyber-text-dim">{formatNumber(resources[r].amount)}</div>
+                  <div className={`text-sm font-medium ${isActive ? 'text-cyber-blue' : 'text-cyber-text'}`}>
+                    {TRADE_LABEL[r]}
                   </div>
-                  <div className="text-xs text-cyber-text-dim">Цена: {formatNumber(market.prices[r])}</div>
+                  <div className="text-xs text-cyber-text-dim font-mono">
+                    {formatNumber(resources[r].amount)}
+                  </div>
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div className="cyber-panel md:col-span-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="text-cyber-blue font-bold">{TRADE_LABEL[selected]}</div>
-            <div className="text-xs text-cyber-text-dim">Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}</div>
+        {/* Заголовок и энергия */}
+        <div className="flex items-baseline justify-between">
+          <div className="text-lg text-cyber-blue font-bold">{TRADE_LABEL[selected]}</div>
+          <div className="text-xs text-cyber-text-dim">
+            ⚡ {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
           </div>
+        </div>
 
-          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-cyber-text-dim">
-            <div>Купить: <span className="text-cyber-text">{formatNumber(buyUnit)} ⚡</span> за 1</div>
-            <div>Продать: <span className="text-cyber-text">{formatNumber(sellUnit)} ⚡</span> за 1</div>
+        {/* Поле ввода количества */}
+        <div className="cyber-panel">
+          <input
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            inputMode="decimal"
+            className="w-full px-3 py-3 rounded-lg bg-cyber-dark/60 border border-cyber-gray/60 text-gray-200 text-center text-2xl font-mono focus:border-cyber-blue focus:outline-none"
+            placeholder="10"
+          />
+          
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[1, 10, 100].map((n) => (
+              <button 
+                key={n} 
+                className="cyber-button text-xs py-1.5 px-3 flex-1" 
+                onClick={() => setQty(String(n))}
+              >
+                {n}
+              </button>
+            ))}
           </div>
-
-          <div className="mt-2">
-            <PriceChart points={points} />
-            {chartStats ? (
-              <div className="text-xs text-cyber-gray-light">min {formatNumber(chartStats.min)} · max {formatNumber(chartStats.max)}</div>
-            ) : null}
+          <div className="mt-2 flex gap-2">
+            <button
+              className="cyber-button text-xs py-1.5 px-3 flex-1"
+              onClick={() => setQty(maxBuy.toString())}
+              disabled={maxBuy.lte(0)}
+            >
+              МАКС
+            </button>
+            <button 
+              className="cyber-button text-xs py-1.5 px-3 flex-1" 
+              onClick={() => setQty(have.toString())}
+              disabled={have.lte(0)}
+            >
+              ВСЁ
+            </button>
           </div>
+        </div>
 
-          <div className="mt-3 pt-3 border-t border-cyber-gray/50">
-            <div className="text-xs text-cyber-text-dim mb-2">Заявка</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
-              <div className="sm:col-span-1">
-                <div className="text-xs text-cyber-text-dim mb-1">Количество</div>
-                <input
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                  inputMode="decimal"
-                  className="w-full px-2 py-2 rounded bg-cyber-dark/40 border border-cyber-gray/60 text-gray-200"
-                  placeholder="10"
-                />
-                <div className="mt-2 flex gap-2">
-                  {[1, 10, 100].map((n) => (
-                    <button key={n} className="cyber-button text-xs py-1 px-2" onClick={() => setQty(String(n))}>
-                      {n}
-                    </button>
-                  ))}
-                  <button
-                    className="cyber-button text-xs py-1 px-2"
-                    onClick={() => setQty(maxBuy.toString())}
-                    title="Максимум, который можно купить сейчас (место в базе + доступная энергия)"
-                    disabled={maxBuy.lte(0)}
-                  >
-                    MAX
-                  </button>
-                  <button className="cyber-button text-xs py-1 px-2" onClick={() => setQty(have.toString())}>
-                    всё
-                  </button>
-                </div>
-                {qtyDec.lte(0) ? <div className="text-xs text-cyber-gray-light mt-1">Введите количество больше 0.</div> : null}
-              </div>
-
-              <div className="sm:col-span-2">
-                <div className="text-xs text-cyber-text-dim mb-1">Оценка</div>
-                <div className="text-xs text-cyber-text-dim">
-                  Купить: <span className="text-cyber-text">{formatNumber(estBuyCost)}</span> ⚡
-                  <span className="text-cyber-gray-light"> · Макс: {formatNumber(maxBuy)}</span>
-                </div>
-                <div className="text-xs text-cyber-text-dim">
-                  Продать: <span className="text-cyber-text">{formatNumber(estSellGain)}</span> ⚡
-                  <span className="text-cyber-gray-light"> · Доступно: {formatNumber(have)}</span>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    className="cyber-button text-xs py-2 px-3"
-                    disabled={!canBuy}
-                    onClick={() => buyResource(selected, qtyNum)}
-                    title={maxBuy.lte(0) ? 'Нет энергии/места в базе' : ''}
-                  >
-                    КУПИТЬ
-                  </button>
-                  <button
-                    className="cyber-button text-xs py-2 px-3"
-                    disabled={!canSell}
-                    onClick={() => sellResource(selected, qtyNum)}
-                  >
-                    ПРОДАТЬ
-                  </button>
-                </div>
-              </div>
+        {/* Секция Покупки */}
+        <div className="cyber-panel bg-cyber-dark/20">
+          <div className="text-sm text-cyber-blue font-semibold mb-2">💰 Купить</div>
+          <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+            <div className="text-cyber-text-dim">
+              Цена: <span className="text-cyber-text">{formatNumber(buyUnit)} ⚡</span>
+            </div>
+            <div className="text-cyber-text-dim text-right">
+              Макс: <span className="text-cyber-text">{formatNumber(maxBuy)}</span>
             </div>
           </div>
+          
+          {qtyDec.gt(0) && (
+            <div className="text-sm text-cyber-text-dim mb-3">
+              Стоимость: <span className="text-cyber-blue font-semibold text-lg">{formatNumber(estBuyCost)} ⚡</span>
+            </div>
+          )}
+          
+          <button
+            className={`w-full py-3 rounded-lg font-semibold transition-all ${
+              canBuy 
+                ? 'bg-cyber-blue hover:bg-cyber-blue/90 text-white shadow-lg shadow-cyber-blue/20' 
+                : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
+            }`}
+            disabled={!canBuy}
+            onClick={() => buyResource(selected, qtyNum)}
+          >
+            КУПИТЬ
+          </button>
+        </div>
 
-          <div className="text-xs text-cyber-gray-light mt-3">
-            Продажа превращает ресурсы в Энергию (⚡). Покупка тратит Энергию. Энергия и ресурсы базы ограничены хранилищем.
+        {/* Секция Продажи */}
+        <div className="cyber-panel bg-cyber-dark/20">
+          <div className="text-sm text-cyber-green font-semibold mb-2">💵 Продать</div>
+          <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+            <div className="text-cyber-text-dim">
+              Цена: <span className="text-cyber-text">{formatNumber(sellUnit)} ⚡</span>
+            </div>
+            <div className="text-cyber-text-dim text-right">
+              В наличии: <span className="text-cyber-text">{formatNumber(have)}</span>
+            </div>
           </div>
+          
+          {qtyDec.gt(0) && (
+            <div className="text-sm text-cyber-text-dim mb-3">
+              Получите: <span className="text-cyber-green font-semibold text-lg">{formatNumber(estSellGain)} ⚡</span>
+            </div>
+          )}
+          
+          <button
+            className={`w-full py-3 rounded-lg font-semibold transition-all ${
+              canSell 
+                ? 'bg-cyber-green hover:bg-cyber-green/90 text-white shadow-lg shadow-cyber-green/20' 
+                : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
+            }`}
+            disabled={!canSell}
+            onClick={() => sellResource(selected, qtyNum)}
+          >
+            ПРОДАТЬ
+          </button>
+        </div>
+
+        {/* График цен */}
+        <div className="cyber-panel">
+          <div className="text-xs text-cyber-text-dim mb-2">📊 История цен</div>
+          <PriceChart points={points} />
+          {chartStats ? (
+            <div className="text-xs text-cyber-gray-light mt-1">
+              min {formatNumber(chartStats.min)} · max {formatNumber(chartStats.max)}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
