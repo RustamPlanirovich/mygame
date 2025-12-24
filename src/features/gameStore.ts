@@ -534,6 +534,7 @@ const syncResourcesFromBase = (resources: typeof INITIAL_RESOURCES, buffers: Rec
   const next = { ...resources };
   for (const r of Object.keys(next) as ResourceType[]) {
     const amt = base[r] != null ? D(base[r]!) : D(0);
+    // Важно: сохраняем production, max и другие поля, обновляем только amount
     next[r] = { ...next[r], amount: amt.min(next[r].max).max(D(0)) };
   }
   return next;
@@ -795,6 +796,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       return { grid: { ...state.grid, selected: pos, focusedLink: null } };
+    });
+  },
+
+  setCameraPosition: (x, y, zoom) => {
+    set((state) => ({
+      grid: { ...state.grid, cameraX: x, cameraY: y, cameraZoom: zoom },
+    }));
+  },
+
+  expandGrid: (minWidth, minHeight) => {
+    set((state) => {
+      const desired = {
+        width: Math.max(state.grid.width, minWidth),
+        height: Math.max(state.grid.height, minHeight),
+      };
+      
+      // Если сетка уже достаточно большая, ничего не делаем
+      if (desired.width <= state.grid.width && desired.height <= state.grid.height) {
+        return state;
+      }
+      
+      // Используем ensureGridSize для расширения
+      const grid = ensureGridSize(state.grid as any, desired.width, desired.height) as any;
+      
+      return { grid };
     });
   },
 
@@ -1511,7 +1537,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Reset production rates for display
       for (const key in newResources) {
-        newResources[key as ResourceType].production = D(0);
+        // Важно: создаем новый объект чтобы Zustand заметил изменение
+        newResources[key as ResourceType] = { ...newResources[key as ResourceType], production: D(0) };
       }
 
       const baseBefore: Record<ResourceType, Decimal> = {
@@ -1623,8 +1650,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               if (rType !== 'energy' && produced.gt(0) && doubleChance > 0 && Math.random() < doubleChance) {
                 produced = produced.mul(2);
               }
-              // Энергия — системный ресурс: всегда идёт на базу (иначе игроку нужно было бы линковать генератор).
-              const targetKey = rType === 'energy' ? baseKey : tileKey;
+              
+              // Базовые ресурсы (энергия, руда, лёд, углерод) идут сразу на базу для упрощения начала игры.
+              // Переработанные ресурсы (сталь, тёмная материя) остаются в локальном буфере.
+              const isBasicResource = ['energy', 'ore', 'ice', 'carbon'].includes(rType);
+              const targetKey = isBasicResource ? baseKey : tileKey;
               const cur = getBuf(buffers, targetKey, rType);
               buffers = setBuf(buffers, targetKey, rType, cur.add(produced));
 
@@ -1636,30 +1666,52 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           // Market Policy (export): auto-sell surplus from this tile (tradeable only)
           if (tilePolicy) {
-            for (const r of TRADEABLE) {
-              const p = (tilePolicy as any)[r] as { import?: boolean; export?: boolean } | undefined;
-              if (!p?.export) continue;
+            // Проверяем что энергия не переполнена
+            const energyCap = newResources.energy.max;
+            const energyHave = getBuf(buffers, baseKey, 'energy');
+            const energyThreshold = energyCap.mul(D('0.85')); // Не продаем если энергия >85%
+            
+            if (energyHave.lt(energyThreshold)) {
+              for (const r of TRADEABLE) {
+                const p = (tilePolicy as any)[r] as { import?: boolean; export?: boolean } | undefined;
+                if (!p?.export) continue;
 
-              const have = getBuf(buffers, tileKey, r);
-              if (have.lte(0)) continue;
+                const have = getBuf(buffers, tileKey, r);
+                if (have.lte(0)) continue;
 
-              // Keep a small working buffer if this building consumes the resource.
-              const keep = b.consumption && (b.consumption as any)[r]
-                ? D((b.consumption as any)[r]).mul(dtFacilities).mul(D(2))
-                : D(0);
+                // Keep a small working buffer if this building consumes the resource.
+                const keep = b.consumption && (b.consumption as any)[r]
+                  ? D((b.consumption as any)[r]).mul(dtFacilities).mul(D(2))
+                  : D(0);
 
-              const sellable = have.sub(keep).max(D(0));
-              if (sellable.lte(0)) continue;
+                const sellable = have.sub(keep).max(D(0));
+                if (sellable.lte(0)) continue;
 
-              const sellAmt = sellable.min(D(12).mul(dt));
-              if (sellAmt.lte(0)) continue;
+                const sellAmt = sellable.min(D(12).mul(dt));
+                if (sellAmt.lte(0)) continue;
 
-              const price = state.market.prices[r];
-              const earned = price.mul(sellAmt).mul(D(tradeMult));
+                const price = state.market.prices[r];
+                const earned = price.mul(sellAmt).mul(D(tradeMult));
 
-              buffers = setBuf(buffers, tileKey, r, have.sub(sellAmt).max(D(0)));
-              const curE = getBuf(buffers, baseKey, 'energy');
-              buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
+                // Проверяем что заработанная энергия поместится
+                const curE = getBuf(buffers, baseKey, 'energy');
+                const futureE = curE.add(earned);
+                if (futureE.gt(energyCap)) {
+                  // Продаем только столько, сколько поместится
+                  const room = energyCap.sub(curE).max(D(0));
+                  if (room.lte(0)) break; // Нет места - прекращаем продажу
+                  const affordableSell = room.div(price.mul(D(tradeMult))).max(D(0));
+                  const actualSell = sellAmt.min(affordableSell);
+                  if (actualSell.lte(0)) continue;
+                  
+                  const actualEarned = price.mul(actualSell).mul(D(tradeMult));
+                  buffers = setBuf(buffers, tileKey, r, have.sub(actualSell).max(D(0)));
+                  buffers = setBuf(buffers, baseKey, 'energy', curE.add(actualEarned));
+                } else {
+                  buffers = setBuf(buffers, tileKey, r, have.sub(sellAmt).max(D(0)));
+                  buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
+                }
+              }
             }
           }
         }
@@ -1741,23 +1793,45 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Smart-Broker: auto-sell surplus (only if rent was paid)
       if (demonsPaid.smart_broker) {
-        const threshold = D('0.90');
-        for (const t of TRADEABLE) {
-          const cap = newResources[t].max;
-          const have = getBuf(buffers, baseKey, t);
-          const limit = cap.mul(threshold);
-          if (have.lte(limit)) continue;
+        // Проверяем что энергия не переполнена (оставляем место для прибыли)
+        const energyCap = newResources.energy.max;
+        const energyHave = getBuf(buffers, baseKey, 'energy');
+        const energyThreshold = energyCap.mul(D('0.85')); // Не продаем если энергия >85%
+        
+        if (energyHave.lt(energyThreshold)) {
+          const threshold = D('0.90');
+          for (const t of TRADEABLE) {
+            const cap = newResources[t].max;
+            const have = getBuf(buffers, baseKey, t);
+            const limit = cap.mul(threshold);
+            if (have.lte(limit)) continue;
 
-          const excess = have.sub(limit);
-          const sellAmt = excess.min(D(12).mul(dt));
-          if (sellAmt.lte(0)) continue;
+            const excess = have.sub(limit);
+            const sellAmt = excess.min(D(12).mul(dt));
+            if (sellAmt.lte(0)) continue;
 
-          const price = nextMarket.prices[t];
-          const earned = price.mul(sellAmt).mul(D(tradeMult));
+            const price = nextMarket.prices[t];
+            const earned = price.mul(sellAmt).mul(D(tradeMult));
 
-          buffers = setBuf(buffers, baseKey, t, have.sub(sellAmt).max(D(0)));
-          const curE = getBuf(buffers, baseKey, 'energy');
-          buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
+            // Проверяем что заработанная энергия поместится
+            const curE = getBuf(buffers, baseKey, 'energy');
+            const futureE = curE.add(earned);
+            if (futureE.gt(energyCap)) {
+              // Продаем только столько, сколько поместится
+              const room = energyCap.sub(curE).max(D(0));
+              if (room.lte(0)) break; // Нет места - прекращаем продажу
+              const affordableSell = room.div(price.mul(D(tradeMult))).max(D(0));
+              const actualSell = sellAmt.min(affordableSell);
+              if (actualSell.lte(0)) continue;
+              
+              const actualEarned = price.mul(actualSell).mul(D(tradeMult));
+              buffers = setBuf(buffers, baseKey, t, have.sub(actualSell).max(D(0)));
+              buffers = setBuf(buffers, baseKey, 'energy', curE.add(actualEarned));
+            } else {
+              buffers = setBuf(buffers, baseKey, t, have.sub(sellAmt).max(D(0)));
+              buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
+            }
+          }
         }
 
         buffers = clampBaseBufferToCaps(buffers, newResources);
@@ -1780,21 +1854,32 @@ export const useGameStore = create<GameState>((set, get) => ({
               costEnergyEq += Number(D(amt).toString());
               continue;
             }
+            // Проверяем что ресурс торгуемый
+            if (!TRADEABLE.includes(res as TradeResourceType)) continue;
             const r = res as TradeResourceType;
             const price = nextMarket.prices[r];
+            if (!price) continue;
             costEnergyEq += Number(price.mul(D(amt)).toString());
           }
 
           let valuePerSec = 0;
           for (const [res, perSec] of Object.entries(b.production ?? {})) {
             const r = res as ResourceType;
-            if (r === 'energy') valuePerSec += Number(D(perSec).toString());
-            else valuePerSec += Number(nextMarket.prices[r as TradeResourceType].mul(D(perSec)).toString());
+            if (r === 'energy') {
+              valuePerSec += Number(D(perSec).toString());
+            } else if (TRADEABLE.includes(r as TradeResourceType)) {
+              const price = nextMarket.prices[r as TradeResourceType];
+              if (price) valuePerSec += Number(price.mul(D(perSec)).toString());
+            }
           }
           for (const [res, perSec] of Object.entries(b.consumption ?? {})) {
             const r = res as ResourceType;
-            if (r === 'energy') valuePerSec -= Number(D(perSec).toString());
-            else valuePerSec -= Number(nextMarket.prices[r as TradeResourceType].mul(D(perSec)).toString());
+            if (r === 'energy') {
+              valuePerSec -= Number(D(perSec).toString());
+            } else if (TRADEABLE.includes(r as TradeResourceType)) {
+              const price = nextMarket.prices[r as TradeResourceType];
+              if (price) valuePerSec -= Number(price.mul(D(perSec)).toString());
+            }
           }
 
           if (!(valuePerSec > 0) || !(costEnergyEq > 0)) continue;
@@ -2117,7 +2202,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         for (const r of Object.keys(newResources) as ResourceType[]) {
           const after = getBuf(buffers, baseKey, r);
           const delta = after.sub(baseBefore[r]);
-          newResources[r].production = delta.div(dt);
+          // Важно: создаем новый объект чтобы Zustand заметил изменение
+          newResources[r] = { ...newResources[r], production: delta.div(dt) };
         }
       }
 
@@ -2484,6 +2570,9 @@ export const useGameStore = create<GameState>((set, get) => ({
                   )
                 : (state.grid.marketPolicy ?? {}),
               selectedBuildId: typeof save.grid.selectedBuildId === 'string' ? save.grid.selectedBuildId : null,
+              cameraX: typeof save.grid.cameraX === 'number' ? save.grid.cameraX : state.grid.cameraX,
+              cameraY: typeof save.grid.cameraY === 'number' ? save.grid.cameraY : state.grid.cameraY,
+              cameraZoom: typeof save.grid.cameraZoom === 'number' ? save.grid.cameraZoom : state.grid.cameraZoom,
             }
           : state.grid;
 

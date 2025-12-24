@@ -110,24 +110,24 @@ export function ResearchPanel() {
           <Microscope size={18} className="text-cyber-green" />
           <span>Исследования</span>
         </h2>
-        <div className="text-xs text-gray-500">5 веток · уровни сохраняются</div>
+        <div className="text-xs text-cyber-text-dim">5 веток · уровни сохраняются</div>
       </div>
 
-      <div className="text-xs text-gray-600 mb-2">
-        Чертежи: <span className="text-gray-300">{formatNumber(meta.blueprints)}</span>
+      <div className="text-xs text-cyber-text-dim mb-2">
+        Чертежи: <span className="text-cyber-text">{formatNumber(meta.blueprints)}</span>
       </div>
 
-      <div className="text-xs text-gray-600 mb-3">
-        Итог: скорость x<span className="text-gray-300">{summary.speedMult.toFixed(2)}</span>
-        <span className="text-gray-700">{summary.overclockerPaid ? ' (Overclocker)' : ''}</span>
-        <span className="text-gray-700"> · пропускная </span>
-        <span className="text-gray-300">{formatNumber(summary.bw)}</span>
-        <span className="text-gray-700">/с · лимиты x</span>
-        <span className="text-gray-300">{formatNumber(summary.capsMult)}</span>
-        <span className="text-gray-700"> · маржа x</span>
-        <span className="text-gray-300">{summary.tradeMult.toFixed(2)}</span>
-        <span className="text-gray-700"> · оборона x</span>
-        <span className="text-gray-300">{formatNumber(summary.combatMult)}</span>
+      <div className="text-xs text-cyber-text-dim mb-3">
+        Итог: скорость x<span className="text-cyber-text">{summary.speedMult.toFixed(2)}</span>
+        <span className="text-cyber-gray-light">{summary.overclockerPaid ? ' (Overclocker)' : ''}</span>
+        <span className="text-cyber-gray-light"> · пропускная </span>
+        <span className="text-cyber-text">{formatNumber(summary.bw)}</span>
+        <span className="text-cyber-gray-light">/с · лимиты x</span>
+        <span className="text-cyber-text">{formatNumber(summary.capsMult)}</span>
+        <span className="text-cyber-gray-light"> · маржа x</span>
+        <span className="text-cyber-text">{summary.tradeMult.toFixed(2)}</span>
+        <span className="text-cyber-gray-light"> · оборона x</span>
+        <span className="text-cyber-text">{formatNumber(summary.combatMult)}</span>
       </div>
 
       <div className="space-y-2">
@@ -135,11 +135,11 @@ export function ResearchPanel() {
           <div key={id} className="cyber-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-cyber-blue transition-colors">
             <div>
               <div className="text-cyber-blue font-bold">{def.name}</div>
-              <div className="text-xs text-gray-500">{def.description}</div>
-              <div className="text-xs text-gray-600 mt-1">
-                Уровень: <span className="text-gray-300">{level}</span>
-                <span className="text-gray-700"> / {def.maxLevel}</span>
-                <span className="text-gray-700"> · Эффект: {EFFECT_TEXT[id]}</span>
+              <div className="text-xs text-cyber-text-dim">{def.description}</div>
+              <div className="text-xs text-cyber-text-dim mt-1">
+                Уровень: <span className="text-cyber-text">{level}</span>
+                <span className="text-cyber-gray-light"> / {def.maxLevel}</span>
+                <span className="text-cyber-gray-light"> · Эффект: {EFFECT_TEXT[id]}</span>
               </div>
             </div>
 
@@ -161,8 +161,8 @@ export function ResearchPanel() {
 
       <div className="mt-4 border-t border-cyber-gray/40 pt-3">
         <div className="flex items-baseline justify-between mb-2">
-          <div className="text-xs text-gray-500">Производственная матрица</div>
-          <div className="text-[10px] text-gray-700">тратит чертежи</div>
+          <div className="text-xs text-cyber-text-dim">Производственная матрица</div>
+          <div className="text-[10px] text-cyber-gray-light">тратит чертежи</div>
         </div>
 
         <div className="space-y-2">
@@ -170,11 +170,11 @@ export function ResearchPanel() {
             <div key={id} className="cyber-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-cyber-blue transition-colors">
               <div>
                 <div className="text-cyber-blue font-bold">{def.name}</div>
-                <div className="text-xs text-gray-500">{def.description}</div>
-                <div className="text-xs text-gray-600 mt-1">
-                  Уровень: <span className="text-gray-300">{level}</span>
-                  <span className="text-gray-700"> / {def.maxLevel}</span>
-                  <span className="text-gray-700"> · {hint}</span>
+                <div className="text-xs text-cyber-text-dim">{def.description}</div>
+                <div className="text-xs text-cyber-text-dim mt-1">
+                  Уровень: <span className="text-cyber-text">{level}</span>
+                  <span className="text-cyber-gray-light"> / {def.maxLevel}</span>
+                  <span className="text-cyber-gray-light"> · {hint}</span>
                 </div>
               </div>
 
@@ -195,7 +195,7 @@ export function ResearchPanel() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-600 mt-3">
+      <div className="text-xs text-cyber-text-dim mt-3">
         Исследования списывают ресурсы с базы (буфера) и влияют на симуляцию в реальном времени.
       </div>
     </div>

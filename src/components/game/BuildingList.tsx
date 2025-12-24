@@ -1,21 +1,20 @@
 import { useGameStore, calculateCost } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format.ts';
-import type { Building } from '../../core/gameTypes';
+import type { Building, ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Factory } from 'lucide-react';
+import { X } from 'lucide-react';
+import { useMemo } from 'react';
 
-function BuildingCard({ building }: { building: Building }) {
-  const selectBuild = useGameStore(state => state.selectBuild);
-  const selectedBuildId = useGameStore(state => state.grid.selectedBuildId);
-  const resources = useGameStore(state => state.resources);
+const requiredDepositForBuilding = (buildingId: string) => {
+  if (buildingId === 'miner_mk1') return 'ore';
+  if (buildingId === 'ice_extractor_mk1') return 'ice';
+  if (buildingId === 'carbon_harvester_mk1') return 'carbon';
+  return null;
+};
+
+function buildTitle(building: Building) {
   const cost = calculateCost(building);
-
-  const canAfford = Object.entries(cost).every(([res, amount]) => {
-    const r = resources[res as keyof typeof resources];
-    if (!r) return false;
-    return r.amount.gte(amount);
-  });
 
   const costText = Object.entries(cost)
     .map(([res, amt]) => `${formatNumber(amt)} ${res === 'energy' ? '⚡' : RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}`)
@@ -31,79 +30,67 @@ function BuildingCard({ building }: { building: Building }) {
         .join(', ')
     : '';
 
-  const combatText = building.combat
-    ? `${formatNumber(building.combat.dps)} урон/с · ${formatNumber(building.combat.energyPerSecond)} ⚡/с (только при стрельбе)`
+  const req = requiredDepositForBuilding(building.id);
+  const reqText = req
+    ? `\nТребуется месторождение: ${req === 'ore' ? 'РУДА' : req === 'ice' ? 'ЛЁД' : 'УГЛЕРОД'}`
     : '';
 
-  const defenseText = building.defense
-    ? `${formatNumber(building.defense.shieldMaxHp)} щита · +${formatNumber(building.defense.shieldRegenPerSecond)} щита/с · ${formatNumber(building.defense.energyPerSecond)} ⚡/с (во время волны)`
-    : '';
-
-  const isSelected = selectedBuildId === building.id;
-  const Icon = getBuildingIcon(building.id);
-
-  return (
-    <div className={`cyber-panel mb-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 hover:border-cyber-blue transition-colors ${isSelected ? 'border-cyber-green' : ''}`}>
-      <div>
-        <h3 className="text-cyber-blue font-bold text-lg flex items-center gap-2">
-          <Icon size={18} className="text-cyber-blue" />
-          <span>{building.name}</span>
-          <span className="text-gray-500 text-sm">Ур. {building.count}</span>
-        </h3>
-        <p className="text-gray-400 text-sm mb-2">{building.description}</p>
-        <div className="text-xs text-gray-500">
-          Производство: {prodText || '—'}
-        </div>
-        {consText ? (
-          <div className="text-xs text-gray-600 mt-1">
-            Потребление: {consText}
-          </div>
-        ) : null}
-        {combatText ? (
-          <div className="text-xs text-gray-600 mt-1">
-            Бой: {combatText}
-          </div>
-        ) : null}
-        {defenseText ? (
-          <div className="text-xs text-gray-600 mt-1">
-            Защита: {defenseText}
-          </div>
-        ) : null}
-      </div>
-      
-      <button 
-        onClick={() => selectBuild(isSelected ? null : building.id)}
-        disabled={!canAfford && !isSelected}
-        className="cyber-button text-sm py-2 px-4 w-full sm:w-auto sm:min-w-[160px]"
-      >
-        <div className="flex items-center justify-center gap-2">
-          <Icon size={16} className="text-cyber-green" />
-          <span>{isSelected ? 'ВЫБРАНО' : 'ВЫБРАТЬ'}</span>
-        </div>
-        <div className="text-xs mt-1">
-          {costText || '—'}
-        </div>
-      </button>
-    </div>
-  );
+  return `${building.name} (Ур. ${building.count})\nСтоимость: ${costText || '—'}\nПроизводство: ${prodText || '—'}${consText ? `\nПотребление: ${consText}` : ''}${reqText}`;
 }
 
 export function BuildingList() {
-  const buildings = useGameStore(state => state.buildings);
+  const buildings = useGameStore((s) => s.buildings);
+  const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
+  const selectBuild = useGameStore((s) => s.selectBuild);
+  const resources = useGameStore((s) => s.resources);
+
+  const affordability = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const b of buildings) {
+      const cost = calculateCost(b);
+      map[b.id] = Object.entries(cost).every(([res, amount]) => {
+        const r = resources[res as ResourceType];
+        return Boolean(r) && r.amount.gte(amount);
+      });
+    }
+    return map;
+  }, [buildings, resources]);
 
   return (
-    <div className="p-4 border-b border-cyber-gray">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
-          <Factory size={18} className="text-cyber-green" />
-          <span>Инфраструктура</span>
-        </h2>
-        <div className="text-xs text-gray-500">выбор зданий</div>
-      </div>
-      <div className="space-y-2">
-        {buildings.map(b => (
-          <BuildingCard key={b.id} building={b} />
-        ))}
+    <div className="p-3">
+      <div className="space-y-1.5">
+        {buildings.map((b) => {
+          const Icon = getBuildingIcon(b.id);
+          const isSelected = selectedBuildId === b.id;
+          const canAfford = affordability[b.id];
+
+          return (
+            <button
+              key={b.id}
+              type="button"
+              title={buildTitle(b)}
+              onClick={() => selectBuild(isSelected ? null : b.id)}
+              className={
+                `w-full flex items-center gap-2 p-2 rounded transition-all border ` +
+                (isSelected 
+                  ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
+                  : canAfford 
+                    ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
+                    : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
+              }
+              disabled={!canAfford && !isSelected}
+            >
+              <Icon size={16} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+              <div className="flex-1 text-left">
+                <div className="text-xs font-medium">{b.name}</div>
+                <div className="text-[10px] text-cyber-text-dim">Ур. {b.count}</div>
+              </div>
+              {isSelected && (
+                <X size={14} className="text-cyber-green" />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ function PriceChart({ points }: { points: Array<{ t: number; price: string }> })
   }, [points]);
 
   if (samples.length < 2) {
-    return <div className="text-xs text-gray-700">Недостаточно данных для графика.</div>;
+    return <div className="text-xs text-cyber-gray-light">Недостаточно данных для графика.</div>;
   }
 
   const min = Math.min(...samples.map((p) => p.v));
@@ -104,15 +104,15 @@ export function MarketPanel() {
           <ArrowLeftRight size={18} className="text-cyber-green" />
           <span>Терминал</span>
         </h2>
-        <div className="text-xs text-gray-500">
-          Обновление через: {secondsLeft}с · Событие: <span className="text-gray-300">{market.event.name}</span>
-          <span className="text-gray-600"> · Маржа: x{tradeMult.toFixed(2)}</span>
+        <div className="text-xs text-cyber-text-dim">
+          Обновление через: {secondsLeft}с · Событие: <span className="text-cyber-text">{market.event.name}</span>
+          <span className="text-cyber-text-dim"> · Маржа: x{tradeMult.toFixed(2)}</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="cyber-panel">
-          <div className="text-xs text-gray-500 mb-2">Ресурсы</div>
+          <div className="text-xs text-cyber-text-dim mb-2">Ресурсы</div>
           <div className="space-y-1">
             {TRADEABLE.map((r) => {
               const isActive = r === selected;
@@ -123,10 +123,10 @@ export function MarketPanel() {
                   onClick={() => setSelected(r)}
                 >
                   <div className="flex items-center justify-between">
-                    <div className="text-gray-300">{TRADE_LABEL[r]}</div>
-                    <div className="text-xs text-gray-600">{formatNumber(resources[r].amount)}</div>
+                    <div className="text-cyber-text">{TRADE_LABEL[r]}</div>
+                    <div className="text-xs text-cyber-text-dim">{formatNumber(resources[r].amount)}</div>
                   </div>
-                  <div className="text-xs text-gray-600">Цена: {formatNumber(market.prices[r])}</div>
+                  <div className="text-xs text-cyber-text-dim">Цена: {formatNumber(market.prices[r])}</div>
                 </button>
               );
             })}
@@ -136,26 +136,26 @@ export function MarketPanel() {
         <div className="cyber-panel md:col-span-2">
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-cyber-blue font-bold">{TRADE_LABEL[selected]}</div>
-            <div className="text-xs text-gray-600">Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}</div>
+            <div className="text-xs text-cyber-text-dim">Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}</div>
           </div>
 
-          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600">
-            <div>Купить: <span className="text-gray-300">{formatNumber(buyUnit)} ⚡</span> за 1</div>
-            <div>Продать: <span className="text-gray-300">{formatNumber(sellUnit)} ⚡</span> за 1</div>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-cyber-text-dim">
+            <div>Купить: <span className="text-cyber-text">{formatNumber(buyUnit)} ⚡</span> за 1</div>
+            <div>Продать: <span className="text-cyber-text">{formatNumber(sellUnit)} ⚡</span> за 1</div>
           </div>
 
           <div className="mt-2">
             <PriceChart points={points} />
             {chartStats ? (
-              <div className="text-xs text-gray-700">min {formatNumber(chartStats.min)} · max {formatNumber(chartStats.max)}</div>
+              <div className="text-xs text-cyber-gray-light">min {formatNumber(chartStats.min)} · max {formatNumber(chartStats.max)}</div>
             ) : null}
           </div>
 
           <div className="mt-3 pt-3 border-t border-cyber-gray/50">
-            <div className="text-xs text-gray-500 mb-2">Заявка</div>
+            <div className="text-xs text-cyber-text-dim mb-2">Заявка</div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
               <div className="sm:col-span-1">
-                <div className="text-xs text-gray-600 mb-1">Количество</div>
+                <div className="text-xs text-cyber-text-dim mb-1">Количество</div>
                 <input
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
@@ -181,18 +181,18 @@ export function MarketPanel() {
                     всё
                   </button>
                 </div>
-                {qtyDec.lte(0) ? <div className="text-xs text-gray-700 mt-1">Введите количество больше 0.</div> : null}
+                {qtyDec.lte(0) ? <div className="text-xs text-cyber-gray-light mt-1">Введите количество больше 0.</div> : null}
               </div>
 
               <div className="sm:col-span-2">
-                <div className="text-xs text-gray-600 mb-1">Оценка</div>
-                <div className="text-xs text-gray-600">
-                  Купить: <span className="text-gray-300">{formatNumber(estBuyCost)}</span> ⚡
-                  <span className="text-gray-700"> · Макс: {formatNumber(maxBuy)}</span>
+                <div className="text-xs text-cyber-text-dim mb-1">Оценка</div>
+                <div className="text-xs text-cyber-text-dim">
+                  Купить: <span className="text-cyber-text">{formatNumber(estBuyCost)}</span> ⚡
+                  <span className="text-cyber-gray-light"> · Макс: {formatNumber(maxBuy)}</span>
                 </div>
-                <div className="text-xs text-gray-600">
-                  Продать: <span className="text-gray-300">{formatNumber(estSellGain)}</span> ⚡
-                  <span className="text-gray-700"> · Доступно: {formatNumber(have)}</span>
+                <div className="text-xs text-cyber-text-dim">
+                  Продать: <span className="text-cyber-text">{formatNumber(estSellGain)}</span> ⚡
+                  <span className="text-cyber-gray-light"> · Доступно: {formatNumber(have)}</span>
                 </div>
 
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -216,7 +216,7 @@ export function MarketPanel() {
             </div>
           </div>
 
-          <div className="text-xs text-gray-700 mt-3">
+          <div className="text-xs text-cyber-gray-light mt-3">
             Продажа превращает ресурсы в Энергию (⚡). Покупка тратит Энергию. Энергия и ресурсы базы ограничены хранилищем.
           </div>
         </div>

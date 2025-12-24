@@ -72,30 +72,30 @@ export function ExpeditionPanel() {
           <Rocket size={18} className="text-cyber-green" />
           <span>Экспедиции</span>
         </h2>
-        <div className="text-xs text-gray-500">
-          Статус: <span className="text-gray-300">{active ? 'в полёте' : 'готово'}</span>
-          {active ? <span className="text-gray-600"> · {secondsLeft}с</span> : null}
-          <span className="text-gray-600"> · Чертежи: {formatNumber(blueprints)}</span>
+        <div className="text-xs text-cyber-text-dim">
+          Статус: <span className="text-cyber-text">{active ? 'в полёте' : 'готово'}</span>
+          {active ? <span className="text-cyber-text-dim"> · {secondsLeft}с</span> : null}
+          <span className="text-cyber-text-dim"> · Чертежи: {formatNumber(blueprints)}</span>
         </div>
       </div>
 
       <div className="cyber-panel">
         {active ? (
-          <div className="text-xs text-gray-600">
-            Экспедиция в пути… <span className="text-gray-300">{secondsLeft}с</span>
+          <div className="text-xs text-cyber-text-dim">
+            Экспедиция в пути… <span className="text-cyber-text">{secondsLeft}с</span>
           </div>
         ) : (
-          <div className="text-xs text-gray-600">
+          <div className="text-xs text-cyber-text-dim">
             Готово к запуску.
           </div>
         )}
 
         {expedition.lastReport ? (
-          <div className="text-xs text-gray-700 mt-2">{expedition.lastReport}</div>
+          <div className="text-xs text-cyber-gray-light mt-2">{expedition.lastReport}</div>
         ) : null}
 
         <div className="mt-4 border-t border-cyber-gray/40 pt-3">
-          <div className="text-xs text-gray-500 mb-2">Корабль</div>
+          <div className="text-xs text-cyber-text-dim mb-2">Корабль</div>
 
           <div className="grid gap-2">
             {(['hull', 'engine', 'cargo'] as ShipSlot[]).map((slot) => {
@@ -103,9 +103,9 @@ export function ExpeditionPanel() {
               const options = shipUi.options[slot];
               return (
                 <div key={slot}>
-                  <div className="flex items-center justify-between text-xs text-gray-600">
-                    <div className="text-gray-400">{SHIP_SLOT_LABEL[slot]}</div>
-                    <div className="text-gray-700">{SHIP_MODULE_DEFS[current]?.name ?? current}</div>
+                  <div className="flex items-center justify-between text-xs text-cyber-text-dim">
+                    <div className="text-cyber-text-dim">{SHIP_SLOT_LABEL[slot]}</div>
+                    <div className="text-cyber-gray-light">{SHIP_MODULE_DEFS[current]?.name ?? current}</div>
                   </div>
                   <select
                     className="w-full mt-1 px-2 py-1 text-xs bg-cyber-dark border border-cyber-gray text-cyber-text rounded"
@@ -122,11 +122,11 @@ export function ExpeditionPanel() {
             })}
           </div>
 
-          <div className="mt-2 text-xs text-gray-700 flex flex-wrap gap-x-3 gap-y-1">
-            <div>Длительность: <span className="text-gray-300">{shipUi.durationSeconds}с</span></div>
-            <div>Лут: <span className="text-gray-300">x{shipUi.rewardMult.toFixed(2)}</span></div>
-            <div>Бонус сталь: <span className="text-gray-300">{shipUi.steelChancePct}%</span></div>
-            <div>Аномалия: <span className="text-gray-300">{shipUi.anomalyChancePct}%</span></div>
+          <div className="mt-2 text-xs text-cyber-gray-light flex flex-wrap gap-x-3 gap-y-1">
+            <div>Длительность: <span className="text-cyber-text">{shipUi.durationSeconds}с</span></div>
+            <div>Лут: <span className="text-cyber-text">x{shipUi.rewardMult.toFixed(2)}</span></div>
+            <div>Бонус сталь: <span className="text-cyber-text">{shipUi.steelChancePct}%</span></div>
+            <div>Аномалия: <span className="text-cyber-text">{shipUi.anomalyChancePct}%</span></div>
           </div>
 
           <div className="mt-3 grid gap-2">
@@ -145,7 +145,7 @@ export function ExpeditionPanel() {
                 >
                   <div className="flex items-center justify-between">
                     <span>Собрать: {def.name}</span>
-                    <span className="text-gray-600">{formatNumber(e)}⚡, {formatNumber(s)} сталь</span>
+                    <span className="text-cyber-text-dim">{formatNumber(e)}⚡, {formatNumber(s)} сталь</span>
                   </div>
                 </button>
               );
@@ -154,7 +154,7 @@ export function ExpeditionPanel() {
         </div>
 
         <div className="mt-4 border-t border-cyber-gray/40 pt-3">
-          <div className="text-xs text-gray-500 mb-2">Навигационная карта</div>
+          <div className="text-xs text-cyber-text-dim mb-2">Навигационная карта</div>
 
           <div className="grid gap-2">
             {(['subspace', 'anomaly'] as const).map((id) => {
@@ -177,11 +177,11 @@ export function ExpeditionPanel() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-cyber-blue font-bold">{def.name}</div>
-                      <div className="text-xs text-gray-500">{def.description}</div>
-                      <div className="text-xs text-gray-600 mt-1">
-                        Уровень: <span className="text-gray-300">{level}</span>
-                        <span className="text-gray-700"> / {def.maxLevel}</span>
-                        <span className="text-gray-700"> · {hint}</span>
+                      <div className="text-xs text-cyber-text-dim">{def.description}</div>
+                      <div className="text-xs text-cyber-text-dim mt-1">
+                        Уровень: <span className="text-cyber-text">{level}</span>
+                        <span className="text-cyber-gray-light"> / {def.maxLevel}</span>
+                        <span className="text-cyber-gray-light"> · {hint}</span>
                       </div>
                     </div>
 
@@ -191,7 +191,7 @@ export function ExpeditionPanel() {
                       onClick={() => buyStarChartUpgrade(id)}
                     >
                       <div className="text-center">{atMax ? 'МАКС' : 'УЛУЧШИТЬ'}</div>
-                      <div className="text-[10px] mt-1 text-gray-600">{atMax ? '—' : (costText || '—')}</div>
+                      <div className="text-[10px] mt-1 text-cyber-text-dim">{atMax ? '—' : (costText || '—')}</div>
                     </button>
                   </div>
                 </div>
@@ -213,7 +213,7 @@ export function ExpeditionPanel() {
           </div>
         </button>
 
-        <div className="text-xs text-gray-600 mt-3">
+        <div className="text-xs text-cyber-text-dim mt-3">
           Награда приходит в буфер базы и ограничена лимитами складов.
         </div>
       </div>

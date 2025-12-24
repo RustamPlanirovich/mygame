@@ -149,12 +149,12 @@ export function CombatPanel() {
           <ShieldAlert size={18} className="text-cyber-green" />
           <span>Угроза</span>
         </h2>
-        <div className="text-xs text-gray-500">
-          Статус: <span className="text-gray-300">{status}</span>
+        <div className="text-xs text-cyber-text-dim">
+          Статус: <span className="text-cyber-text">{status}</span>
           {waveActive ? (
-            <span className="text-gray-600"> · Волна закончится через: {secondsToWaveEnd}с</span>
+            <span className="text-cyber-text-dim"> · Волна закончится через: {secondsToWaveEnd}с</span>
           ) : (
-            <span className="text-gray-600"> · Следующая волна через: {secondsToNextWave}с</span>
+            <span className="text-cyber-text-dim"> · Следующая волна через: {secondsToNextWave}с</span>
           )}
         </div>
       </div>
@@ -163,34 +163,34 @@ export function CombatPanel() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-cyber-blue font-bold">Целостность базы</div>
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-cyber-text-dim">
               {formatNumber(combat.baseHp)} / {formatNumber(combat.baseMaxHp)}
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            Враги: <span className="text-gray-300">{combat.enemies.length}</span>
-            <span className="text-gray-600"> · Турели: {turretCount}</span>
-            <span className="text-gray-600"> · {firing ? 'Стрельба' : 'Ожидание'}</span>
+          <div className="text-xs text-cyber-text-dim">
+            Враги: <span className="text-cyber-text">{combat.enemies.length}</span>
+            <span className="text-cyber-text-dim"> · Турели: {turretCount}</span>
+            <span className="text-cyber-text-dim"> · {firing ? 'Стрельба' : 'Ожидание'}</span>
           </div>
         </div>
 
-        <div className="mt-2 text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+        <div className="mt-2 text-xs text-cyber-text-dim flex flex-wrap gap-x-3 gap-y-1">
           {defenseNeed.gt(0) ? (
             <div>
-              Оборона: <span className={defenseRatio < 0.5 ? 'text-cyber-red' : defenseRatio < 0.99 ? 'text-cyber-blue' : 'text-gray-300'}>
+              Оборона: <span className={defenseRatio < 0.5 ? 'text-cyber-red' : defenseRatio < 0.99 ? 'text-cyber-blue' : 'text-cyber-text'}>
                 {formatNumber(defenseUsed)}⚡/с
               </span>
-              <span className="text-gray-700"> из {formatNumber(defenseNeed)}⚡/с</span>
-              <span className="text-gray-700"> · Эффективность: {Math.round(defenseRatio * 100)}%</span>
+              <span className="text-cyber-gray-light"> из {formatNumber(defenseNeed)}⚡/с</span>
+              <span className="text-cyber-gray-light"> · Эффективность: {Math.round(defenseRatio * 100)}%</span>
             </div>
           ) : (
-            <div>Оборона: <span className="text-gray-700">—</span></div>
+            <div>Оборона: <span className="text-cyber-gray-light">—</span></div>
           )}
 
           {combat.enemies.length > 0 ? (
             <div>
-              Давление: <span className="text-gray-300">{formatNumber(pressure)}/с</span>
-              <span className="text-gray-700"> (макс {formatNumber(pressurePotential)}/с)</span>
+              Давление: <span className="text-cyber-text">{formatNumber(pressure)}/с</span>
+              <span className="text-cyber-gray-light"> (макс {formatNumber(pressurePotential)}/с)</span>
             </div>
           ) : null}
 
@@ -210,18 +210,18 @@ export function CombatPanel() {
 
         {combat.shieldMaxHp.gt(0) ? (
           <div className="mt-2">
-            <div className="flex items-center justify-between text-xs text-gray-600">
+            <div className="flex items-center justify-between text-xs text-cyber-text-dim">
               <div>
-                Щит: <span className="text-gray-300">{formatNumber(combat.shieldHp)}</span>
-                <span className="text-gray-700"> / {formatNumber(combat.shieldMaxHp)}</span>
+                Щит: <span className="text-cyber-text">{formatNumber(combat.shieldHp)}</span>
+                <span className="text-cyber-gray-light"> / {formatNumber(combat.shieldMaxHp)}</span>
               </div>
               {shieldNeed.gt(0) ? (
                 <div>
                   {formatNumber(shieldUsed)}⚡/с
-                  <span className="text-gray-700"> из {formatNumber(shieldNeed)}⚡/с</span>
+                  <span className="text-cyber-gray-light"> из {formatNumber(shieldNeed)}⚡/с</span>
                 </div>
               ) : (
-                <div className="text-gray-700">—</div>
+                <div className="text-cyber-gray-light">—</div>
               )}
             </div>
             <div className="mt-1 h-2 bg-cyber-gray/40 rounded overflow-hidden">
@@ -230,24 +230,24 @@ export function CombatPanel() {
                 style={{ width: `${Math.round(shieldPct * 100)}%` }}
               />
             </div>
-            <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-3 gap-y-1">
-              <div>Реген: <span className={shieldRegen.gt(0) ? 'text-gray-300' : 'text-gray-700'}>+{formatNumber(shieldRegen)}/с</span></div>
-              <div>Поглощение: <span className={shieldAbsorb.gt(0) ? 'text-gray-300' : 'text-gray-700'}>{formatNumber(shieldAbsorb)}/с</span></div>
+            <div className="mt-1 text-xs text-cyber-gray-light flex flex-wrap gap-x-3 gap-y-1">
+              <div>Реген: <span className={shieldRegen.gt(0) ? 'text-cyber-text' : 'text-cyber-gray-light'}>+{formatNumber(shieldRegen)}/с</span></div>
+              <div>Поглощение: <span className={shieldAbsorb.gt(0) ? 'text-cyber-text' : 'text-cyber-gray-light'}>{formatNumber(shieldAbsorb)}/с</span></div>
             </div>
           </div>
         ) : null}
 
         <div className="mt-4 border-t border-cyber-gray/40 pt-3">
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <div className="text-gray-400">Нано-Рой</div>
-            <div className="text-gray-700">Пул: {nanoUi.total}</div>
+          <div className="flex items-center justify-between text-xs text-cyber-text-dim">
+            <div className="text-cyber-text-dim">Нано-Рой</div>
+            <div className="text-cyber-gray-light">Пул: {nanoUi.total}</div>
           </div>
 
           <div className="mt-2 grid gap-2">
             <div>
-              <div className="flex items-center justify-between text-xs text-gray-600">
+              <div className="flex items-center justify-between text-xs text-cyber-text-dim">
                 <div>🔴 Атака</div>
-                <div className="text-gray-700">{nanoUi.attackPct}% · {nanoUi.attackBots}</div>
+                <div className="text-cyber-gray-light">{nanoUi.attackPct}% · {nanoUi.attackBots}</div>
               </div>
               <input
                 type="range"
@@ -261,9 +261,9 @@ export function CombatPanel() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between text-xs text-gray-600">
+              <div className="flex items-center justify-between text-xs text-cyber-text-dim">
                 <div>🟢 Ремонт</div>
-                <div className="text-gray-700">{nanoUi.repairPct}% · {nanoUi.repairBots}</div>
+                <div className="text-cyber-gray-light">{nanoUi.repairPct}% · {nanoUi.repairBots}</div>
               </div>
               <input
                 type="range"
@@ -277,9 +277,9 @@ export function CombatPanel() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between text-xs text-gray-600">
+              <div className="flex items-center justify-between text-xs text-cyber-text-dim">
                 <div>🔵 Буст</div>
-                <div className="text-gray-700">{nanoUi.boostPct}% · {nanoUi.boostBots}</div>
+                <div className="text-cyber-gray-light">{nanoUi.boostPct}% · {nanoUi.boostBots}</div>
               </div>
               <input
                 type="range"
@@ -293,23 +293,23 @@ export function CombatPanel() {
             </div>
           </div>
 
-          <div className="mt-2 text-xs text-gray-700 flex flex-wrap gap-x-3 gap-y-1">
+          <div className="mt-2 text-xs text-cyber-gray-light flex flex-wrap gap-x-3 gap-y-1">
             <div>
-              Урон: <span className={nanoUi.attackDps.gt(0) ? 'text-gray-300' : 'text-gray-700'}>+{formatNumber(nanoUi.attackDps)}/с</span>
+              Урон: <span className={nanoUi.attackDps.gt(0) ? 'text-cyber-text' : 'text-cyber-gray-light'}>+{formatNumber(nanoUi.attackDps)}/с</span>
             </div>
             <div>
-              Ремонт щита: <span className={nanoUi.repairPerSec.gt(0) ? 'text-gray-300' : 'text-gray-700'}>+{formatNumber(nanoUi.repairPerSec)}/с</span>
+              Ремонт щита: <span className={nanoUi.repairPerSec.gt(0) ? 'text-cyber-text' : 'text-cyber-gray-light'}>+{formatNumber(nanoUi.repairPerSec)}/с</span>
             </div>
             <div>
-              Буст: <span className={nanoUi.boostMult > 1.001 ? 'text-gray-300' : 'text-gray-700'}>x{nanoUi.boostMult.toFixed(2)}</span>
+              Буст: <span className={nanoUi.boostMult > 1.001 ? 'text-cyber-text' : 'text-cyber-gray-light'}>x{nanoUi.boostMult.toFixed(2)}</span>
             </div>
           </div>
         </div>
 
         <div className="mt-4 border-t border-cyber-gray/40 pt-3">
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <div className="text-gray-400">Протокол «Эгида»</div>
-            <div className="text-gray-700">
+          <div className="flex items-center justify-between text-xs text-cyber-text-dim">
+            <div className="text-cyber-text-dim">Протокол «Эгида»</div>
+            <div className="text-cyber-gray-light">
               Интерференция: {aegisUi.waveActive ? (
                 <>
                   -{aegisUi.rawPct}% → -{aegisUi.effectivePct}%
@@ -325,11 +325,11 @@ export function CombatPanel() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-cyber-blue font-bold">{aegisUi.smart.def.name}</div>
-                  <div className="text-xs text-gray-500">{aegisUi.smart.def.description}</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    Уровень: <span className="text-gray-300">{aegisUi.smart.level}</span>
-                    <span className="text-gray-700"> / {aegisUi.smart.def.maxLevel}</span>
-                    <span className="text-gray-700"> · Сейчас: {aegisUi.targeting ? 'ВКЛ' : 'ВЫКЛ'}</span>
+                  <div className="text-xs text-cyber-text-dim">{aegisUi.smart.def.description}</div>
+                  <div className="text-xs text-cyber-text-dim mt-1">
+                    Уровень: <span className="text-cyber-text">{aegisUi.smart.level}</span>
+                    <span className="text-cyber-gray-light"> / {aegisUi.smart.def.maxLevel}</span>
+                    <span className="text-cyber-gray-light"> · Сейчас: {aegisUi.targeting ? 'ВКЛ' : 'ВЫКЛ'}</span>
                   </div>
                 </div>
                 <button
@@ -338,7 +338,7 @@ export function CombatPanel() {
                   onClick={() => buyAegisUpgrade('smart_targeting')}
                 >
                   <div className="text-center">{aegisUi.smart.atMax ? 'МАКС' : 'УЛУЧШИТЬ'}</div>
-                  <div className="text-[10px] mt-1 text-gray-600">
+                  <div className="text-[10px] mt-1 text-cyber-text-dim">
                     {aegisUi.smart.atMax ? '—' : `${formatNumber(aegisUi.smart.cost.energy ?? D(0))}⚡, ${formatNumber(aegisUi.smart.cost.steel ?? D(0))} сталь`}
                   </div>
                 </button>
@@ -349,10 +349,10 @@ export function CombatPanel() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-cyber-blue font-bold">{aegisUi.encryption.def.name}</div>
-                  <div className="text-xs text-gray-500">{aegisUi.encryption.def.description}</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    Уровень: <span className="text-gray-300">{aegisUi.encryption.level}</span>
-                    <span className="text-gray-700"> / {aegisUi.encryption.def.maxLevel}</span>
+                  <div className="text-xs text-cyber-text-dim">{aegisUi.encryption.def.description}</div>
+                  <div className="text-xs text-cyber-text-dim mt-1">
+                    Уровень: <span className="text-cyber-text">{aegisUi.encryption.level}</span>
+                    <span className="text-cyber-gray-light"> / {aegisUi.encryption.def.maxLevel}</span>
                   </div>
                 </div>
                 <button
@@ -361,7 +361,7 @@ export function CombatPanel() {
                   onClick={() => buyAegisUpgrade('encryption')}
                 >
                   <div className="text-center">{aegisUi.encryption.atMax ? 'МАКС' : 'УЛУЧШИТЬ'}</div>
-                  <div className="text-[10px] mt-1 text-gray-600">
+                  <div className="text-[10px] mt-1 text-cyber-text-dim">
                     {aegisUi.encryption.atMax ? '—' : `${formatNumber(aegisUi.encryption.cost.energy ?? D(0))}⚡, ${formatNumber(aegisUi.encryption.cost.steel ?? D(0))} сталь`}
                   </div>
                 </button>
@@ -389,12 +389,12 @@ export function CombatPanel() {
 
               return (
                 <div key={e.id} className="text-xs">
-                  <div className="flex items-center justify-between text-gray-500">
-                    <div className="text-gray-400">
+                  <div className="flex items-center justify-between text-cyber-text-dim">
+                    <div className="text-cyber-text-dim">
                       {label}
-                      {roleHint ? <span className="text-gray-700"> · {roleHint}</span> : null}
+                      {roleHint ? <span className="text-cyber-gray-light"> · {roleHint}</span> : null}
                     </div>
-                    <div className="text-gray-600">Дистанция: {distPct}%</div>
+                    <div className="text-cyber-text-dim">Дистанция: {distPct}%</div>
                   </div>
                   <div className="mt-1 h-2 bg-cyber-gray/40 rounded overflow-hidden">
                     <div
@@ -406,20 +406,20 @@ export function CombatPanel() {
               );
             })}
             {combat.enemies.length > 6 ? (
-              <div className="text-xs text-gray-600">+ещё {combat.enemies.length - 6}</div>
+              <div className="text-xs text-cyber-text-dim">+ещё {combat.enemies.length - 6}</div>
             ) : null}
           </div>
         ) : (
-          <div className="text-xs text-gray-600 mt-3">
+          <div className="text-xs text-cyber-text-dim mt-3">
             Угроз не обнаружено.
           </div>
         )}
 
-        <div className="text-xs text-gray-600 mt-3">
+        <div className="text-xs text-cyber-text-dim mt-3">
           Если ⚡ не хватает, эффективность турелей падает.
         </div>
 
-        <div className="text-xs text-gray-700 mt-1">
+        <div className="text-xs text-cyber-gray-light mt-1">
           Пробой щита (у «Тяжёлого»): часть контактного урона проходит сразу в базу.
         </div>
       </div>

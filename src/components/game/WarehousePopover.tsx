@@ -8,7 +8,7 @@ import { Pin, X } from 'lucide-react';
 function productionTone(p: Decimal) {
   if (p.gt(0)) return 'text-cyber-green';
   if (p.lt(0)) return 'text-cyber-red';
-  return 'text-gray-500';
+  return 'text-cyber-text-dim';
 }
 
 export function WarehousePopover(props: {
@@ -80,7 +80,7 @@ export function WarehousePopover(props: {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <div className="text-sm text-cyber-blue font-bold">{RESOURCE_LABEL[key]}</div>
-                  <div className={`text-xs font-mono ${full ? 'text-cyber-red' : 'text-gray-300'}`}>
+                  <div className={`text-xs font-mono ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
                     {formatNumber(amount)} / {formatNumber(max)}
                     {full ? <span className="ml-2 text-[10px] text-cyber-red font-sans">ПОЛНО</span> : null}
                   </div>
@@ -106,7 +106,7 @@ export function WarehousePopover(props: {
         })}
       </div>
 
-      <div className="text-[11px] text-gray-600 mt-2">
+      <div className="text-[11px] text-cyber-text-dim mt-2">
         Закреплённые ресурсы показываются в верхней строке.
       </div>
     </div>

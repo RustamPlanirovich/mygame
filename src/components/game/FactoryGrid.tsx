@@ -2,22 +2,33 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
 import { THEME_COLORS } from '../../core/constants/themeColors';
 import { useGameStore } from '../../features/gameStore';
-import { getBuildingBadge } from '../../core/constants/buildingBadges';
-import type { Building, DepositType, ResourceType } from '../../core/gameTypes';
+import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
+import { formatNumber, D } from '../../core/math/format';
+import type { Building, ResourceType } from '../../core/gameTypes';
 
-const CELL = 40;
-const GAP = 2;
+// Hexagonal grid constants (flat-top hexagons)
+const HEX_SIZE = 28; // Radius of hexagon
+const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE; // Width between parallel sides
+const HEX_HEIGHT = 2 * HEX_SIZE; // Height from top to bottom
+const HEX_HORIZ = HEX_WIDTH; // Horizontal spacing between column centers
+const HEX_VERT = HEX_SIZE * 1.5; // Vertical spacing between row centers
 
-const ZOOM_MIN = 1.0;
-const ZOOM_MAX = 3.0;
+// Isometric projection constants
+const ISO_TILE_WIDTH = 64;
+const ISO_TILE_HEIGHT = 32;
+
+// Grid display mode
+type GridMode = 'square' | 'hex' | 'isometric';
+const GRID_MODE: GridMode = 'square'; // Квадратная сетка
+
+// Legacy constants for square mode compatibility
+const CELL = 48; // Увеличен для лучшей видимости, как в Industry Idle
+const GAP = 1;   // Уменьшен зазор для более плотной сетки
+
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 4.0;
 
 const DRAG_THRESHOLD_PX = 4;
-
-const DEPOSIT_LABEL: Record<DepositType, string> = {
-  ore: 'Fe',
-  ice: 'Ice',
-  carbon: 'C',
-};
 
 const RESOURCE_SHORT: Partial<Record<ResourceType, string>> = {
   ore: 'РУД',
@@ -51,9 +62,22 @@ export function FactoryGrid() {
   const selectTile = useGameStore((s) => s.selectTile);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
   const focusLink = useGameStore((s) => s.focusLink);
+  const setCameraPosition = useGameStore((s) => s.setCameraPosition);
 
   const [hoveredLinkKey, setHoveredLinkKey] = useState<string | null>(null);
   const hoveredLinkKeyRef = useRef<string | null>(null);
+  
+  // Для оптимизации рендеринга
+  const [renderTrigger, setRenderTrigger] = useState(0);
+  const renderTimeoutRef = useRef<number | null>(null);
+  const forceRender = useRef(() => {
+    if (renderTimeoutRef.current) {
+      clearTimeout(renderTimeoutRef.current);
+    }
+    renderTimeoutRef.current = window.setTimeout(() => {
+      setRenderTrigger(prev => prev + 1);
+    }, 16); // Примерно 60 FPS
+  });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<PIXI.Application | null>(null);
@@ -82,10 +106,68 @@ export function FactoryGrid() {
     lastY: 0,
   });
 
+  // Convert grid coordinates to pixel coordinates based on mode
+  const gridToPixel = (x: number, y: number): { px: number; py: number } => {
+    if (GRID_MODE === 'square') {
+      return {
+        px: GAP + x * (CELL + GAP),
+        py: GAP + y * (CELL + GAP),
+      };
+    } else if (GRID_MODE === 'hex') {
+      // Hexagonal grid (flat-top hexagons)
+      // Odd columns are shifted down by HEX_VERT
+      const offsetY = (x % 2 === 1) ? HEX_VERT : 0;
+      return {
+        px: x * HEX_HORIZ,
+        py: y * HEX_VERT * 2 + offsetY,
+      };
+    } else {
+      // Isometric projection
+      return {
+        px: (x - y) * (ISO_TILE_WIDTH / 2),
+        py: (x + y) * (ISO_TILE_HEIGHT / 2),
+      };
+    }
+  };
+
+  // Convert pixel coordinates to grid coordinates
+  const pixelToGrid = (px: number, py: number): { x: number; y: number } => {
+    if (GRID_MODE === 'square') {
+      return {
+        x: Math.floor((px - GAP) / (CELL + GAP)),
+        y: Math.floor((py - GAP) / (CELL + GAP)),
+      };
+    } else if (GRID_MODE === 'hex') {
+      // Approximate hexagonal conversion
+      const col = Math.round(px / HEX_HORIZ);
+      const offsetY = (col % 2 === 1) ? HEX_VERT : 0;
+      const row = Math.round((py - offsetY) / (HEX_VERT * 2));
+      return { x: col, y: row };
+    } else {
+      // Isometric to grid
+      const isoX = px / (ISO_TILE_WIDTH / 2);
+      const isoY = py / (ISO_TILE_HEIGHT / 2);
+      const x = Math.round((isoX + isoY) / 2);
+      const y = Math.round((isoY - isoX) / 2);
+      return { x, y };
+    }
+  };
+
   const worldSize = useMemo(() => {
-    const w = grid.width * (CELL + GAP) + GAP;
-    const h = grid.height * (CELL + GAP) + GAP;
-    return { w, h };
+    if (GRID_MODE === 'square') {
+      const w = grid.width * (CELL + GAP) + GAP;
+      const h = grid.height * (CELL + GAP) + GAP;
+      return { w, h };
+    } else if (GRID_MODE === 'hex') {
+      const w = (grid.width + 1) * HEX_HORIZ + HEX_WIDTH;
+      const h = (grid.height + 1) * HEX_VERT * 2 + HEX_HEIGHT;
+      return { w, h };
+    } else {
+      // Isometric
+      const w = (grid.width + grid.height) * (ISO_TILE_WIDTH / 2) + ISO_TILE_WIDTH;
+      const h = (grid.width + grid.height) * (ISO_TILE_HEIGHT / 2) + ISO_TILE_HEIGHT * 2;
+      return { w, h };
+    }
   }, [grid.width, grid.height]);
 
   useEffect(() => {
@@ -121,7 +203,7 @@ export function FactoryGrid() {
       await app.init({
         width: Math.max(1, Math.floor(rect.width)),
         height: Math.max(1, Math.floor(rect.height)),
-        backgroundColor: THEME_COLORS.cyberBlack,
+        backgroundColor: 0x000510,
         antialias: true,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true,
@@ -161,6 +243,18 @@ export function FactoryGrid() {
       const world = new PIXI.Container();
       worldRef.current = world;
       app.stage.addChild(world);
+
+      // Космический фон со звездами
+      const stars = new PIXI.Graphics();
+      for (let i = 0; i < 200; i++) {
+        const x = Math.random() * (worldSize.w * 2);
+        const y = Math.random() * (worldSize.h * 2);
+        const size = Math.random() * 1.5 + 0.5;
+        const brightness = Math.random() * 0.6 + 0.4;
+        const color = Math.random() > 0.8 ? 0x6ba3ff : 0xffffff;
+        stars.circle(x, y, size).fill({ color, alpha: brightness });
+      }
+      world.addChild(stars);
 
       const g = new PIXI.Graphics();
       graphicsRef.current = g;
@@ -203,8 +297,9 @@ export function FactoryGrid() {
           }
         }
 
-        const x = clamp(Math.floor((wp.x - GAP) / (CELL + GAP)), 0, s.grid.width - 1);
-        const y = clamp(Math.floor((wp.y - GAP) / (CELL + GAP)), 0, s.grid.height - 1);
+        const gridPos = pixelToGrid(wp.x, wp.y);
+        const x = clamp(gridPos.x, 0, s.grid.width - 1);
+        const y = clamp(gridPos.y, 0, s.grid.height - 1);
 
         const pos = { x, y };
         selectTile(pos);
@@ -260,8 +355,8 @@ export function FactoryGrid() {
         const ws = worldSizeRef.current;
         if (!(ws.w > 0 && ws.h > 0 && vw > 0 && vh > 0)) return;
 
-        // Fit (contain) with a small padding so content doesn't touch the edges.
-        const fit = Math.min(vw / ws.w, vh / ws.h) * 0.98;
+        // Используем cover вместо contain - заполняем все пространство
+        const fit = Math.max(vw / ws.w, vh / ws.h) * 0.98;
         cam.zoom = clamp(fit, ZOOM_MIN, ZOOM_MAX);
         cam.x = Math.floor((vw - ws.w * cam.zoom) / 2);
         cam.y = Math.floor((vh - ws.h * cam.zoom) / 2);
@@ -271,7 +366,17 @@ export function FactoryGrid() {
       updateCameraClampRef.current = updateCameraClamp;
       fitCameraRef.current = fitCamera;
 
-      fitCamera();
+      // Загружаем сохраненную позицию камеры из БД
+      const savedCam = useGameStore.getState().grid;
+      if (typeof savedCam.cameraX === 'number' && typeof savedCam.cameraY === 'number' && typeof savedCam.cameraZoom === 'number') {
+        camRef.current.zoom = clamp(savedCam.cameraZoom, ZOOM_MIN, ZOOM_MAX);
+        camRef.current.x = savedCam.cameraX;
+        camRef.current.y = savedCam.cameraY;
+        camRef.current.interacted = true;
+        updateCameraClamp();
+      } else {
+        fitCamera();
+      }
 
       const onPointerDown = (e: PointerEvent) => {
         const rect = app.canvas.getBoundingClientRect();
@@ -364,10 +469,12 @@ export function FactoryGrid() {
         let bestDist = Infinity;
         for (let i = 0; i < links.length; i++) {
           const link = links[i];
-          const ax = GAP + link.from.x * (CELL + GAP) + CELL / 2;
-          const ay = GAP + link.from.y * (CELL + GAP) + CELL / 2;
-          const bx = GAP + link.to.x * (CELL + GAP) + CELL / 2;
-          const by = GAP + link.to.y * (CELL + GAP) + CELL / 2;
+          const fromPos = gridToPixel(link.from.x, link.from.y);
+          const toPos = gridToPixel(link.to.x, link.to.y);
+          const ax = fromPos.px;
+          const ay = fromPos.py;
+          const bx = toPos.px;
+          const by = toPos.py;
           const d = distPointToSegment(wp.x, wp.y, ax, ay, bx, by);
           if (d < bestDist) {
             bestDist = d;
@@ -399,6 +506,9 @@ export function FactoryGrid() {
           panRef.current.lastX = sx;
           panRef.current.lastY = sy;
           updateCameraClamp();
+          // Сохраняем позицию камеры в БД
+          setCameraPosition(camRef.current.x, camRef.current.y, camRef.current.zoom);
+          forceRender.current();
           return;
         }
 
@@ -421,16 +531,23 @@ export function FactoryGrid() {
           }
           return;
         }
+        
+        // Оптимизация: не проверяем hover при панорамировании или если линков слишком много
+        if (panRef.current.candidate || links.length > 200) {
+          return;
+        }
 
         const wp = screenToWorld(sx, sy);
 
         let bestKey: string | null = null;
         let bestDist = Infinity;
         for (const link of links) {
-          const ax = GAP + link.from.x * (CELL + GAP) + CELL / 2;
-          const ay = GAP + link.from.y * (CELL + GAP) + CELL / 2;
-          const bx = GAP + link.to.x * (CELL + GAP) + CELL / 2;
-          const by = GAP + link.to.y * (CELL + GAP) + CELL / 2;
+          const fromPos = gridToPixel(link.from.x, link.from.y);
+          const toPos = gridToPixel(link.to.x, link.to.y);
+          const ax = fromPos.px;
+          const ay = fromPos.py;
+          const bx = toPos.px;
+          const by = toPos.py;
           const d = distPointToSegment(wp.x, wp.y, ax, ay, bx, by);
           if (d < bestDist) {
             bestDist = d;
@@ -474,6 +591,25 @@ export function FactoryGrid() {
         cam.x = sx - before.x * cam.zoom;
         cam.y = sy - before.y * cam.zoom;
         updateCameraClamp();
+        // Сохраняем позицию камеры в БД
+        setCameraPosition(cam.x, cam.y, cam.zoom);
+        forceRender.current();
+        
+        // Автоматически расширяем сетку при отдалении
+        const s = useGameStore.getState();
+        const r = app.renderer;
+        const vw = r.width;
+        const vh = r.height;
+        
+        // Вычисляем сколько клеток видно в viewport при текущем зуме с запасом
+        const visibleCellsX = Math.ceil(vw / (cam.zoom * (CELL + GAP))) + 4;
+        const visibleCellsY = Math.ceil(vh / (cam.zoom * (CELL + GAP))) + 4;
+        
+        // Расширяем сетку если нужно
+        const minGridSize = Math.max(visibleCellsX, visibleCellsY);
+        if (s.grid.width < minGridSize || s.grid.height < minGridSize) {
+          s.expandGrid(minGridSize, minGridSize);
+        }
       };
 
       const onKeyDownLocal = (e: KeyboardEvent) => {
@@ -582,33 +718,87 @@ export function FactoryGrid() {
       }
     }
 
-    // Grid background
-    g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: THEME_COLORS.cyberDark, alpha: 0.25 });
+    // Grid background - темнее, как в Industry Idle
+    g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: 0x0a0e1a, alpha: 1.0 });
 
-    // Cells
-    for (let y = 0; y < grid.height; y++) {
-      for (let x = 0; x < grid.width; x++) {
+    // Draw hexagon helper
+    const drawHexagon = (g: PIXI.Graphics, cx: number, cy: number, radius: number) => {
+      const points: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 6; // Start from flat top
+        points.push(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle));
+      }
+      g.poly(points);
+    };
+
+    // Draw isometric tile helper
+    const drawIsoTile = (g: PIXI.Graphics, x: number, y: number, width: number, height: number) => {
+      // Diamond shape for isometric tile
+      g.poly([
+        x, y - height / 2,           // top
+        x + width / 2, y,            // right
+        x, y + height / 2,           // bottom
+        x - width / 2, y,            // left
+      ]);
+    };
+
+    // Оптимизация: вычисляем видимую область (culling)
+    const cam = camRef.current;
+    const renderer = app.renderer;
+    const viewportW = renderer.width;
+    const viewportH = renderer.height;
+    
+    // Мировые координаты видимой области
+    const worldLeft = -cam.x / cam.zoom;
+    const worldTop = -cam.y / cam.zoom;
+    const worldRight = worldLeft + viewportW / cam.zoom;
+    const worldBottom = worldTop + viewportH / cam.zoom;
+    
+    // Диапазон видимых клеток с небольшим запасом
+    const cellSize = CELL + GAP;
+    const minX = Math.max(0, Math.floor((worldLeft - GAP) / cellSize) - 1);
+    const maxX = Math.min(grid.width - 1, Math.ceil((worldRight - GAP) / cellSize) + 1);
+    const minY = Math.max(0, Math.floor((worldTop - GAP) / cellSize) - 1);
+    const maxY = Math.min(grid.height - 1, Math.ceil((worldBottom - GAP) / cellSize) + 1);
+    
+    // Показывать текст только при достаточном зуме, с гистерезисом для избежания мигания
+    const showText = cam.zoom > 0.4;
+    const showDetailedText = cam.zoom > 0.7;
+
+    // Cells - рисуем только видимые
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const k = `${x},${y}`;
         const hasBuilding = Boolean(grid.tiles[k]);
-
-        const px = GAP + x * (CELL + GAP);
-        const py = GAP + y * (CELL + GAP);
+        const { px, py } = gridToPixel(x, y);
 
         const isBase = x === grid.width - 1 && y === grid.height - 1;
         const fill = isBase
           ? THEME_COLORS.cyberGreen
           : hasBuilding
             ? THEME_COLORS.cyberBlue
-            : THEME_COLORS.cyberGray;
-        const alpha = isBase ? 0.22 : hasBuilding ? 0.25 : 0.12;
+            : THEME_COLORS.cyberDark;
+        const alpha = isBase ? 0.3 : hasBuilding ? 0.35 : 0.4;
 
-        g.roundRect(px, py, CELL, CELL, 4).fill({ color: fill, alpha });
+        // Draw tile based on mode
+        if (GRID_MODE === 'square') {
+          g.roundRect(px, py, CELL, CELL, 2).fill({ color: fill, alpha });
+        } else if (GRID_MODE === 'hex') {
+          drawHexagon(g, px, py, HEX_SIZE);
+          g.fill({ color: fill, alpha });
+        } else {
+          // Isometric
+          drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
+          g.fill({ color: fill, alpha });
+        }
 
         // Highlight: if this building needs inputs but local buffer is empty for any required resource.
         let strokeColor: number = THEME_COLORS.cyberGray;
         let strokeAlpha: number = 0.6;
         const missingResources: ResourceType[] = [];
-        if (!isBase && hasBuilding) {
+        
+        // Оптимизация: пропускаем детальную проверку ресурсов при сильном отдалении
+        if (!isBase && hasBuilding && showDetailedText) {
           const b = buildingsById[grid.tiles[k]];
           if (b?.consumption) {
             let missing = false;
@@ -630,38 +820,75 @@ export function FactoryGrid() {
           }
         }
 
-        g.roundRect(px, py, CELL, CELL, 4).stroke({ color: strokeColor, width: 1, alpha: strokeAlpha });
+        // Draw stroke - при сильном отдалении упрощаем или пропускаем
+        if (showText) {
+          if (GRID_MODE === 'square') {
+            g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: 1, alpha: strokeAlpha * 0.5 });
+          } else if (GRID_MODE === 'hex') {
+            drawHexagon(g, px, py, HEX_SIZE);
+            g.stroke({ color: strokeColor, width: 1, alpha: strokeAlpha * 0.6 });
+          } else {
+            drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
+            g.stroke({ color: strokeColor, width: 1.5, alpha: strokeAlpha });
+          }
+        }
 
-        if (textLayer) {
+        if (textLayer && showText) {
+          const textOffsetY = GRID_MODE === 'isometric' ? -8 : 0;
+          
           if (isBase) {
             const t = new PIXI.Text({
-              text: 'БАЗА',
+              text: '🏠',
               style: {
                 fill: THEME_COLORS.cyberGreen,
-                fontSize: 9,
+                fontSize: GRID_MODE === 'hex' ? 24 : 20,
                 fontWeight: '700',
               },
             });
             t.anchor.set(0.5, 0.5);
-            t.x = px + CELL / 2;
-            t.y = py + CELL / 2;
+            const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
+            const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+            t.x = centerX;
+            t.y = centerY + textOffsetY;
             textLayer.addChild(t);
           } else if (hasBuilding) {
-            const badge = getBuildingBadge(grid.tiles[k]);
+            const emoji = getBuildingEmoji(grid.tiles[k]);
+            const isBlocked = missingResources.length > 0;
+            
             const t = new PIXI.Text({
-              text: badge,
+              text: emoji,
               style: {
-                fill: THEME_COLORS.cyberText,
-                fontSize: 10,
+                fill: isBlocked ? THEME_COLORS.cyberRed : THEME_COLORS.cyberText,
+                fontSize: GRID_MODE === 'hex' ? 18 : 24,
                 fontWeight: '700',
               },
             });
             t.anchor.set(0.5, 0.5);
-            t.x = px + CELL / 2;
-            t.y = py + CELL / 2 - (missingResources.length > 0 ? 4 : 0);
+            const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
+            const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+            t.x = centerX;
+            t.y = centerY + textOffsetY - (isBlocked ? 6 : 0);
             textLayer.addChild(t);
 
-            if (missingResources.length > 0) {
+            // Warning icon когда заблокировано
+            if (isBlocked && showDetailedText) {
+              const warning = new PIXI.Text({
+                text: '⚠',
+                style: {
+                  fill: THEME_COLORS.cyberRed,
+                  fontSize: GRID_MODE === 'hex' ? 9 : 12,
+                  fontWeight: '700',
+                },
+              });
+              warning.anchor.set(0.5, 0.5);
+              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
+              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+              warning.x = centerX - (GRID_MODE === 'hex' ? 10 : 15);
+              warning.y = centerY + textOffsetY - 6;
+              textLayer.addChild(warning);
+            }
+
+            if (missingResources.length > 0 && showDetailedText) {
               const label = missingResources
                 .slice(0, 3)
                 .map((r) => RESOURCE_SHORT[r] ?? r.toUpperCase())
@@ -670,29 +897,35 @@ export function FactoryGrid() {
                 text: `НЕТ: ${label}`,
                 style: {
                   fill: THEME_COLORS.cyberRed,
-                  fontSize: 8,
+                  fontSize: GRID_MODE === 'hex' ? 7 : 9,
                   fontWeight: '700',
                 },
               });
               miss.anchor.set(0.5, 0.5);
-              miss.x = px + CELL / 2;
-              miss.y = py + CELL / 2 + 8;
+              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
+              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+              miss.x = centerX;
+              miss.y = centerY + textOffsetY + 10;
               textLayer.addChild(miss);
             }
           } else {
+            // Показываем месторождения только при большом зуме и когда нет зданий
             const dep = grid.deposits?.[k];
-            if (dep) {
+            if (dep && showText) {
               const t = new PIXI.Text({
-                text: DEPOSIT_LABEL[dep],
+                text: getDepositEmoji(dep),
                 style: {
-                  fill: THEME_COLORS.cyberGray,
-                  fontSize: 9,
+                  fill: THEME_COLORS.cyberText,
+                  fontSize: GRID_MODE === 'hex' ? 14 : 16,
                   fontWeight: '700',
                 },
               });
+              t.alpha = 0.4;
               t.anchor.set(0.5, 0.5);
-              t.x = px + CELL / 2;
-              t.y = py + CELL / 2;
+              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
+              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+              t.x = centerX;
+              t.y = centerY + textOffsetY;
               textLayer.addChild(t);
             }
           }
@@ -700,13 +933,23 @@ export function FactoryGrid() {
       }
     }
 
-    // Links
+    // Links - рисуем только если хотя бы одна из клеток видна
     if (grid.links.length > 0) {
       for (const link of grid.links) {
-        const fromX = GAP + link.from.x * (CELL + GAP) + CELL / 2;
-        const fromY = GAP + link.from.y * (CELL + GAP) + CELL / 2;
-        const toX = GAP + link.to.x * (CELL + GAP) + CELL / 2;
-        const toY = GAP + link.to.y * (CELL + GAP) + CELL / 2;
+        // Culling для линков - проверяем видимость
+        const isFromVisible = link.from.x >= minX && link.from.x <= maxX && 
+                              link.from.y >= minY && link.from.y <= maxY;
+        const isToVisible = link.to.x >= minX && link.to.x <= maxX && 
+                            link.to.y >= minY && link.to.y <= maxY;
+        
+        if (!isFromVisible && !isToVisible) continue;
+        
+        const fromPos = gridToPixel(link.from.x, link.from.y);
+        const toPos = gridToPixel(link.to.x, link.to.y);
+        const fromX = fromPos.px;
+        const fromY = fromPos.py;
+        const toX = toPos.px;
+        const toY = toPos.py;
 
         const color = link.resource === 'energy'
           ? THEME_COLORS.cyberText
@@ -730,9 +973,9 @@ export function FactoryGrid() {
         );
         const disabled = link.enabled === false;
         const disabledMult = disabled ? 0.25 : 1;
-        const lineAlpha = (isFocused ? 0.95 : isHovered ? 0.8 : 0.35) * disabledMult;
-        const lineWidth = isFocused ? 4.5 : isHovered ? 3.5 : 2;
-        const arrowAlpha = (isFocused ? 1.0 : isHovered ? 0.95 : 0.45) * disabledMult;
+        const lineAlpha = (isFocused ? 1.0 : isHovered ? 0.9 : 0.6) * disabledMult;
+        const lineWidth = isFocused ? 3.5 : isHovered ? 3 : 2;
+        const arrowAlpha = (isFocused ? 1.0 : isHovered ? 0.95 : 0.7) * disabledMult;
 
         g.moveTo(fromX, fromY)
           .lineTo(toX, toY)
@@ -745,7 +988,7 @@ export function FactoryGrid() {
         if (len > 1) {
           const ux = dx / len;
           const uy = dy / len;
-          const arrowSize = 7;
+          const arrowSize = 8;
           const backX = toX - ux * arrowSize;
           const backY = toY - uy * arrowSize;
           const perpX = -uy;
@@ -760,20 +1003,61 @@ export function FactoryGrid() {
             .lineTo(toX, toY)
             .lineTo(rightX, rightY)
             .stroke({ color, width: lineWidth, alpha: arrowAlpha });
+          
+          // Анимированная частица вдоль линка (только для активных линков)
+          if (!disabled && showText && len > 20) {
+            const moved = grid.linkMoved?.[key];
+            const movedAmt = moved ? D(moved) : D(0);
+            
+            if (movedAmt.gt(0)) {
+              // Позиция частицы - анимация циклическая
+              const time = Date.now() / 1000;
+              const speed = 0.5; // Скорость движения частицы
+              const progress = (time * speed) % 1;
+              
+              const particleX = fromX + (toX - fromX) * progress;
+              const particleY = fromY + (toY - fromY) * progress;
+              
+              // Рисуем частицу
+              g.circle(particleX, particleY, 3).fill({ color, alpha: 0.9 });
+              
+              // Текст с количеством (только при детальном зуме)
+              if (showDetailedText && textLayer) {
+                const flowText = new PIXI.Text({
+                  text: formatNumber(movedAmt),
+                  style: {
+                    fill: color,
+                    fontSize: 8,
+                    fontWeight: '600',
+                  },
+                });
+                flowText.anchor.set(0.5, 0.5);
+                flowText.x = particleX;
+                flowText.y = particleY - 8;
+                textLayer.addChild(flowText);
+              }
+            }
+          }
         }
       }
     }
 
     // Base marker (target)
-    const baseX = GAP + (grid.width - 1) * (CELL + GAP) + CELL / 2;
-    const baseY = GAP + (grid.height - 1) * (CELL + GAP) + CELL / 2;
-    g.circle(baseX, baseY, 6).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.7 });
+    const basePos = gridToPixel(grid.width - 1, grid.height - 1);
+    g.circle(basePos.px + CELL / 2, basePos.py + CELL / 2, 8).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.8 });
 
     // Linking highlight
     if (grid.linking) {
-      const px = GAP + grid.linking.anchor.x * (CELL + GAP);
-      const py = GAP + grid.linking.anchor.y * (CELL + GAP);
-      g.roundRect(px - 1, py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberBlue, width: 2, alpha: 0.9 });
+      const linkPos = gridToPixel(grid.linking.anchor.x, grid.linking.anchor.y);
+      if (GRID_MODE === 'square') {
+        g.roundRect(linkPos.px - 1, linkPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberBlue, width: 2, alpha: 0.9 });
+      } else if (GRID_MODE === 'hex') {
+        drawHexagon(g, linkPos.px, linkPos.py, HEX_SIZE + 2);
+        g.stroke({ color: THEME_COLORS.cyberBlue, width: 2.5, alpha: 0.9 });
+      } else {
+        drawIsoTile(g, linkPos.px, linkPos.py, ISO_TILE_WIDTH + 4, ISO_TILE_HEIGHT + 2);
+        g.stroke({ color: THEME_COLORS.cyberBlue, width: 2, alpha: 0.9 });
+      }
     }
 
     // Enemies (visual only)
@@ -799,28 +1083,27 @@ export function FactoryGrid() {
       }
 
       // faint line to base
-      g.moveTo(GAP, baseY).lineTo(worldSize.w - GAP, baseY).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
+      const basePos = gridToPixel(grid.width - 1, grid.height - 1);
+      g.moveTo(GAP, basePos.py).lineTo(worldSize.w - GAP, basePos.py).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
     }
 
     if (grid.selected) {
-      const px = GAP + grid.selected.x * (CELL + GAP);
-      const py = GAP + grid.selected.y * (CELL + GAP);
-      g.roundRect(px - 1, py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
+      const selPos = gridToPixel(grid.selected.x, grid.selected.y);
+      if (GRID_MODE === 'square') {
+        g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
+      } else if (GRID_MODE === 'hex') {
+        drawHexagon(g, selPos.px, selPos.py, HEX_SIZE + 2);
+        g.stroke({ color: THEME_COLORS.cyberGreen, width: 2.5, alpha: 0.9 });
+      } else {
+        drawIsoTile(g, selPos.px, selPos.py, ISO_TILE_WIDTH + 4, ISO_TILE_HEIGHT + 2);
+        g.stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
+      }
     }
-  }, [buildingsById, combat.enemies, grid.buffers, grid.focusedLink, grid.height, grid.linking, grid.links, grid.selected, grid.tiles, grid.width, hoveredLinkKey, worldSize.h, worldSize.w]);
+  }, [grid, combat.enemies, hoveredLinkKey, worldSize, buildingsById, renderTrigger]);
 
   return (
-    <div className="h-full w-full p-4 md:border-r border-b md:border-b-0 border-cyber-gray bg-cyber-dark/50">
-      <div className="cyber-panel h-full overflow-hidden flex flex-col">
-        <div className="text-xs text-gray-500 mb-2 flex items-center justify-between shrink-0">
-          <div>Сетка фабрики</div>
-          <div>{grid.selectedBuildId ? 'Режим строительства: ВКЛ' : 'Режим строительства: ВЫКЛ'}</div>
-        </div>
-        <div className="text-[11px] text-gray-600 mb-2 shrink-0">
-          Линии: наведи — подсветка · ПКМ — удалить · Shift+ЛКМ — выбрать · Delete — удалить выбранную
-        </div>
-        <div ref={containerRef} className="w-full flex-1 min-h-0" />
-      </div>
+    <div className="h-full w-full" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>
+      <div ref={containerRef} className="w-full h-full" />
     </div>
   );
 }

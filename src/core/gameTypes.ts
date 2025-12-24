@@ -223,6 +223,11 @@ export interface GridState {
   // Per-tile market policies for trade resources (fallback behavior).
   // key = "x,y"; value = per-resource toggles.
   marketPolicy?: Record<string, Partial<Record<TradeResourceType, { import?: boolean; export?: boolean }>>>;
+  
+  // Camera persistence
+  cameraX?: number;
+  cameraY?: number;
+  cameraZoom?: number;
 }
 
 export interface GameState {
@@ -252,6 +257,8 @@ export interface GameState {
   loadGame: () => Promise<void>;
   saveGame: () => Promise<void>;
   selectTile: (pos: GridCoord | null) => void;
+  setCameraPosition: (x: number, y: number, zoom: number) => void;
+  expandGrid: (minWidth: number, minHeight: number) => void;
   selectBuild: (buildingId: string | null) => void;
   placeSelectedBuildAt: (pos: GridCoord) => void;
   removeBuildingAt: (pos: GridCoord) => void;

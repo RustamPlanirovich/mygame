@@ -57,55 +57,45 @@ export function BuildDock() {
   }, [buildings, resources]);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-cyber-gray bg-cyber-dark">
-      <div className="px-3 py-2 flex items-center gap-2">
-        <div className="flex items-center gap-2 shrink-0 text-xs text-gray-500">
-          <Hammer size={14} className="text-cyber-green" />
-          <span>Строительство</span>
-        </div>
+    <div className="bg-cyber-dark p-2.5">
+      <div className="flex items-center gap-2 mb-2">
+        <Hammer size={14} className="text-cyber-green" />
+        <span className="text-xs font-medium text-cyber-text">Строительство</span>
+      </div>
 
-        <div className="flex-1 overflow-x-auto">
-          <div className="flex items-stretch gap-2 min-w-max">
-            {buildings.map((b) => {
-              const Icon = getBuildingIcon(b.id);
-              const isSelected = selectedBuildId === b.id;
-              const canAfford = affordability[b.id];
+      <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+        {buildings.map((b) => {
+          const Icon = getBuildingIcon(b.id);
+          const isSelected = selectedBuildId === b.id;
+          const canAfford = affordability[b.id];
 
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  title={buildTitle(b)}
-                  onClick={() => selectBuild(isSelected ? null : b.id)}
-                  className={
-                    `cyber-button px-3 py-2 h-10 flex items-center gap-2 ` +
-                    (isSelected ? 'border-cyber-green' : '') +
-                    (!canAfford && !isSelected ? ' opacity-50 cursor-not-allowed' : '')
-                  }
-                  disabled={!canAfford && !isSelected}
-                >
-                  <Icon size={16} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
-                  <div className="flex flex-col items-start leading-none">
-                    <span className="text-[11px] font-semibold text-cyber-text whitespace-nowrap">{b.name}</span>
-                    <span className="text-[10px] text-gray-500 whitespace-nowrap">ур. {b.count}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => selectBuild(null)}
-          className="cyber-button px-3 py-2 h-10 shrink-0"
-          title="Снять выбор здания"
-        >
-          <div className="flex items-center gap-2">
-            <X size={14} className="text-cyber-green" />
-            <span className="text-xs">Снять</span>
-          </div>
-        </button>
+          return (
+            <button
+              key={b.id}
+              type="button"
+              title={buildTitle(b)}
+              onClick={() => selectBuild(isSelected ? null : b.id)}
+              className={
+                `w-full flex items-center gap-2 p-2 rounded transition-all border ` +
+                (isSelected 
+                  ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
+                  : canAfford 
+                    ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
+                    : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
+              }
+              disabled={!canAfford && !isSelected}
+            >
+              <Icon size={16} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+              <div className="flex-1 text-left">
+                <div className="text-xs font-medium">{b.name}</div>
+                <div className="text-[10px] text-cyber-text-dim">Ур. {b.count}</div>
+              </div>
+              {isSelected && (
+                <X size={14} className="text-cyber-green" />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

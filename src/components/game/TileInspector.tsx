@@ -142,7 +142,9 @@ export function TileInspector() {
     const outputs = Object.entries(building.production ?? {}).map(([res, perSecond]) => {
       const r = res as ResourceType;
       const prodPerSec = D(perSecond);
-      return { r, prodPerSec, target: r === 'energy' ? 'база' : 'буфер' };
+      // Базовые ресурсы идут сразу на базу
+      const isBasicResource = ['energy', 'ore', 'ice', 'carbon'].includes(r);
+      return { r, prodPerSec, target: isBasicResource ? 'база' : 'буфер' };
     });
 
     const hasInputs = inputs.some((i) => i.needPerSec.gt(0));
@@ -237,22 +239,22 @@ export function TileInspector() {
           <Search size={18} className="text-cyber-green" />
           <span>Инспектор</span>
         </h2>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-cyber-text-dim">
           {grid.selected ? `Клетка: (${grid.selected.x}, ${grid.selected.y})` : 'Выберите клетку'}
         </div>
       </div>
 
       <div className="cyber-panel">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="text-xs text-gray-600">
+          <div className="text-xs text-cyber-text-dim">
             Режим строительства:{' '}
             {selectedBuild ? (
-              <span className="text-gray-300 inline-flex items-center gap-2">
-                {SelectedBuildIcon ? <SelectedBuildIcon size={14} className="text-gray-300" /> : null}
+              <span className="text-cyber-text inline-flex items-center gap-2">
+                {SelectedBuildIcon ? <SelectedBuildIcon size={14} className="text-cyber-text" /> : null}
                 <span>{selectedBuild.name}</span>
               </span>
             ) : (
-              <span className="text-gray-500">выкл</span>
+              <span className="text-cyber-text-dim">выкл</span>
             )}
           </div>
           {selectedBuild ? (
@@ -264,26 +266,26 @@ export function TileInspector() {
 
         {grid.linking ? (
           <div className="mb-3 p-2 rounded border border-cyber-gray bg-cyber-dark/40">
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-cyber-text-dim">
               {grid.linking.mode === 'export' ? (
                 <>
-                  Экспорт <span className="text-gray-700">из</span>{' '}
-                  <span className="text-gray-300">
+                  Экспорт <span className="text-cyber-gray-light">из</span>{' '}
+                  <span className="text-cyber-text">
                     ({grid.linking.anchor.x},{grid.linking.anchor.y})
                   </span>{' '}
-                  <span className="text-gray-700">→</span>{' '}
-                  <span className="text-gray-300">{RESOURCE_LABEL[grid.linking.resource]}</span>
-                  <span className="text-gray-500"> · кликните по клетке-цели</span>
+                  <span className="text-cyber-gray-light">→</span>{' '}
+                  <span className="text-cyber-text">{RESOURCE_LABEL[grid.linking.resource]}</span>
+                  <span className="text-cyber-text-dim"> · кликните по клетке-цели</span>
                 </>
               ) : (
                 <>
-                  Импорт <span className="text-gray-700">в</span>{' '}
-                  <span className="text-gray-300">
+                  Импорт <span className="text-cyber-gray-light">в</span>{' '}
+                  <span className="text-cyber-text">
                     ({grid.linking.anchor.x},{grid.linking.anchor.y})
                   </span>{' '}
-                  <span className="text-gray-700">←</span>{' '}
-                  <span className="text-gray-300">{RESOURCE_LABEL[grid.linking.resource]}</span>
-                  <span className="text-gray-500"> · кликните по клетке-источнику</span>
+                  <span className="text-cyber-gray-light">←</span>{' '}
+                  <span className="text-cyber-text">{RESOURCE_LABEL[grid.linking.resource]}</span>
+                  <span className="text-cyber-text-dim"> · кликните по клетке-источнику</span>
                 </>
               )}
             </div>
@@ -294,18 +296,18 @@ export function TileInspector() {
         ) : null}
 
         {!grid.selected ? (
-          <div className="text-sm text-gray-600">Выбери клетку на сетке слева.</div>
+          <div className="text-sm text-cyber-text-dim">Выбери клетку на сетке слева.</div>
         ) : isBaseSelected ? (
           <div className="space-y-2">
-            <div className="text-sm text-gray-500">База</div>
+            <div className="text-sm text-cyber-text-dim">База</div>
 
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-cyber-text-dim">
               Это склад (sink). Все ресурсы, которыми ты строишь и которые продаёшь на обмене, лежат здесь.
             </div>
 
             <div className="pt-2 border-t border-cyber-gray/50">
-              <div className="text-xs text-gray-500 mb-2">Склад базы</div>
-              <div className="text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+              <div className="text-xs text-cyber-text-dim mb-2">Склад базы</div>
+              <div className="text-xs text-cyber-text-dim flex flex-wrap gap-x-3 gap-y-1">
                 {(['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'] as ResourceType[]).map((r) => {
                   const raw = grid.buffers.base?.[r];
                   const amt = raw ? D(raw) : D(0);
@@ -313,8 +315,8 @@ export function TileInspector() {
                   const full = max.gt(0) && amt.gte(max);
                   return (
                     <div key={r}>
-                      <span className="text-gray-500">{RESOURCE_LABEL[r]}:</span>{' '}
-                      <span className={`font-mono ${full ? 'text-cyber-red' : 'text-gray-300'}`}>
+                      <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}:</span>{' '}
+                      <span className={`font-mono ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
                         {formatNumber(amt)} / {formatNumber(max)}
                       </span>
                       {full ? <span className="text-cyber-red"> (ПОЛНО)</span> : null}
@@ -324,32 +326,32 @@ export function TileInspector() {
               </div>
 
               <div className="mt-3 pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Прогресс</div>
-                <div className="text-xs text-gray-600 space-y-1">
+                <div className="text-xs text-cyber-text-dim mb-2">Прогресс</div>
+                <div className="text-xs text-cyber-text-dim space-y-1">
                   <div>
-                    Кубиты: <span className="text-gray-300">{formatNumber(meta.qubits)}</span>
-                    <span className="text-gray-700"> · Энергии за цикл: {formatNumber(meta.lifetimeEnergyProduced)}</span>
+                    Кубиты: <span className="text-cyber-text">{formatNumber(meta.qubits)}</span>
+                    <span className="text-cyber-gray-light"> · Энергии за цикл: {formatNumber(meta.lifetimeEnergyProduced)}</span>
                   </div>
                   <div>
                     Итоговые множители:{' '}
-                    <span className="text-gray-700">скорость x</span>
-                    <span className="text-gray-300">{progressionUi.speedMult.toFixed(2)}</span>
-                    <span className="text-gray-700">{progressionUi.overclockerPaid ? ' (Overclocker)' : ''}</span>
-                    <span className="text-gray-700"> · пропускная </span>
-                    <span className="text-gray-300">{formatNumber(progressionUi.bandwidth)}</span>
-                    <span className="text-gray-700">/с · лимиты x</span>
-                    <span className="text-gray-300">{formatNumber(progressionUi.capsMult)}</span>
-                    <span className="text-gray-700"> · маржа x</span>
-                    <span className="text-gray-300">{progressionUi.tradeMult.toFixed(2)}</span>
-                    <span className="text-gray-700"> · оборона x</span>
-                    <span className="text-gray-300">{formatNumber(progressionUi.combatMult)}</span>
+                    <span className="text-cyber-gray-light">скорость x</span>
+                    <span className="text-cyber-text">{progressionUi.speedMult.toFixed(2)}</span>
+                    <span className="text-cyber-gray-light">{progressionUi.overclockerPaid ? ' (Overclocker)' : ''}</span>
+                    <span className="text-cyber-gray-light"> · пропускная </span>
+                    <span className="text-cyber-text">{formatNumber(progressionUi.bandwidth)}</span>
+                    <span className="text-cyber-gray-light">/с · лимиты x</span>
+                    <span className="text-cyber-text">{formatNumber(progressionUi.capsMult)}</span>
+                    <span className="text-cyber-gray-light"> · маржа x</span>
+                    <span className="text-cyber-text">{progressionUi.tradeMult.toFixed(2)}</span>
+                    <span className="text-cyber-gray-light"> · оборона x</span>
+                    <span className="text-cyber-text">{formatNumber(progressionUi.combatMult)}</span>
                   </div>
                 </div>
               </div>
 
               <div className="mt-3 pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Оборона</div>
-                <div className="text-xs text-gray-600 space-y-1">
+                <div className="text-xs text-cyber-text-dim mb-2">Оборона</div>
+                <div className="text-xs text-cyber-text-dim space-y-1">
                   <div>
                     Турели: {defenseUi.turretNeed.gt(0)
                       ? `${formatNumber(defenseUi.turretUsed)}⚡/с из ${formatNumber(defenseUi.turretNeed)}⚡/с · эффективность ${Math.round(defenseUi.turretPct * 100)}%`
@@ -371,7 +373,7 @@ export function TileInspector() {
                     </div>
                   ) : null}
                   {defenseUi.shieldAbsorb.gt(0) ? (
-                    <div className="text-gray-700">
+                    <div className="text-cyber-gray-light">
                       Поглощение щитом: {formatNumber(defenseUi.shieldAbsorb)}/с
                     </div>
                   ) : null}
@@ -379,11 +381,11 @@ export function TileInspector() {
               </div>
 
               {baseIncomingLinks.length > 0 ? (
-                <div className="mt-2 text-xs text-gray-600">
+                <div className="mt-2 text-xs text-cyber-text-dim">
                   Входящие линии в базу: {baseIncomingLinks.map((l) => `${RESOURCE_LABEL[l.resource]} ← (${l.from.x},${l.from.y})`).join(' · ')}
                 </div>
               ) : (
-                <div className="mt-2 text-xs text-gray-700">В базу пока нет входящих линий.</div>
+                <div className="mt-2 text-xs text-cyber-gray-light">В базу пока нет входящих линий.</div>
               )}
             </div>
           </div>
@@ -395,7 +397,7 @@ export function TileInspector() {
                   {PlacedBuildIcon ? <PlacedBuildIcon size={16} className="text-cyber-blue" /> : null}
                   <span>{building.name}</span>
                 </div>
-                <div className="text-xs text-gray-600">На клетке · Всего установлено: {building.count}</div>
+                <div className="text-xs text-cyber-text-dim">На клетке · Всего установлено: {building.count}</div>
               </div>
               <button
                 className="cyber-button text-xs py-2 px-3"
@@ -405,55 +407,55 @@ export function TileInspector() {
               </button>
             </div>
 
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-cyber-text-dim">
               Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
             </div>
 
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-cyber-text-dim">
               Производство здания начнётся автоматически (если хватает входных ресурсов).
             </div>
 
             {focusedLinkContext ? (
               <div className="pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Контекст выбранной линии</div>
-                <div className="text-xs text-gray-600">
-                  Ресурс: <span className="text-gray-300">{RESOURCE_LABEL[focusedLinkContext.resource]}</span>{' '}
-                  <span className="text-gray-500">
+                <div className="text-xs text-cyber-text-dim mb-2">Контекст выбранной линии</div>
+                <div className="text-xs text-cyber-text-dim">
+                  Ресурс: <span className="text-cyber-text">{RESOURCE_LABEL[focusedLinkContext.resource]}</span>{' '}
+                  <span className="text-cyber-text-dim">
                     ({grid.focusedLink!.from.x},{grid.focusedLink!.from.y}) → ({grid.focusedLink!.to.x},{grid.focusedLink!.to.y})
                   </span>
                 </div>
 
                 {focusedLinkContext.selectedRole === 'from' ? (
-                  <div className="mt-2 text-xs text-gray-600">
+                  <div className="mt-2 text-xs text-cyber-text-dim">
                     <div>
-                      Это источник линии. Сейчас в источнике: <span className="text-gray-300">{formatNumber(focusedLinkContext.fromHave)}</span> ·
-                      за последний тик ушло: <span className="text-gray-300">{formatNumber(focusedLinkContext.moved)}</span>
+                      Это источник линии. Сейчас в источнике: <span className="text-cyber-text">{formatNumber(focusedLinkContext.fromHave)}</span> ·
+                      за последний тик ушло: <span className="text-cyber-text">{formatNumber(focusedLinkContext.moved)}</span>
                     </div>
                     {focusedLinkContext.resource === 'energy' ? (
-                      <div className="text-gray-500 mt-1">Энергия хранится на базе; линии энергии обычно не нужны.</div>
+                      <div className="text-cyber-text-dim mt-1">Энергия хранится на базе; линии энергии обычно не нужны.</div>
                     ) : focusedLinkContext.prodPerSec.gt(0) ? (
-                      <div className="text-gray-500 mt-1">
+                      <div className="text-cyber-text-dim mt-1">
                         Это здание производит {RESOURCE_LABEL[focusedLinkContext.resource]}: {formatNumber(focusedLinkContext.prodPerSec)}/с
                         {ioInfo?.hasInputs && ioInfo.isBlocked ? ` · блок: нет ${ioInfo.missingList.map((r) => RESOURCE_LABEL[r]).join(', ')}` : ''}
                       </div>
                     ) : (
-                      <div className="text-gray-500 mt-1">
+                      <div className="text-cyber-text-dim mt-1">
                         Это здание НЕ производит {RESOURCE_LABEL[focusedLinkContext.resource]}. Возможно, источник линии выбран неверно.
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="mt-2 text-xs text-gray-600">
+                  <div className="mt-2 text-xs text-cyber-text-dim">
                     <div>
-                      Это цель линии. Сейчас в цели: <span className="text-gray-300">{formatNumber(focusedLinkContext.toHave)}</span>
-                      {focusedLinkContext.toIsBase ? <span className="text-gray-500"> (база)</span> : null}
+                      Это цель линии. Сейчас в цели: <span className="text-cyber-text">{formatNumber(focusedLinkContext.toHave)}</span>
+                      {focusedLinkContext.toIsBase ? <span className="text-cyber-text-dim"> (база)</span> : null}
                     </div>
                     {focusedLinkContext.needPerSec.gt(0) ? (
-                      <div className="text-gray-500 mt-1">
+                      <div className="text-cyber-text-dim mt-1">
                         Это здание потребляет {RESOURCE_LABEL[focusedLinkContext.resource]}: {formatNumber(focusedLinkContext.needPerSec)}/с
                       </div>
                     ) : (
-                      <div className="text-gray-500 mt-1">
+                      <div className="text-cyber-text-dim mt-1">
                         Это здание не требует {RESOURCE_LABEL[focusedLinkContext.resource]} как вход.
                       </div>
                     )}
@@ -464,38 +466,39 @@ export function TileInspector() {
 
             {ioInfo?.hasInputs ? (
               <div className="text-xs">
-                <span className="text-gray-500">Статус:</span>{' '}
+                <span className="text-cyber-text-dim">Статус:</span>{' '}
                 {ioInfo.isBlocked ? (
                   <span className="text-cyber-red font-bold">
                     ЗАБЛОКИРОВАНО
                     {ioInfo.missingList.length > 0 ? ` (нет: ${ioInfo.missingList.map((r) => RESOURCE_LABEL[r]).join(', ')})` : ''}
                   </span>
                 ) : (
-                  <span className="text-gray-300 font-bold">ОК</span>
+                  <span className="text-cyber-text font-bold">ОК</span>
                 )}
               </div>
             ) : null}
 
-            <div className="text-xs text-gray-700">
-              Для переработчиков: подведи входящие соединения нужных ресурсов — они должны приехать в буфер клетки.
+            <div className="text-[10px] text-cyber-gray-light italic mb-2">
+              💡 Базовые ресурсы (⚡энергия, руда, лёд, углерод) автоматически поступают на базу<br/>
+              🔧 Переработчикам (сталь, т.м.) нужны линки для доставки входов в буфер клетки
             </div>
 
             {ioInfo?.hasInputs ? (
               <div className="pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Входы</div>
+                <div className="text-xs text-cyber-text-dim mb-2">Входы</div>
                 <div className="space-y-1">
                   {ioInfo.inputs
                     .filter((i) => i.needPerSec.gt(0))
                     .map((i) => (
                       <div key={i.r} className="flex items-center justify-between text-xs">
-                        <div className={i.missing ? 'text-cyber-red' : 'text-gray-300'}>
+                        <div className={i.missing ? 'text-cyber-red' : 'text-cyber-text'}>
                           {RESOURCE_LABEL[i.r]}
-                          <span className="text-gray-500"> · {i.source}</span>
+                          <span className="text-cyber-text-dim"> · {i.source}</span>
                           {i.missing ? <span className="text-cyber-red"> · нет ресурса</span> : null}
                         </div>
-                        <div className={`font-mono ${i.missing ? 'text-cyber-red' : 'text-gray-500'}`}>
+                        <div className={`font-mono ${i.missing ? 'text-cyber-red' : 'text-cyber-text-dim'}`}>
                           {formatNumber(i.needPerSec)}/с
-                          <span className="text-gray-700"> · есть {formatNumber(i.have)}</span>
+                          <span className="text-cyber-gray-light"> · есть {formatNumber(i.have)}</span>
                         </div>
                       </div>
                     ))}
@@ -510,21 +513,21 @@ export function TileInspector() {
 
             {ioInfo?.hasOutputs ? (
               <div className="pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Выходы</div>
+                <div className="text-xs text-cyber-text-dim mb-2">Выходы</div>
                 <div className="space-y-1">
                   {ioInfo.outputs
                     .filter((o) => o.prodPerSec.gt(0))
                     .map((o) => {
-                      const isEnergyToBase = o.r === 'energy';
-                      const blockedByCap = isEnergyToBase && resources.energy.max.gt(0) && resources.energy.amount.gte(resources.energy.max);
+                      const isBasicResource = ['energy', 'ore', 'ice', 'carbon'].includes(o.r);
+                      const blockedByCap = isBasicResource && resources[o.r].max.gt(0) && resources[o.r].amount.gte(resources[o.r].max);
                       return (
                         <div key={o.r} className="flex items-center justify-between text-xs">
-                          <div className={blockedByCap ? 'text-cyber-red' : 'text-gray-300'}>
+                          <div className={blockedByCap ? 'text-cyber-red' : 'text-cyber-text'}>
                             {RESOURCE_LABEL[o.r]}
-                            <span className="text-gray-500"> · {o.target}</span>
+                            <span className="text-cyber-text-dim"> · {o.target}</span>
                             {blockedByCap ? <span className="text-cyber-red"> · выход переполнен</span> : null}
                           </div>
-                          <div className={`font-mono ${blockedByCap ? 'text-cyber-red' : 'text-gray-500'}`}>
+                          <div className={`font-mono ${blockedByCap ? 'text-cyber-red' : 'text-cyber-text-dim'}`}>
                             {formatNumber(o.prodPerSec)}/с
                           </div>
                         </div>
@@ -535,16 +538,56 @@ export function TileInspector() {
             ) : null}
 
             <div className="pt-2 border-t border-cyber-gray/50">
-                <div className="text-xs text-gray-500 mb-2">Буфер клетки</div>
-                <div className="text-xs text-gray-700">Локальный буфер клетки (перед отправкой по линиям)</div>
-                <div className="text-xs text-gray-600">
-                  {(['energy', 'ore', 'ice', 'carbon', 'steel'] as ResourceType[])
-                    .map((r) => `${RESOURCE_LABEL[r]}: ${formatNumber(tileBuffer?.[r] ? D(tileBuffer[r]!) : D(0))}`)
-                    .join(' · ')}
+                <div className="text-xs text-cyber-text-dim mb-2">Локальный буфер клетки</div>
+                <div className="text-[10px] text-cyber-gray-light mb-2 italic">
+                  ℹ️ Базовые ресурсы (⚡энергия, руда, лёд, углерод) идут сразу на базу<br/>
+                  💎 Переработанные ресурсы (сталь, тёмная материя) нужно транспортировать линками
+                </div>
+                <div className="space-y-1.5">
+                  {(['ore', 'ice', 'carbon', 'steel', 'dark_matter'] as ResourceType[])
+                    .filter((r) => {
+                      const buf = tileBuffer?.[r] ? D(tileBuffer[r]!) : D(0);
+                      const prod = building.production?.[r] ? D(building.production[r]!) : D(0);
+                      const cons = building.consumption?.[r] ? D(building.consumption[r]!) : D(0);
+                      return buf.gt(0) || prod.gt(0) || cons.gt(0);
+                    })
+                    .map((r) => {
+                      const buf = tileBuffer?.[r] ? D(tileBuffer[r]!) : D(0);
+                      // Примерный "cap" для визуализации - используем 100 единиц как базу
+                      const estimatedCap = D(100);
+                      const fillPct = Math.min(100, Number(buf.div(estimatedCap).mul(100).toString()));
+                      const isNearFull = fillPct > 80;
+                      
+                      return (
+                        <div key={r} className="space-y-0.5">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}</span>
+                            <span className={`font-mono ${isNearFull ? 'text-cyber-red' : 'text-cyber-text'}`}>
+                              {formatNumber(buf)}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-cyber-gray/20 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full transition-all ${isNearFull ? 'bg-cyber-red' : 'bg-cyber-blue'}`}
+                              style={{ width: `${fillPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {(['ore', 'ice', 'carbon', 'steel', 'dark_matter'] as ResourceType[])
+                    .filter((r) => {
+                      const buf = tileBuffer?.[r] ? D(tileBuffer[r]!) : D(0);
+                      const prod = building.production?.[r] ? D(building.production[r]!) : D(0);
+                      const cons = building.consumption?.[r] ? D(building.consumption[r]!) : D(0);
+                      return buf.lte(0) && prod.lte(0) && cons.lte(0);
+                    }).length === 5 ? (
+                    <div className="text-[10px] text-cyber-gray-light italic">Буфер пуст</div>
+                  ) : null}
                 </div>
 
-                <div className="text-xs text-gray-500 mt-3 mb-2">Линии (соединения)</div>
-                <div className="text-[10px] text-gray-700 mb-2">
+                <div className="text-xs text-cyber-text-dim mt-3 mb-2">Линии (соединения)</div>
+                <div className="text-[10px] text-cyber-gray-light mb-2">
                   <div>Click: выбрать клетку</div>
                   <div>Shift+Click по линии: выбрать линию</div>
                   <div>Right Click по линии: удалить линию</div>
@@ -589,26 +632,26 @@ export function TileInspector() {
                       }
 
                       return (
-                        <div className="text-xs text-gray-600 mb-2">
+                        <div className="text-xs text-cyber-text-dim mb-2">
                           <div>
-                            За последний тик: <span className="text-gray-300">{formatNumber(moved)}</span>
+                            За последний тик: <span className="text-cyber-text">{formatNumber(moved)}</span>
                           </div>
-                          <div className="text-gray-500">
+                          <div className="text-cyber-text-dim">
                             Источник сейчас: {formatNumber(fromHave)} · Цель сейчас: {formatNumber(toHave)}{toIsBase ? ' (база)' : ''}
                           </div>
                           {hint ? (
-                            <div className="text-gray-500">{hint}</div>
+                            <div className="text-cyber-text-dim">{hint}</div>
                           ) : null}
 
                           {dt > 0 && moved.lte(0) && fromHave.lte(0) && link.resource !== 'energy' ? (
                             <div className="mt-2">
-                              <div className="text-gray-500">Что должно кормить источник (1 шаг):</div>
+                              <div className="text-cyber-text-dim">Что должно кормить источник (1 шаг):</div>
                               {upstream.length > 0 ? (
                                 <div className="mt-1 space-y-1">
                                   {upstream.map((u, idx) => (
                                     <button
                                       key={`${u.resource}-${u.from.x}-${u.from.y}-${idx}`}
-                                      className="text-gray-600 hover:text-gray-300 underline-offset-2 hover:underline"
+                                      className="text-cyber-text-dim hover:text-cyber-text underline-offset-2 hover:underline"
                                       onClick={() => selectTile({ x: u.from.x, y: u.from.y })}
                                       title="Перейти к источнику этой линии"
                                     >
@@ -617,17 +660,17 @@ export function TileInspector() {
                                   ))}
                                 </div>
                               ) : (
-                                <div className="text-gray-500 mt-1">Нет входящих линий в источник.</div>
+                                <div className="text-cyber-text-dim mt-1">Нет входящих линий в источник.</div>
                               )}
                             </div>
                           ) : null}
                         </div>
                       );
                     })()}
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-cyber-text-dim">
                       Выбрана линия:{' '}
-                      <span className="text-gray-300">{RESOURCE_LABEL[grid.focusedLink.resource]}</span>{' '}
-                      <span className="text-gray-500">
+                      <span className="text-cyber-text">{RESOURCE_LABEL[grid.focusedLink.resource]}</span>{' '}
+                      <span className="text-cyber-text-dim">
                         ({grid.focusedLink.from.x},{grid.focusedLink.from.y}) → ({grid.focusedLink.to.x},{grid.focusedLink.to.y})
                       </span>
                       {grid.focusedLink.enabled === false ? <span className="text-cyber-red"> · выкл</span> : null}
@@ -692,11 +735,11 @@ export function TileInspector() {
 
                 {incomingLinks.length > 0 ? (
                   <div className="mt-2 space-y-1">
-                    <div className="text-xs text-gray-500">Входящие</div>
+                    <div className="text-xs text-cyber-text-dim">Входящие</div>
                     {incomingLinks.map((l, idx) => (
                       <div key={`${l.resource}-${l.from.x}-${l.from.y}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
                         <button
-                          className="text-gray-600 hover:text-gray-300 underline-offset-2 hover:underline"
+                          className="text-cyber-text-dim hover:text-cyber-text underline-offset-2 hover:underline"
                           onClick={() => selectTile({ x: l.from.x, y: l.from.y })}
                           title="Выбрать клетку-источник"
                         >
@@ -721,7 +764,7 @@ export function TileInspector() {
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-2 text-xs text-gray-700">Входящих соединений нет.</div>
+                  <div className="mt-2 text-xs text-cyber-gray-light">Входящих соединений нет.</div>
                 )}
 
                 {outgoingLinks.length > 0 ? (
@@ -729,7 +772,7 @@ export function TileInspector() {
                     {outgoingLinks.map((l, idx) => (
                       <div key={`${l.resource}-${l.to.x}-${l.to.y}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
                         <button
-                          className="text-gray-600 hover:text-gray-300 underline-offset-2 hover:underline"
+                          className="text-cyber-text-dim hover:text-cyber-text underline-offset-2 hover:underline"
                           onClick={() => selectTile({ x: l.to.x, y: l.to.y })}
                           title="Выбрать клетку-цель"
                         >
@@ -754,12 +797,17 @@ export function TileInspector() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-xs text-gray-700 mt-2">Исходящих соединений нет.</div>
+                  <div className="text-xs text-cyber-gray-light mt-2">Исходящих соединений нет.</div>
                 )}
 
                 {selectedKey ? (
                   <div className="mt-3 pt-2 border-t border-cyber-gray/50">
-                    <div className="text-xs text-gray-500 mb-2">Политика рынка (fallback)</div>
+                    <div className="text-xs text-cyber-text-dim mb-2">Политика рынка (автоторговля)</div>
+                    <div className="text-[10px] text-cyber-gray-light mb-2 italic">
+                      💡 ИМП: Автоматически докупать ресурс с рынка если не хватает для производства<br/>
+                      💡 ЭКС: Автоматически продавать излишки ресурса → конвертация в ⚡энергию<br/>
+                      ⚠️ Автопродажа останавливается если энергия {'>'} 85% (чтобы не терять прибыль)
+                    </div>
                     <div className="space-y-1">
                       {(['ore', 'ice', 'carbon', 'steel'] as TradeResourceType[]).map((r) => {
                         const p = (tileMarketPolicy as any)[r] as { import?: boolean; export?: boolean } | undefined;
@@ -767,7 +815,7 @@ export function TileInspector() {
                         const exp = Boolean(p?.export);
                         return (
                           <div key={r} className="flex items-center justify-between gap-2 text-xs">
-                            <div className="text-gray-600">{RESOURCE_LABEL[r]}</div>
+                            <div className="text-cyber-text-dim">{RESOURCE_LABEL[r]}</div>
                             <div className="flex items-center gap-2">
                               <button
                                 className={`cyber-button text-xs py-1 px-2 ${imp ? '' : 'opacity-50'}`}
@@ -794,26 +842,26 @@ export function TileInspector() {
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="text-sm text-gray-500">Пустая клетка</div>
+            <div className="text-sm text-cyber-text-dim">Пустая клетка</div>
 
             {deposit ? (
-              <div className="text-xs text-gray-600">
-                Месторождение: <span className="text-gray-300">{RESOURCE_LABEL[deposit]}</span>
+              <div className="text-xs text-cyber-text-dim">
+                Месторождение: <span className="text-cyber-text">{RESOURCE_LABEL[deposit]}</span>
               </div>
             ) : (
-              <div className="text-xs text-gray-700">Месторождений нет.</div>
+              <div className="text-xs text-cyber-gray-light">Месторождений нет.</div>
             )}
 
             {selectedBuild ? (
               <>
-                <div className="text-xs text-gray-600">
-                  Готово к установке: <span className="text-gray-300">{selectedBuild.name}</span>
+                <div className="text-xs text-cyber-text-dim">
+                  Готово к установке: <span className="text-cyber-text">{selectedBuild.name}</span>
                 </div>
 
                 {selectedBuildCost ? (
-                  <div className="text-xs text-gray-600">
+                  <div className="text-xs text-cyber-text-dim">
                     Стоимость:{' '}
-                    <span className="text-gray-500">
+                    <span className="text-cyber-text-dim">
                       {Object.entries(selectedBuildCost)
                         .map(([res, amt]) => {
                           const r = res as ResourceType;
@@ -855,12 +903,12 @@ export function TileInspector() {
                   ПОСТАВИТЬ ЗДЕСЬ
                 </button>
 
-                <div className="text-xs text-gray-700">
+                <div className="text-xs text-cyber-gray-light">
                   Подсказка: можно ставить несколько раз — просто кликай по другим клеткам.
                 </div>
               </>
             ) : (
-              <div className="text-xs text-gray-600">
+              <div className="text-xs text-cyber-text-dim">
                 Выбери здание справа (кнопка «ВЫБРАТЬ»), затем поставь его на клетку.
               </div>
             )}

@@ -27,7 +27,7 @@ export function DemonsPanel() {
           <Skull size={18} className="text-cyber-green" />
           <span>Демоны</span>
         </h2>
-        <div className="text-xs text-gray-500">аренда за ⚡/с</div>
+        <div className="text-xs text-cyber-text-dim">аренда за ⚡/с</div>
       </div>
 
       <div className="space-y-2">
@@ -38,16 +38,19 @@ export function DemonsPanel() {
           const effective = active && paid;
 
           return (
-            <div key={id} className={`cyber-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-cyber-blue transition-colors ${active ? 'border-cyber-green' : ''}`}>
+            <div key={id} className={`cyber-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-cyber-blue transition-colors ${active ? (paid ? 'border-cyber-green' : 'border-cyber-red') : ''}`}>
               <div>
-                <div className="text-cyber-blue font-bold">{def.name}</div>
-                <div className="text-xs text-gray-500">{def.description}</div>
-                <div className="text-xs text-gray-600 mt-1">
-                  Аренда: <span className="text-gray-300">{formatNumber(def.energyPerSecond)}⚡/с</span>
-                  <span className="text-gray-700"> · Статус: {active ? 'ВКЛ' : 'ВЫКЛ'}</span>
+                <div className="flex items-center gap-2">
+                  <div className="text-cyber-blue font-bold">{def.name}</div>
+                  {active && !paid && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyber-red/20 text-cyber-red border border-cyber-red/50">НЕ ОПЛАЧЕНО</span>}
+                </div>
+                <div className="text-xs text-cyber-text-dim">{def.description}</div>
+                <div className="text-xs text-cyber-text-dim mt-1">
+                  Аренда: <span className="text-cyber-text">{formatNumber(def.energyPerSecond)}⚡/с</span>
+                  <span className="text-cyber-gray-light"> · Статус: {active ? 'ВКЛ' : 'ВЫКЛ'}</span>
                   {active ? (
-                    <span className={effective ? 'text-gray-700' : 'text-cyber-blue'}>
-                      {' '}· {effective ? 'оплачено' : 'не оплачено'}
+                    <span className={effective ? 'text-cyber-green' : 'text-cyber-red'}>
+                      {' '}· {effective ? '✓ оплачено' : '✗ недостаточно энергии'}
                     </span>
                   ) : null}
                 </div>
@@ -65,15 +68,18 @@ export function DemonsPanel() {
       </div>
 
       {oracleHint ? (
-        <div className="text-xs text-gray-600 mt-3">
-          Oracle: выгоднее всего сейчас <span className="text-gray-300">{oracleHint.name}</span>
-          <span className="text-gray-700"> · ROI ≈ {oracleHint.roi}с</span>
+        <div className="text-xs text-cyber-text-dim mt-3">
+          Oracle: выгоднее всего сейчас <span className="text-cyber-text">{oracleHint.name}</span>
+          <span className="text-cyber-gray-light"> · ROI ≈ {oracleHint.roi}с</span>
         </div>
-      ) : (
-        <div className="text-xs text-gray-600 mt-3">
-          Эффекты демонов работают только если аренда оплачена (хватает ⚡ на базе).
+      ) : null}
+      
+      <div className="text-xs text-cyber-text-dim mt-3">
+        <div>💡 Эффекты демонов работают только если аренда оплачена (хватает ⚡ на базе).</div>
+        <div className="text-[10px] text-cyber-gray-light mt-1 italic">
+          ⚠️ Smart Broker не продаёт ресурсы если энергия {'>'} 85% (чтобы не терять прибыль)
         </div>
-      )}
+      </div>
     </div>
   );
 }

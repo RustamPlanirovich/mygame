@@ -20,7 +20,7 @@ const ICON_BY_RESOURCE: Record<ResourceType, any> = {
 function productionTone(p: Decimal) {
   if (p.gt(0)) return 'text-cyber-green';
   if (p.lt(0)) return 'text-cyber-red';
-  return 'text-gray-500';
+  return 'text-cyber-text-dim';
 }
 
 export function ResourcePanel() {
@@ -36,10 +36,21 @@ export function ResourcePanel() {
       .map((k) => k as ResourceType);
   }, [pins, resources]);
 
+  // Проверяем переполнение складов
+  const hasFullStorage = useMemo(() => {
+    return Object.values(resources).some(r => r.max.gt(0) && r.amount.gte(r.max.mul(0.95)));
+  }, [resources]);
+
   return (
-    <div className="bg-cyber-dark border-b border-cyber-gray px-3 sm:px-4 py-2 relative">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-3 overflow-x-auto flex-1">
+    <div className="bg-cyber-dark border-b border-cyber-gray px-4 py-3 relative">
+      {hasFullStorage && (
+        <div className="mb-2 px-3 py-2 rounded bg-cyber-red/10 border border-cyber-red/50 flex items-center gap-2">
+          <span className="text-xs text-cyber-red font-bold">⚠️ СКЛАД ПЕРЕПОЛНЕН</span>
+          <span className="text-[10px] text-cyber-red">Постройте "Малый Конденсатор" или "Складской Модуль" для увеличения лимитов!</span>
+        </div>
+      )}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 overflow-x-auto flex-1">
           {pinned.map((key) => {
             const r = resources[key];
             const full = r.max.gt(0) && r.amount.gte(r.max);
@@ -50,13 +61,13 @@ export function ResourcePanel() {
             return (
               <div
                 key={key}
-                className={`shrink-0 flex items-center gap-2 px-2 py-1 rounded ${tone}`}
+                className={`shrink-0 flex items-center gap-2.5 px-3 py-2 rounded bg-cyber-darker/50 border border-cyber-gray/30 ${tone}`}
                 title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${r.production.gt(0) ? '+' : ''}${formatNumber(r.production)}/с`}
               >
-                <Icon size={16} />
+                <Icon size={18} />
                 <div className="flex items-baseline gap-2">
-                  <span className={`font-mono text-sm font-bold ${full ? 'text-cyber-red' : ''}`}>{formatNumber(r.amount)}</span>
-                  <span className={`text-[11px] font-mono ${productionTone(r.production)}`}>
+                  <span className={`font-mono text-base font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>{formatNumber(r.amount)}</span>
+                  <span className={`text-xs font-mono ${productionTone(r.production)}`}>
                     ({r.production.gt(0) ? '+' : ''}{formatNumber(r.production)}/с)
                   </span>
                 </div>
