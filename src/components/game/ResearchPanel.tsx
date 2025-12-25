@@ -4,6 +4,7 @@ import { formatNumber } from '../../core/math/format.ts';
 import type { UpgradeId } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { Microscope } from 'lucide-react';
+import { TechTreePanel } from './TechTreePanel';
 import {
   UPGRADE_DEFS,
   computeBandwidth,
@@ -115,6 +116,11 @@ export function ResearchPanel() {
 
       <div className="text-xs text-cyber-text-dim mb-2">
         Чертежи: <span className="text-cyber-text">{formatNumber(meta.blueprints)}</span>
+      </div>
+
+      {/* Tech Tree */}
+      <div className="mb-4">
+        <TechTreePanel />
       </div>
 
       <div className="text-xs text-cyber-text-dim mb-3">

@@ -4,7 +4,7 @@ import { D, formatNumber } from '../../core/math/format.ts';
 import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Search } from 'lucide-react';
+import { Search, ArrowUp, ArrowDown } from 'lucide-react';
 import {
   computeBandwidth,
   computeCapsMultiplier,
@@ -25,9 +25,12 @@ export function TileInspector() {
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
   const removeBuildingAt = useGameStore((s) => s.removeBuildingAt);
   const setTileMarketPolicy = useGameStore((s) => s.setTileMarketPolicy);
+  const upgradeBuildingAt = useGameStore((s) => s.upgradeBuildingAt);
+  const downgradeBuildingAt = useGameStore((s) => s.downgradeBuildingAt);
 
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
+  const buildingLevel = selectedKey ? (grid.tileLevels?.[selectedKey] || 1) : 1;
 
   const tileMarketPolicy = selectedKey ? (grid.marketPolicy?.[selectedKey] ?? {}) : {};
 
@@ -289,6 +292,7 @@ export function TileInspector() {
                 <div className="text-cyber-blue font-bold flex items-center gap-2">
                   {PlacedBuildIcon ? <PlacedBuildIcon size={16} className="text-cyber-blue" /> : null}
                   <span>{building.name}</span>
+                  <span className="text-cyber-green text-sm">Ур. {buildingLevel}</span>
                 </div>
                 <div className="text-xs text-cyber-text-dim">На клетке · Всего установлено: {building.count}</div>
               </div>
@@ -298,6 +302,37 @@ export function TileInspector() {
               >
                 СНЕСТИ
               </button>
+            </div>
+
+            {/* ФАЗА 8.5: Система уровней зданий */}
+            <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
+              <div className="text-xs text-cyber-text-dim mb-2">⬆️ Улучшение здания</div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="flex-1 bg-green-600/80 hover:bg-green-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => upgradeBuildingAt(grid.selected!)}
+                  disabled={buildingLevel >= 500}
+                >
+                  <ArrowUp size={14} />
+                  <span>Улучшить (Ур. {buildingLevel + 1})</span>
+                </button>
+                <button
+                  className="flex-1 bg-orange-600/80 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => downgradeBuildingAt(grid.selected!)}
+                  disabled={buildingLevel <= 1}
+                >
+                  <ArrowDown size={14} />
+                  <span>Понизить (Ур. {buildingLevel - 1})</span>
+                </button>
+              </div>
+              <div className="text-[10px] text-cyber-gray-light mt-2 space-y-0.5">
+                <div>💡 Каждый уровень умножает производство и потребление</div>
+                <div>💰 Стоимость улучшения растет экспоненциально (x1.15)</div>
+                <div>💸 Понижение возвращает 50% стоимости предыдущего уровня</div>
+                <div>🎯 Производство на уровне {buildingLevel}: {Object.entries(building.production ?? {}).map(([res, amt]) => 
+                  `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel))}/с`
+                ).join(', ') || 'нет'}</div>
+              </div>
             </div>
 
             <div className="text-xs text-cyber-text-dim">

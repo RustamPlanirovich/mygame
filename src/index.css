@@ -36,3 +36,227 @@ body {
     @apply border border-cyber-gray bg-cyber-dark p-4;
   }
 }
+
+/* Animations for event notifications */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes countdown {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+.animate-countdown {
+  animation: countdown 10s linear;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Smooth fade-in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Slide up animation */
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Pulse animation for important elements */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(0, 255, 157, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(0, 255, 157, 0.6);
+  }
+}
+
+/* Scale in animation */
+@keyframes scale-in {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.3s ease-out;
+}
+
+/* Mobile Adaptations */
+@media (max-width: 767px) {
+  /* Уменьшаем размеры шрифтов */
+  body {
+    font-size: 14px;
+  }
+
+  /* Компактные кнопки */
+  .cyber-button {
+    @apply px-3 py-2 text-sm;
+  }
+
+  /* Уменьшаем padding в панелях */
+  .cyber-panel {
+    @apply p-2;
+  }
+
+  /* Компактные карточки */
+  .resource-card, .building-card {
+    @apply text-xs p-2;
+  }
+
+  /* Скрываем некоторые элементы на мобильных */
+  .hide-on-mobile {
+    display: none !important;
+  }
+
+  /* Увеличиваем размер touch-элементов */
+  button, .clickable {
+    min-height: 44px; /* Minimum touch target size */
+    min-width: 44px;
+  }
+
+  /* Полноширинные модальные окна */
+  .modal-content {
+    @apply w-full h-full max-w-none max-h-none rounded-none;
+  }
+
+  /* Компактные input элементы */
+  input, select, textarea {
+    @apply text-sm py-1 px-2;
+  }
+
+  /* Уменьшаем gaps */
+  .grid-compact {
+    @apply gap-2;
+  }
+}
+
+/* Tablet Adaptations */
+@media (min-width: 768px) and (max-width: 1023px) {
+  body {
+    font-size: 15px;
+  }
+
+  .cyber-button {
+    @apply px-4 py-2;
+  }
+
+  .cyber-panel {
+    @apply p-3;
+  }
+
+  /* Частично скрываем элементы на планшетах */
+  .hide-on-tablet {
+    display: none !important;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Убираем hover эффекты для touch устройств */
+  .hover\\:bg-cyber-green:hover {
+    background-color: transparent;
+  }
+
+  /* Увеличиваем размер кликабельных элементов */
+  button, a, .clickable {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  /* Убираем анимации для лучшей производительности */
+  * {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}
+
+/* Landscape mode для мобильных */
+@media (max-width: 767px) and (orientation: landscape) {
+  /* Уменьшаем вертикальные размеры */
+  .cyber-panel {
+    @apply py-1;
+  }
+
+  /* Горизонтальная компоновка где возможно */
+  .stack-on-portrait {
+    @apply flex-row;
+  }
+}
+
+/* High DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Оптимизируем для retina */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01s !important;
+  }
+}
+
+/* Dark mode (already dark, but ensures it) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #0a0a12;
+    --text-color: #e8e8f0;
+  }
+}

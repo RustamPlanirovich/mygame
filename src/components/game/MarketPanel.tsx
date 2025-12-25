@@ -3,8 +3,9 @@ import { useGameStore } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type { TradeResourceType } from '../../core/gameTypes';
 import { TRADE_LABEL } from '../../core/constants/labels';
-import { computeTradeMultiplier } from '../../core/constants/progression';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, TrendingUp, Gift } from 'lucide-react';
+import { ContractsPanel } from './ContractsPanel';
+import { TradingPanel } from './TradingPanel';
 
 const TRADEABLE: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
 
@@ -51,10 +52,11 @@ function PriceChart({ points }: { points: Array<{ t: number; price: string }> })
 export function MarketPanel() {
   const market = useGameStore((s) => s.market);
   const resources = useGameStore((s) => s.resources);
+  const currency = useGameStore((s) => s.currency);
   const sellResource = useGameStore((s) => s.sellResource);
   const buyResource = useGameStore((s) => s.buyResource);
-  const levels = useGameStore((s) => s.research.levels);
 
+  const [tab, setTab] = useState<'spot' | 'contracts' | 'trading'>('spot');
   const [selected, setSelected] = useState<TradeResourceType>('ore');
   const [qty, setQty] = useState<string>('10');
   const [now, setNow] = useState<number>(() => Date.now());
@@ -64,16 +66,15 @@ export function MarketPanel() {
     return () => window.clearInterval(id);
   }, []);
 
-  const tradeMult = useMemo(() => computeTradeMultiplier(levels), [levels]);
-
   const secondsLeft = useMemo(() => {
     const ms = Math.max(0, market.nextUpdateAt - now);
     return Math.ceil(ms / 1000);
   }, [market.nextUpdateAt, now]);
 
-  const price = market.prices[selected];
-  const sellUnit = price.mul(D(tradeMult));
-  const buyUnit = price.div(D(tradeMult)).max(D(0));
+  const basePrice = market.prices[selected];
+  const eventMult = market.event?.multiplier ?? 1.0;
+  const sellUnit = basePrice.mul(D(eventMult)); // Sell at market price with event modifier
+  const buyUnit = basePrice.mul(D(eventMult)).mul(D(1.3)); // Buy at +30% markup
 
   const points = market.history?.[selected] ?? [];
   const chartStats = useMemo(() => {
@@ -86,9 +87,9 @@ export function MarketPanel() {
   const qtyDec = Number.isFinite(qtyNum) && qtyNum > 0 ? D(qtyNum) : D(0);
 
   const have = resources[selected].amount;
-  const energy = resources.energy.amount;
+  const credits = currency.credits;
   const room = resources[selected].max.sub(have).max(D(0));
-  const affordable = buyUnit.gt(0) ? energy.div(buyUnit).max(D(0)) : D(0);
+  const affordable = buyUnit.gt(0) ? credits.div(buyUnit).max(D(0)) : D(0);
   const maxBuy = room.min(affordable);
 
   const canBuy = qtyDec.gt(0) && maxBuy.gt(0);
@@ -102,14 +103,107 @@ export function MarketPanel() {
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
           <ArrowLeftRight size={18} className="text-cyber-green" />
-          <span>Терминал</span>
+          <span>Рынок</span>
         </h2>
         <div className="text-xs text-cyber-text-dim">
           Обновление через: {secondsLeft}с · Событие: <span className="text-cyber-text">{market.event.name}</span>
-          <span className="text-cyber-text-dim"> · Маржа: x{tradeMult.toFixed(2)}</span>
+          <span className={`ml-1 ${eventMult > 1 ? 'text-green-400' : eventMult < 1 ? 'text-red-400' : 'text-cyber-text'}`}>
+            ×{eventMult.toFixed(1)}
+          </span>
         </div>
       </div>
+{/* Tabs */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setTab('spot')}
+          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+            tab === 'spot'
+              ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
+              : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
+          }`}
+        >
+          <ArrowLeftRight className="w-4 h-4 inline mr-1" />
+          Спот
+        </button>
+        <button
+          onClick={() => setTab('contracts')}
+          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+            tab === 'contracts'
+              ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
+              : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
+          }`}
+        >
+          <Gift className="w-4 h-4 inline mr-1" />
+          Контракты
+        </button>
+        <button
+          onClick={() => setTab('trading')}
+          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+            tab === 'trading'
+              ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
+              : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4 inline mr-1" />
+          Биржа
+        </button>
+      </div>
 
+      {/* Tab Content */}
+      {tab === 'spot' && (
+        <SpotTradingContent
+          selected={selected}
+          setSelected={setSelected}
+          qty={qty}
+          setQty={setQty}
+          resources={resources}
+          credits={credits}
+          canBuy={canBuy}
+          canSell={canSell}
+          estBuyCost={estBuyCost}
+          estSellGain={estSellGain}
+          sellUnit={sellUnit}
+          buyUnit={buyUnit}
+          have={have}
+          maxBuy={maxBuy}
+          chartStats={chartStats}
+          points={points}
+          buyResource={buyResource}
+          sellResource={sellResource}
+          qtyNum={qtyNum}
+          qtyDec={qtyDec}
+        />
+      )}
+      {tab === 'contracts' && <ContractsPanel />}
+      {tab === 'trading' && <TradingPanel />}
+    </div>
+  );
+}
+
+// Spot Trading Tab Component
+function SpotTradingContent({
+  selected,
+  setSelected,
+  qty,
+  setQty,
+  resources,
+  credits,
+  canBuy,
+  canSell,
+  estBuyCost,
+  estSellGain,
+  sellUnit,
+  buyUnit,
+  have,
+  maxBuy,
+  chartStats,
+  points,
+  buyResource,
+  sellResource,
+  qtyNum,
+  qtyDec,
+}: any) {
+  return (
       <div className="space-y-3">
         {/* Выбор ресурса */}
         <div className="cyber-panel">
@@ -139,11 +233,11 @@ export function MarketPanel() {
           </div>
         </div>
 
-        {/* Заголовок и энергия */}
+        {/* Заголовок и кредиты */}
         <div className="flex items-baseline justify-between">
-          <div className="text-lg text-cyber-blue font-bold">{TRADE_LABEL[selected]}</div>
+          <div className="text-lg text-cyber-blue font-bold">{TRADE_LABEL[selected as TradeResourceType]}</div>
           <div className="text-xs text-cyber-text-dim">
-            ⚡ {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
+            💰 {formatNumber(credits)} кредитов
           </div>
         </div>
 
@@ -191,7 +285,7 @@ export function MarketPanel() {
           <div className="text-sm text-cyber-blue font-semibold mb-2">💰 Купить</div>
           <div className="grid grid-cols-2 gap-2 text-xs mb-3">
             <div className="text-cyber-text-dim">
-              Цена: <span className="text-cyber-text">{formatNumber(buyUnit)} ⚡</span>
+              Цена: <span className="text-cyber-text">{formatNumber(buyUnit)} ₡</span>
             </div>
             <div className="text-cyber-text-dim text-right">
               Макс: <span className="text-cyber-text">{formatNumber(maxBuy)}</span>
@@ -200,7 +294,7 @@ export function MarketPanel() {
           
           {qtyDec.gt(0) && (
             <div className="text-sm text-cyber-text-dim mb-3">
-              Стоимость: <span className="text-cyber-blue font-semibold text-lg">{formatNumber(estBuyCost)} ⚡</span>
+              Стоимость: <span className="text-cyber-blue font-semibold text-lg">{formatNumber(estBuyCost)} ₡</span>
             </div>
           )}
           
@@ -222,7 +316,7 @@ export function MarketPanel() {
           <div className="text-sm text-cyber-green font-semibold mb-2">💵 Продать</div>
           <div className="grid grid-cols-2 gap-2 text-xs mb-3">
             <div className="text-cyber-text-dim">
-              Цена: <span className="text-cyber-text">{formatNumber(sellUnit)} ⚡</span>
+              Цена: <span className="text-cyber-text">{formatNumber(sellUnit)} ₡</span>
             </div>
             <div className="text-cyber-text-dim text-right">
               В наличии: <span className="text-cyber-text">{formatNumber(have)}</span>
@@ -231,7 +325,7 @@ export function MarketPanel() {
           
           {qtyDec.gt(0) && (
             <div className="text-sm text-cyber-text-dim mb-3">
-              Получите: <span className="text-cyber-green font-semibold text-lg">{formatNumber(estSellGain)} ⚡</span>
+              Получите: <span className="text-cyber-green font-semibold text-lg">{formatNumber(estSellGain)} ₡</span>
             </div>
           )}
           
@@ -259,6 +353,5 @@ export function MarketPanel() {
           ) : null}
         </div>
       </div>
-    </div>
   );
 }

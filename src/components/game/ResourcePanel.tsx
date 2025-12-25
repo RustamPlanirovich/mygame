@@ -42,53 +42,50 @@ export function ResourcePanel() {
   }, [resources]);
 
   return (
-    <div className="bg-cyber-dark border-b border-cyber-gray px-4 py-3 relative">
+    <div className="px-3 py-2 relative flex items-center gap-2 flex-1">
+      {/* Переполнение склада - компактное предупреждение */}
       {hasFullStorage && (
-        <div className="mb-2 px-3 py-2 rounded bg-cyber-red/10 border border-cyber-red/50 flex items-center gap-2">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-red/10 border border-cyber-red/30">
           <span className="text-xs text-cyber-red font-bold">⚠️ СКЛАД ПЕРЕПОЛНЕН</span>
-          <span className="text-[10px] text-cyber-red">Постройте "Малый Конденсатор" или "Складской Модуль" для увеличения лимитов!</span>
         </div>
       )}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-4 overflow-x-auto flex-1">
-          {pinned.map((key) => {
-            const r = resources[key];
-            const full = r.max.gt(0) && r.amount.gte(r.max);
+      {/* Ресурсы */}
+      <div className="flex items-center gap-2 overflow-x-auto flex-1">
+        {pinned.map((key) => {
+          const r = resources[key];
+          const full = r.max.gt(0) && r.amount.gte(r.max);
 
-            const Icon = ICON_BY_RESOURCE[key];
-            const tone = key === 'energy' ? 'text-cyber-green' : 'text-cyber-blue';
+          const Icon = ICON_BY_RESOURCE[key];
+          const tone = key === 'energy' ? 'text-cyber-green' : 'text-cyber-blue';
 
-            return (
-              <div
-                key={key}
-                className={`shrink-0 flex items-center gap-2.5 px-3 py-2 rounded bg-cyber-darker/50 border border-cyber-gray/30 ${tone}`}
-                title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${r.production.gt(0) ? '+' : ''}${formatNumber(r.production)}/с`}
-              >
-                <Icon size={18} />
-                <div className="flex items-center gap-2">
-                  <span className={`font-mono text-base font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
-                    {formatNumber(r.amount)}
-                  </span>
-                  {full ? <span className="text-[10px] text-cyber-red font-sans ml-1">ПОЛНО</span> : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <button
-          ref={buttonRef}
-          type="button"
-          className="cyber-button px-3 py-2 h-9 shrink-0"
-          onClick={() => setOpen((v) => !v)}
-          title="Открыть склад и закрепление ресурсов"
-        >
-          <div className="flex items-center gap-2">
-            <PackageOpen size={14} className="text-cyber-green" />
-            <span className="text-xs">Склад</span>
-          </div>
-        </button>
+          return (
+            <div
+              key={key}
+              className={`shrink-0 flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-darker/50 border border-cyber-gray/30 ${tone}`}
+              title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${r.production.gt(0) ? '+' : ''}${formatNumber(r.production)}/с`}
+            >
+              <Icon size={14} />
+              <span className={`font-mono text-xs font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
+                {formatNumber(r.amount)}
+              </span>
+              {full && <span className="text-[9px] text-cyber-red font-sans">ПОЛНО</span>}
+            </div>
+          );
+        })}
       </div>
+
+      <button
+        ref={buttonRef}
+        type="button"
+        className="cyber-button px-2 py-1 shrink-0"
+        onClick={() => setOpen((v) => !v)}
+        title="Открыть склад и закрепление ресурсов"
+      >
+        <div className="flex items-center gap-1.5">
+          <PackageOpen size={12} className="text-cyber-green" />
+          <span className="text-xs">Склад</span>
+        </div>
+      </button>
 
       <WarehousePopover
         open={open}

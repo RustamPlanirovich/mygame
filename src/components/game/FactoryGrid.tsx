@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
 import { THEME_COLORS } from '../../core/constants/themeColors';
 import { useGameStore, getBasePos } from '../../features/gameStore';
 import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
 import { formatNumber, D } from '../../core/math/format';
 import type { Building, ResourceType } from '../../core/gameTypes';
+import { ProximityWarningModal } from './ProximityWarningModal';
+import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
+import { getPowerSources, isInRadius, isBuildingPowered } from '../../utils/powerGridHelpers';
+import { getLogisticsHubs, isInLogisticsZone, calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 
 // Hexagonal grid constants (flat-top hexagons)
 const HEX_SIZE = 28; // Radius of hexagon
@@ -87,6 +91,13 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export function FactoryGrid() {
+  // Состояние для модального окна предупреждений
+  const [pendingPlacement, setPendingPlacement] = useState<{
+    x: number;
+    y: number;
+    buildingId: string;
+  } | null>(null);
+
   // КРИТИЧНО: Подписываемся только на нужные части стейта, чтобы избежать лишних ререндеров
   const grid = useGameStore((s) => ({
     tiles: s.grid.tiles,
@@ -332,7 +343,24 @@ export function FactoryGrid() {
         selectTile(pos);
 
         if (s.grid.selectedBuildId) {
-          placeSelectedBuildAt(pos);
+          // Найдем здание по ID
+          const building = s.buildings.find(b => b.id === s.grid.selectedBuildId);
+          if (!building) {
+            placeSelectedBuildAt(pos);
+            return;
+          }
+
+          // Проверяем правила близости
+          const check = checkBuildingPlacement(x, y, building, s.buildings, s.grid.tiles);
+          
+          // Если нет предупреждений или качество хорошее - строим сразу
+          if (check.warnings.length === 0 || 
+              (check.quality === 'optimal' || check.quality === 'good')) {
+            placeSelectedBuildAt(pos);
+          } else {
+            // Показываем модальное окно с предупреждениями
+            setPendingPlacement({ x, y, buildingId: s.grid.selectedBuildId });
+          }
         }
       };
 
@@ -601,14 +629,20 @@ export function FactoryGrid() {
 
         // If init hasn't finished yet, it will self-destroy in the async init block.
         if (initializedRef.current) {
-          app.destroy(
-            { removeView: true },
-            {
+          try {
+            // Удаляем canvas вручную перед destroy
+            if (app.canvas && app.canvas.parentNode) {
+              app.canvas.parentNode.removeChild(app.canvas);
+            }
+            // Destroy без параметров или с одним объектом опций
+            app.destroy(true, {
               children: true,
               texture: true,
               textureSource: true,
-            },
-          );
+            });
+          } catch (e) {
+            console.warn('Error destroying PixiJS app:', e);
+          }
         }
       }
       appRef.current = null;
@@ -861,6 +895,198 @@ export function FactoryGrid() {
       }
     }
 
+    // Создаем список всех зданий с координатами (используется для энергосети и логистики)
+    const allBuildingsWithCoords: Building[] = [];
+    for (const [key, buildingId] of Object.entries(grid.tiles)) {
+      const coords = key.split(',').map(Number);
+      if (coords.length === 2) {
+        const building = buildingsById[buildingId];
+        if (building) {
+          allBuildingsWithCoords.push({
+            ...building,
+            coord: { x: coords[0], y: coords[1] }
+          });
+        }
+      }
+    }
+
+    // ФАЗА 8.2: ВИЗУАЛИЗАЦИЯ ЭНЕРГОСЕТИ
+    // Отображаем зоны покрытия энергосети, если зум достаточный
+    if (showText && cam.zoom > 0.5) {
+      const powerSources = getPowerSources(allBuildingsWithCoords);
+
+      // Рисуем зоны покрытия энергосети
+      for (const { building, radius } of powerSources) {
+        if (!building.coord) continue;
+
+        const { x: cx, y: cy } = building.coord;
+
+        // Рисуем только видимые клетки для оптимизации
+        const rangeMinX = Math.max(minX, cx - radius);
+        const rangeMaxX = Math.min(maxX, cx + radius);
+        const rangeMinY = Math.max(minY, cy - radius);
+        const rangeMaxY = Math.min(maxY, cy + radius);
+
+        // Подсвечиваем покрытые клетки
+        for (let x = rangeMinX; x <= rangeMaxX; x++) {
+          for (let y = rangeMinY; y <= rangeMaxY; y++) {
+            if (isInRadius(cx, cy, x, y, radius)) {
+              const { px, py } = gridToPixel(x, y);
+              g.rect(px, py, CELL, CELL).fill({ color: 0x22c55e, alpha: 0.08 });
+            }
+          }
+        }
+
+        // Рисуем контур радиуса (ромб для манхэттенского расстояния)
+        const centerPixel = gridToPixel(cx, cy);
+        const centerX = centerPixel.px + CELL / 2;
+        const centerY = centerPixel.py + CELL / 2;
+        
+        g.setStrokeStyle({ color: 0x22c55e, width: 1.5, alpha: 0.3 })
+         .moveTo(centerX, centerY - radius * (CELL + GAP))
+         .lineTo(centerX + radius * (CELL + GAP), centerY)
+         .lineTo(centerX, centerY + radius * (CELL + GAP))
+         .lineTo(centerX - radius * (CELL + GAP), centerY)
+         .closePath()
+         .stroke();
+
+        // Иконка источника энергии
+        if (showDetailedText && textLayer) {
+          const powerIcon = getTextFromPool('⚡', TEXT_STYLES.base);
+          powerIcon.anchor.set(0.5, 0.5);
+          powerIcon.x = centerX;
+          powerIcon.y = centerY - CELL / 4;
+          powerIcon.alpha = 0.7;
+        }
+      }
+
+      // Подсвечиваем здания без энергопокрытия красной рамкой
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const k = `${x},${y}`;
+          const buildingId = grid.tiles[k];
+          if (!buildingId) continue;
+
+          const building = buildingsById[buildingId];
+          if (!building) continue;
+
+          // Пропускаем источники энергии
+          if (building.powerGridRadius && building.powerGridRadius > 0) continue;
+
+          // Проверяем энергопокрытие
+          const isPowered = isBuildingPowered({ x, y }, allBuildingsWithCoords);
+          
+          if (!isPowered) {
+            const { px, py } = gridToPixel(x, y);
+            // Красная пульсирующая рамка
+            const pulse = Math.sin(Date.now() / 500) * 0.2 + 0.6;
+            g.roundRect(px + 2, py + 2, CELL - 4, CELL - 4, 2)
+             .stroke({ color: 0xef4444, width: 2, alpha: pulse });
+
+            // Иконка предупреждения
+            if (showDetailedText && textLayer) {
+              const warningIcon = getTextFromPool('⚠', TEXT_STYLES.warning);
+              warningIcon.anchor.set(0, 0);
+              warningIcon.x = px + 4;
+              warningIcon.y = py + 4;
+              warningIcon.style.fill = 0xef4444;
+            }
+          }
+        }
+      }
+    }
+
+    // ФАЗА 8.3: ВИЗУАЛИЗАЦИЯ ЛОГИСТИЧЕСКОЙ СЕТИ
+    // Отображаем зоны покрытия логистики (склады и логистические центры)
+    if (showText && cam.zoom > 0.6) {
+      const logisticsHubs = getLogisticsHubs(allBuildingsWithCoords);
+
+      // Рисуем зоны покрытия логистической сети
+      for (const { building, radius } of logisticsHubs) {
+        if (!building.coord) continue;
+
+        const { x: cx, y: cy } = building.coord;
+
+        // Рисуем только видимые клетки для оптимизации
+        const rangeMinX = Math.max(minX, cx - radius);
+        const rangeMaxX = Math.min(maxX, cx + radius);
+        const rangeMinY = Math.max(minY, cy - radius);
+        const rangeMaxY = Math.min(maxY, cy + radius);
+
+        // Подсвечиваем покрытые клетки (синий цвет для логистики)
+        for (let x = rangeMinX; x <= rangeMaxX; x++) {
+          for (let y = rangeMinY; y <= rangeMaxY; y++) {
+            if (isInLogisticsZone(cx, cy, x, y, radius)) {
+              const { px, py } = gridToPixel(x, y);
+              g.rect(px, py, CELL, CELL).fill({ color: 0x3b82f6, alpha: 0.06 });
+            }
+          }
+        }
+
+        // Рисуем контур радиуса логистики
+        const centerPixel = gridToPixel(cx, cy);
+        const centerX = centerPixel.px + CELL / 2;
+        const centerY = centerPixel.py + CELL / 2;
+        
+        g.setStrokeStyle({ color: 0x3b82f6, width: 1.5, alpha: 0.25 })
+         .moveTo(centerX, centerY - radius * (CELL + GAP))
+         .lineTo(centerX + radius * (CELL + GAP), centerY)
+         .lineTo(centerX, centerY + radius * (CELL + GAP))
+         .lineTo(centerX - radius * (CELL + GAP), centerY)
+         .closePath()
+         .stroke();
+
+        // Иконка логистического узла
+        if (showDetailedText && textLayer) {
+          const logisticsIcon = getTextFromPool('📦', TEXT_STYLES.base);
+          logisticsIcon.anchor.set(0.5, 0.5);
+          logisticsIcon.x = centerX;
+          logisticsIcon.y = centerY - CELL / 4;
+          logisticsIcon.alpha = 0.7;
+        }
+      }
+
+      // Подсвечиваем здания с логистическим штрафом оранжевой рамкой
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const k = `${x},${y}`;
+          const buildingId = grid.tiles[k];
+          if (!buildingId) continue;
+
+          const building = buildingsById[buildingId];
+          if (!building) continue;
+
+          // Пропускаем логистические узлы
+          if (building.logisticsRadius && building.logisticsRadius > 0) continue;
+
+          // Проверяем логистическую эффективность
+          const logisticsEfficiency = calculateLogisticsEfficiency(
+            { x, y },
+            basePos,
+            allBuildingsWithCoords
+          );
+          
+          if (logisticsEfficiency < 1.0 && showDetailedText) {
+            const { px, py } = gridToPixel(x, y);
+            const penalty = Math.round((1 - logisticsEfficiency) * 100);
+            
+            // Оранжевая рамка для зданий с штрафом
+            g.roundRect(px + 1, py + 1, CELL - 2, CELL - 2, 2)
+             .stroke({ color: 0xf59e0b, width: 1.5, alpha: 0.5 });
+
+            // Текст со штрафом
+            if (textLayer) {
+              const penaltyText = getTextFromPool(`-${penalty}%`, TEXT_STYLES.missing);
+              penaltyText.anchor.set(1, 0);
+              penaltyText.x = px + CELL - 4;
+              penaltyText.y = py + 4;
+              penaltyText.style.fill = 0xf59e0b;
+            }
+          }
+        }
+      }
+    }
+
     // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Рисуем летящие частицы для активных транспортов
     if (grid.activeTransports && grid.activeTransports.length > 0 && showDetailedText) {
       for (const transport of grid.activeTransports) {
@@ -963,9 +1189,55 @@ export function FactoryGrid() {
     }
   }, [grid.tiles, grid.deposits, grid.selected, grid.activeTransports, grid.buffers, grid.width, grid.height, combat.enemies.length, worldSize, buildingsById]);
 
+  // Обработчики модального окна
+  const handleConfirmPlacement = () => {
+    if (pendingPlacement) {
+      placeSelectedBuildAt({ x: pendingPlacement.x, y: pendingPlacement.y });
+      setPendingPlacement(null);
+    }
+  };
+
+  const handleCancelPlacement = () => {
+    setPendingPlacement(null);
+  };
+
+  // Получаем данные для модального окна
+  const modalData = useMemo(() => {
+    if (!pendingPlacement) return null;
+
+    const state = useGameStore.getState();
+    const building = state.buildings.find(b => b.id === pendingPlacement.buildingId);
+    if (!building) return null;
+
+    const check = checkBuildingPlacement(
+      pendingPlacement.x,
+      pendingPlacement.y,
+      building,
+      state.buildings,
+      state.grid.tiles
+    );
+
+    return {
+      building,
+      check,
+    };
+  }, [pendingPlacement]);
+
   return (
     <div className="h-full w-full" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>
       <div ref={containerRef} className="w-full h-full" />
+      
+      {/* Модальное окно предупреждений */}
+      {pendingPlacement && modalData && (
+        <ProximityWarningModal
+          warnings={modalData.check.warnings}
+          multiplier={modalData.check.multiplier}
+          quality={modalData.check.quality}
+          buildingName={modalData.building.name}
+          onConfirm={handleConfirmPlacement}
+          onCancel={handleCancelPlacement}
+        />
+      )}
     </div>
   );
 }

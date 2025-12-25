@@ -3,8 +3,9 @@ import { formatNumber } from '../../core/math/format.ts';
 import type { Building, ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { X } from 'lucide-react';
-import { useMemo } from 'react';
+import { isBuildingUnlocked, getTechnologyForBuilding } from '../../core/constants/technologies';
+import { X, Lock, Search, Filter } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 const requiredDepositForBuilding = (buildingId: string) => {
   if (buildingId === 'miner_mk1') return 'ore';
@@ -43,10 +44,33 @@ export function BuildingList() {
   const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const resources = useGameStore((s) => s.resources);
+  const currency = useGameStore((s) => s.currency);
+  const research = useGameStore((s) => s.research);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showOnlyAffordable, setShowOnlyAffordable] = useState(false);
+  const [showOnlyUnlocked, setShowOnlyUnlocked] = useState(false);
+  const [sortBy, setSortBy] = useState<'name' | 'cost' | 'level'>('name');
 
   const affordability = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const b of buildings) {
+      // Check if building is unlocked
+      if (!isBuildingUnlocked(b.id, research.technologies)) {
+        map[b.id] = false;
+        continue;
+      }
+      
+      // Check credit cost if specified
+      if (b.creditCost) {
+        const creditCostScaled = b.creditCost.mul(Math.pow(b.costFactor, b.count));
+        if (currency.credits.lt(creditCostScaled)) {
+          map[b.id] = false;
+          continue;
+        }
+      }
+      
+      // Check resource cost
       const cost = calculateCost(b);
       map[b.id] = Object.entries(cost).every(([res, amount]) => {
         const r = resources[res as ResourceType];
@@ -54,54 +78,179 @@ export function BuildingList() {
       });
     }
     return map;
-  }, [buildings, resources]);
+  }, [buildings, resources, currency, research.technologies]);
+
+  // Фильтрация и сортировка
+  const filteredBuildings = useMemo(() => {
+    let filtered = buildings;
+
+    // Поиск по названию
+    if (searchQuery) {
+      filtered = filtered.filter(b => 
+        b.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Фильтр: только доступные
+    if (showOnlyAffordable) {
+      filtered = filtered.filter(b => affordability[b.id]);
+    }
+
+    // Фильтр: только разблокированные
+    if (showOnlyUnlocked) {
+      filtered = filtered.filter(b => 
+        isBuildingUnlocked(b.id, research.technologies)
+      );
+    }
+
+    // Сортировка
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name);
+      } else if (sortBy === 'level') {
+        return b.count - a.count;
+      } else if (sortBy === 'cost') {
+        const costA = a.creditCost?.toNumber() || 0;
+        const costB = b.creditCost?.toNumber() || 0;
+        return costA - costB;
+      }
+      return 0;
+    });
+
+    return sorted;
+  }, [buildings, searchQuery, showOnlyAffordable, showOnlyUnlocked, sortBy, affordability, research.technologies]);
 
   return (
-    <div className="p-3">
-      <div className="space-y-2">
-        {buildings.map((b) => {
+    <div className="flex flex-col h-full">
+      {/* Фильтры и поиск */}
+      <div className="shrink-0 p-3 space-y-2 border-b border-cyber-gray bg-cyber-dark/50">
+        {/* Поиск */}
+        <div className="relative">
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-cyber-text-dim" />
+          <input
+            type="text"
+            placeholder="Поиск зданий..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-cyber-black border border-cyber-gray rounded pl-8 pr-3 py-1.5 text-xs text-cyber-text placeholder-cyber-text-dim focus:outline-none focus:border-cyber-green"
+          />
+        </div>
+
+        {/* Фильтры */}
+        <div className="flex items-center gap-2 text-xs">
+          <Filter size={12} className="text-cyber-text-dim" />
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOnlyAffordable}
+              onChange={(e) => setShowOnlyAffordable(e.target.checked)}
+              className="w-3 h-3"
+            />
+            <span className="text-cyber-text-dim">Доступные</span>
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOnlyUnlocked}
+              onChange={(e) => setShowOnlyUnlocked(e.target.checked)}
+              className="w-3 h-3"
+            />
+            <span className="text-cyber-text-dim">Разблокированные</span>
+          </label>
+        </div>
+
+        {/* Сортировка */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-cyber-text-dim">Сортировка:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="flex-1 bg-cyber-black border border-cyber-gray rounded px-2 py-1 text-xs text-cyber-text"
+          >
+            <option value="name">По названию</option>
+            <option value="level">По уровню</option>
+            <option value="cost">По стоимости</option>
+          </select>
+        </div>
+
+        {/* Счетчик */}
+        <div className="text-[10px] text-cyber-text-dim text-center">
+          Показано: {filteredBuildings.length} из {buildings.length}
+        </div>
+      </div>
+
+      {/* Список зданий */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <div className="space-y-2">
+          {filteredBuildings.map((b) => {
           const Icon = getBuildingIcon(b.id);
           const isSelected = selectedBuildId === b.id;
+          const isUnlocked = isBuildingUnlocked(b.id, research.technologies);
           const canAfford = affordability[b.id];
           const cost = calculateCost(b);
           const req = requiredDepositForBuilding(b.id);
+          const requiredTech = !isUnlocked ? getTechnologyForBuilding(b.id) : null;
 
           return (
             <button
               key={b.id}
               type="button"
               title={buildTitle(b)}
-              onClick={() => selectBuild(isSelected ? null : b.id)}
+              onClick={() => isUnlocked && selectBuild(isSelected ? null : b.id)}
               className={
                 `w-full flex flex-col gap-1.5 p-2.5 rounded transition-all border ` +
-                (isSelected 
-                  ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
-                  : canAfford 
-                    ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
-                    : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
+                (!isUnlocked
+                  ? 'bg-cyber-gray/5 border-cyber-gray/20 opacity-40 cursor-not-allowed text-cyber-text-dim'
+                  : isSelected 
+                    ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
+                    : canAfford 
+                      ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
+                      : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
               }
-              disabled={!canAfford && !isSelected}
+              disabled={!isUnlocked || (!canAfford && !isSelected)}
             >
               <div className="flex items-center gap-2 w-full">
-                <Icon size={18} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+                {!isUnlocked ? (
+                  <Lock size={18} className="text-cyber-gray" />
+                ) : (
+                  <Icon size={18} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+                )}
                 <div className="flex-1 text-left">
                   <div className="text-xs font-medium">{b.name}</div>
-                  <div className="text-[10px] text-cyber-text-dim">Уровень {b.count}</div>
+                  <div className="text-[10px] text-cyber-text-dim">
+                    {!isUnlocked && requiredTech ? `🔒 ${requiredTech.name}` : `Уровень ${b.count}`}
+                  </div>
                 </div>
                 {isSelected && (
                   <X size={14} className="text-cyber-green" />
                 )}
               </div>
               
-              {/* Стоимость */}
+              {!isUnlocked && requiredTech && (
+                <div className="text-[10px] text-cyber-red italic">
+                  Требуется технология: {requiredTech.name} ({formatNumber(requiredTech.cost)} RP)
+                </div>
+              )}
+              
+              {isUnlocked && (
+                <>
+                  {/* Стоимость в кредитах */}
+                  {b.creditCost && (
+                <div className="flex gap-1.5 text-[10px]">
+                  <span className="text-cyber-text-dim">Цена:</span>
+                  <span className={currency.credits.gte(b.creditCost.mul(Math.pow(b.costFactor, b.count))) ? 'text-cyber-yellow' : 'text-red-400'}>
+                    💰 {formatNumber(b.creditCost.mul(Math.pow(b.costFactor, b.count)))}
+                  </span>
+                </div>
+              )}
+
+              {/* Стоимость в ресурсах */}
               {Object.keys(cost).length > 0 && (
                 <div className="flex flex-wrap gap-1.5 text-[10px]">
-                  <span className="text-cyber-text-dim">Стоимость:</span>
+                  <span className="text-cyber-text-dim">Ресурсы:</span>
                   {Object.entries(cost).map(([res, amt]) => {
-                    const currentAmount = resources[res as ResourceType]?.amount || 0;
-                    const hasEnough = typeof currentAmount === 'object' 
-                      ? currentAmount.gte(amt) 
-                      : currentAmount >= amt;
+                    const r = resources[res as ResourceType];
+                    const hasEnough = r && r.amount.gte(amt);
                     
                     return (
                       <span 
@@ -145,10 +294,22 @@ export function BuildingList() {
                   Требует: {req === 'ore' ? '🪨 Руда' : req === 'ice' ? '🧊 Лёд' : '⚫ Углерод'}
                 </div>
               )}
+                </>
+              )}
             </button>
           );
         })}
       </div>
+
+      {filteredBuildings.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="text-4xl mb-2">🔍</div>
+          <p className="text-cyber-text-dim text-sm">
+            Ничего не найдено
+          </p>
+        </div>
+      )}
+    </div>
     </div>
   );
 }

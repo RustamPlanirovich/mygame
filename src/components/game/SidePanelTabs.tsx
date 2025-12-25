@@ -9,8 +9,20 @@ import { PrestigePanel } from './PrestigePanel';
 import { ExpeditionPanel } from './ExpeditionPanel';
 import { BuildingList } from './BuildingList';
 import { DepositBuildPanel } from './DepositBuildPanel';
-import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, ChevronLeft } from 'lucide-react';
+import { PoliticsPanel } from './PoliticsPanel';
+import { GalaxyMap } from './GalaxyMap';
+import { PlatformsPanel } from './PlatformsPanel';
+import { FleetPanel } from './FleetPanel';
+import { IntergalacticLogisticsPanel } from './IntergalacticLogisticsPanel';
+import { RandomEventsPanel } from './RandomEventsPanel';
+import AchievementsPanel from './AchievementsPanel';
+import { MegastructuresPanel } from './MegastructuresPanel';
+import { QuestsPanel } from './QuestsPanel';
+import { HelpPanel } from './HelpPanel';
+import { SettingsPanel } from './SettingsPanel';
+import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Settings as SettingsIcon } from 'lucide-react';
 import type { DepositType } from '../../core/gameTypes';
+import { STARTER_QUESTS } from '../../core/constants/quests';
 
 type TabId =
   | 'inspector'
@@ -21,10 +33,27 @@ type TabId =
   | 'prestige'
   | 'expedition'
   | 'building'
-  | 'deposit';
+  | 'deposit'
+  | 'politics'
+  | 'galaxies'
+  | 'platforms'
+  | 'fleet'
+  | 'logistics'
+  | 'events'
+  | 'achievements'
+  | 'megastructures'
+  | 'quests'
+  | 'help'
+  | 'settings';
 
 export function SidePanelTabs() {
   const grid = useGameStore((s) => s.grid);
+  const activeEventsCount = useGameStore(s => s.randomEvents.activeEvents.filter(e => e.status === 'pending').length);
+  const unlockedAchievementsCount = useGameStore(s => Object.keys(s.achievements.unlocked).length);
+  const recentAchievementsCount = useGameStore(s => {
+    const now = Date.now();
+    return s.achievements.recentlyUnlocked.filter(a => now - a.unlockedAt < 10000).length;
+  });
   
   // Определяем тип выбранной клетки
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
@@ -36,9 +65,20 @@ export function SidePanelTabs() {
       [
         { id: 'building' as const, label: 'Строительство', icon: Hammer, Node: <BuildingList /> },
         { id: 'inspector' as const, label: 'Инспектор', icon: Search, Node: <TileInspector /> },
+        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Node: <QuestsPanel quests={STARTER_QUESTS} /> },
         { id: 'combat' as const, label: 'Бой', icon: Swords, Node: <CombatPanel /> },
         { id: 'market' as const, label: 'Рынок', icon: Store, Node: <MarketPanel /> },
         { id: 'research' as const, label: 'Исследования', icon: FlaskConical, Node: <ResearchPanel /> },
+        { id: 'politics' as const, label: 'Политика', icon: Landmark, Node: <PoliticsPanel /> },
+        { id: 'galaxies' as const, label: 'Галактики', icon: Globe, Node: <GalaxyMap /> },
+        { id: 'platforms' as const, label: 'Платформы', icon: Satellite, Node: <PlatformsPanel /> },
+        { id: 'fleet' as const, label: 'Флот', icon: Ship, Node: <FleetPanel /> },
+        { id: 'logistics' as const, label: 'Логистика', icon: Truck, Node: <IntergalacticLogisticsPanel /> },
+        { id: 'events' as const, label: 'События', icon: Zap, Node: <RandomEventsPanel /> },
+        { id: 'achievements' as const, label: 'Достижения', icon: Trophy, Node: <AchievementsPanel /> },
+        { id: 'megastructures' as const, label: 'Мегаструктуры', icon: Building2, Node: <MegastructuresPanel /> },
+        { id: 'help' as const, label: 'Справка', icon: BookOpen, Node: <HelpPanel /> },
+        { id: 'settings' as const, label: 'Настройки', icon: SettingsIcon, Node: <SettingsPanel /> },
         { id: 'demons' as const, label: 'Демоны', icon: Ghost, Node: <DemonsPanel /> },
         { id: 'prestige' as const, label: 'Престиж', icon: Sparkles, Node: <PrestigePanel /> },
         { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Node: <ExpeditionPanel /> },
@@ -101,15 +141,29 @@ export function SidePanelTabs() {
         <div className="p-3 space-y-2">
           {tabs.map((t) => {
             const Icon = t.icon;
+            const hasEventNotification = t.id === 'events' && activeEventsCount > 0;
+            const hasAchievementNotification = t.id === 'achievements' && recentAchievementsCount > 0;
+            const notificationCount = hasEventNotification ? activeEventsCount : hasAchievementNotification ? recentAchievementsCount : 0;
+            const showBadge = hasEventNotification || hasAchievementNotification || (t.id === 'achievements' && unlockedAchievementsCount > 0);
+            
             return (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setActive(t.id)}
-                className="w-full flex items-center gap-3 p-3 rounded transition-all border border-cyber-gray/50 bg-cyber-gray/20 hover:bg-cyber-gray/30 hover:border-cyber-green/50 text-cyber-text"
+                className="w-full flex items-center gap-3 p-3 rounded transition-all border border-cyber-gray/50 bg-cyber-gray/20 hover:bg-cyber-gray/30 hover:border-cyber-green/50 text-cyber-text relative"
               >
                 <Icon size={20} className="text-cyber-blue" />
                 <span className="text-sm font-medium">{t.label}</span>
+                {showBadge && (
+                  <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${
+                    hasEventNotification || hasAchievementNotification 
+                      ? 'bg-yellow-500 text-black animate-pulse' 
+                      : 'bg-purple-500 text-white'
+                  }`}>
+                    {notificationCount > 0 ? notificationCount : unlockedAchievementsCount}
+                  </span>
+                )}
               </button>
             );
           })}

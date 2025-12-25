@@ -4,6 +4,8 @@ import type {
   AegisState,
   Building,
   CombatState,
+  Contract,
+  CurrencyState,
   DemonId,
   DemonsState,
   DepositType,
@@ -19,12 +21,17 @@ import type {
   ProductionMatrixUpgradeId,
   QuantumNetState,
   QuantumNetUpgradeId,
+  RandomEvent,
+  RandomEventsState,
   ResearchState,
   ResourceType,
   ShipModuleId,
   ShipState,
   StarChartState,
   TradeResourceType,
+  TradingOrder,
+  MegastructureId,
+  EndingId,
 } from '../core/gameTypes';
 import { D } from '../core/math/format.ts';
 import {
@@ -78,6 +85,20 @@ import {
   computeMemoryPreservationEnabled,
   quantumNetUpgradeCost,
 } from '../core/constants/quantumNet';
+import { updateAllProximityMultipliers } from '../utils/proximityHelpers';
+import { getProximityRulesForBuilding } from '../core/constants/proximityRules';
+import { TECHNOLOGIES, canResearchTechnology } from '../core/constants/technologies';
+import { POLICIES, canActivatePolicy } from '../core/constants/policies';
+import { GALAXIES } from '../core/constants/galaxies';
+import { SHIP_DEFINITIONS, calculateShipStats, calculateShipUpgradeCost, generateShipName } from '../core/constants/ships';
+import { type EnemyType, ENEMY_DEFINITIONS, getBossForLevel, createPlatformEnemy } from '../core/constants/enemies';
+import { isBuildingPowered } from '../utils/powerGridHelpers';
+import { calculateLogisticsEfficiency } from '../utils/logisticsHelpers';
+import { EVENT_CONFIGS, EVENT_EFFECTS, BASE_EVENT_INTERVAL_MIN, BASE_EVENT_INTERVAL_MAX } from '../core/constants/randomEvents';
+import { getAchievementById } from '../core/constants/achievements';
+import { MEGASTRUCTURES, GAME_ENDINGS, canBuildMegastructure, getMegastructureRewards, checkEndingRequirements } from '../core/constants/megastructures';
+import { PRESTIGE_UPGRADES, calculateQuantumPoints, canBuyPrestigeUpgrade, getTotalPrestigeBonuses } from '../core/constants/prestige';
+import type { PrestigeUpgradeId } from '../core/gameTypes';
 
 const MARKET_UPDATE_SECONDS = 30;
 
@@ -134,6 +155,52 @@ const INITIAL_RESEARCH: ResearchState = {
     combat_protocols: 0,
     sector_expansion: 0,
   },
+  technologies: {
+    // Era 1: Starting technology
+    basic_mining: true,
+    simple_power: false,
+    basic_processing: false,
+    solar_panels: false,
+    // Era 2
+    gas_exploration: false,
+    oil_drilling: false,
+    advanced_processing: false,
+    plastics_glass: false,
+    semiconductors: false,
+    gas_power: false,
+    // Era 3
+    microchips: false,
+    computers: false,
+    displays: false,
+    robotics: false,
+    automation: false,
+    // Era 4
+    advanced_weapons: false,
+    artillery: false,
+    defense_systems: false,
+    radar_tech: false,
+    nuclear_physics: false,
+    nuclear_power: false,
+    advanced_defense: false,
+    // Era 5
+    rocket_science: false,
+    satellites: false,
+    spaceships: false,
+    interplanetary: false,
+    first_colony: false,
+    // Era 6
+    intergalactic_gates: false,
+    space_stations: false,
+    quantum_tech: false,
+    advanced_colonies: false,
+    galactic_fleet: false,
+    // Era 7
+    megastructures: false,
+    time_control: false,
+    quantum_teleport: false,
+    ai_restoration: false,
+    galactic_rule: false,
+  },
 };
 
 const INITIAL_DEMONS: DemonsState = {
@@ -155,6 +222,12 @@ const INITIAL_META: MetaState = {
   qubits: D(0),
   lifetimeEnergyProduced: D(0),
   blueprints: D(0),
+};
+
+const INITIAL_CURRENCY = {
+  credits: D(1000),
+  researchPoints: D(0),
+  influence: D(0),
 };
 
 const INITIAL_EXPEDITION: ExpeditionState = {
@@ -212,6 +285,83 @@ const INITIAL_QUANTUM_NET: QuantumNetState = {
   preservedBuildingId: null,
 };
 
+const INITIAL_POLITICS: import('../core/gameTypes').PoliticsState = {
+  activePolicies: [],
+  maxActivePolicies: 3, // Start with 3 active policy slots
+};
+
+const INITIAL_GALAXIES: import('../core/gameTypes').GalaxiesState = {
+  currentGalaxyId: 'galaxy_1_nebula_beginning',
+  unlockedGalaxies: ['galaxy_1_nebula_beginning'],
+  platforms: [],
+  autoTransportEnabled: false,
+  fuelReserve: D(0),
+  notifications: [],
+};
+
+const INITIAL_FLEET: import('../core/gameTypes').FleetState = {
+  ships: [],
+  autoDefend: true,
+  productionQueue: [],
+};
+
+const INITIAL_POLLUTION: import('../core/gameTypes').PollutionState = {
+  wasteAmount: D(0),
+  radioactiveWasteAmount: D(0),
+  efficiencyMultiplier: 1.0,
+  pollutionZones: [],
+};
+
+const INITIAL_INTERGALACTIC_LOGISTICS: import('../core/gameTypes').IntergalacticLogisticsState = {
+  caravans: [],
+  upgrades: {
+    speed: 0,
+    capacity: 0,
+    defense: 0,
+  },
+  autoSendToMainBase: false,
+  autoRoutes: [],
+};
+
+const INITIAL_RANDOM_EVENTS: RandomEventsState = {
+  activeEvents: [],
+  eventHistory: [],
+  nextEventAt: Date.now() + BASE_EVENT_INTERVAL_MIN,
+  eventsEnabled: true,
+  eventFrequencyMultiplier: 1.0,
+};
+
+const INITIAL_ACHIEVEMENTS: import('../core/gameTypes').AchievementsState = {
+  unlocked: {},
+  recentlyUnlocked: [],
+};
+
+const INITIAL_MEGASTRUCTURES: import('../core/gameTypes').MegastructuresState = {
+  built: {},
+  constructionQueue: [],
+};
+
+const INITIAL_ENDGAME: import('../core/gameTypes').EndgameState = {
+  endings: {},
+  currentEndingProgress: {},
+  victoryAchieved: false,
+};
+
+const INITIAL_PRESTIGE: import('../core/gameTypes').PrestigeState = {
+  lifetimeQuantumPoints: 0,
+  availableQuantumPoints: 0,
+  prestigeCount: 0,
+  upgrades: {},
+  stats: {
+    totalPlaytime: 0,
+    totalCreditsEarned: D(0),
+    totalResearchPoints: D(0),
+    maxBuildingsBuilt: 0,
+    endingsAchieved: [],
+  },
+  fastModeEnabled: false,
+};
+
 const pickMaxHpEnemyIndex = (enemies: Enemy[]) => {
   if (enemies.length === 0) return -1;
   let best = 0;
@@ -228,6 +378,7 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Аварийный Генератор',
     description: "Старый, но надежный генератор. Вырабатывает мало энергии.",
     baseCost: { energy: D(5) },
+    creditCost: D(50),
     costFactor: 1.15,
     production: { energy: D(1) },
     count: 0
@@ -237,6 +388,7 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Малый Конденсатор',
     description: "Увеличивает лимит хранения энергии.",
     baseCost: { energy: D(50) },
+    creditCost: D(150),
     costFactor: 1.15,
     production: {},
     productionMultipliers: { energy: D(50) }, // Adds 50 to max energy
@@ -247,8 +399,10 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Авто-Майнер v1',
     description: "Автоматический бур для добычи железной руды.",
     baseCost: { energy: D(100) },
+    creditCost: D(250),
     costFactor: 1.15,
-    production: { ore: D(0.5) },
+    production: { ore: D(0.6) },
+    energyConsumption: D(1.8),
     count: 0
   },
   {
@@ -256,8 +410,10 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Экстрактор Льда v1',
     description: "Собирает водяной лед из фрагментов астероидов.",
     baseCost: { energy: D(120) },
+    creditCost: D(280),
     costFactor: 1.15,
-    production: { ice: D(0.35) },
+    production: { ice: D(0.4) },
+    energyConsumption: D(1.8),
     count: 0
   },
   {
@@ -265,18 +421,23 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Сборщик Углерода v1',
     description: "Извлекает углерод из пылевых облаков и шлама.",
     baseCost: { energy: D(140) },
+    creditCost: D(320),
     costFactor: 1.15,
-    production: { carbon: D(0.25) },
+    production: { carbon: D(0.3) },
+    energyConsumption: D(1.5),
     count: 0
   },
   {
     id: 'warehouse_mk1',
     name: 'Складской Модуль',
-    description: "Увеличивает вместимость складов для сырья и сплавов.",
+    description: "Увеличивает вместимость складов для сырья и сплавов. Улучшает логистику в радиусе 2 клеток.",
     baseCost: { energy: D(250), ore: D(25) },
+    creditCost: D(500),
     costFactor: 1.15,
     production: {},
     productionMultipliers: { ore: D(500), ice: D(500), carbon: D(500), steel: D(200) },
+    energyConsumption: D(0.5),
+    logisticsRadius: 2,
     count: 0
   },
   {
@@ -284,6 +445,7 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Плавильня: Сталь',
     description: "Переработка: Железная руда + Углерод -> Сталь.",
     baseCost: { energy: D(400), ore: D(120), carbon: D(60) },
+    creditCost: D(800),
     costFactor: 1.15,
     consumption: { energy: D(1.2), ore: D(0.8), carbon: D(0.4) },
     production: { steel: D(0.4) },
@@ -294,6 +456,7 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Турель Mk.I',
     description: 'Автоматическая турель. Стреляет по Глитчам и потребляет энергию во время боя.',
     baseCost: { energy: D(550), steel: D(12) },
+    creditCost: D(1200),
     costFactor: 1.18,
     production: {},
     combat: { dps: D(3.0), energyPerSecond: D(0.9) },
@@ -304,6 +467,7 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Щитовой Модуль Mk.I',
     description: 'Поднимает щит базы. Во время волны регенерирует щит за ⚡ и сначала поглощает урон.',
     baseCost: { energy: D(650), steel: D(18) },
+    creditCost: D(1400),
     costFactor: 1.18,
     production: {},
     defense: { shieldMaxHp: D(35), shieldRegenPerSecond: D(1.4), energyPerSecond: D(1.1) },
@@ -314,12 +478,749 @@ const INITIAL_BUILDINGS: Building[] = [
     name: 'Конденсатор Тёмной Материи Mk.I',
     description: 'Экзотическая установка. Конденсирует Тёмную Материю из энергии и углерода.',
     baseCost: { energy: D(1500), steel: D(40) },
+    creditCost: D(3000),
     costFactor: 1.20,
     consumption: { energy: D(3.2), carbon: D(0.8) },
     production: { dark_matter: D(0.02) },
     count: 0
+  },
+  // Фаза 2: Новые добывающие здания
+  {
+    id: 'gas_well_mk1',
+    name: 'Газовая Скважина v1',
+    description: 'Добывает природный газ из подземных залежей.',
+    baseCost: { energy: D(200), steel: D(15) },
+    creditCost: D(500),
+    costFactor: 1.15,
+    production: { natural_gas: D(0.5) },
+    energyConsumption: D(2.0),
+    count: 0
+  },
+  {
+    id: 'oil_well_mk1',
+    name: 'Нефтяная Скважина v1',
+    description: 'Добывает сырую нефть из месторождений.',
+    baseCost: { energy: D(250), steel: D(20) },
+    creditCost: D(600),
+    costFactor: 1.15,
+    production: { oil: D(0.35) },
+    energyConsumption: D(2.2),
+    count: 0
+  },
+  {
+    id: 'sand_quarry_mk1',
+    name: 'Карьер Песка v1',
+    description: 'Добывает песок для производства стекла.',
+    baseCost: { energy: D(150), steel: D(10) },
+    creditCost: D(300),
+    costFactor: 1.15,
+    production: { sand: D(0.6) },
+    energyConsumption: D(1.5),
+    count: 0
+  },
+  // Фаза 2.2: Энергетические здания
+  {
+    id: 'solar_panel_mk1',
+    name: 'Солнечная Панель v1',
+    description: 'Экологичный источник энергии. Преобразует солнечный свет в электричество. Радиус покрытия: 5 клеток.',
+    baseCost: { steel: D(20) },
+    creditCost: D(400),
+    costFactor: 1.15,
+    production: { energy: D(3.5) },
+    energyConsumption: D(0),
+    powerGridRadius: 5,
+    count: 0
+  },
+  {
+    id: 'gas_power_plant_mk1',
+    name: 'Газовая Электростанция v1',
+    description: 'Сжигает природный газ для производства большого количества энергии. Радиус покрытия: 5 клеток.',
+    baseCost: { steel: D(50), plastic: D(30) },
+    creditCost: D(1000),
+    costFactor: 1.15,
+    consumption: { natural_gas: D(2) },
+    production: { energy: D(18) },
+    powerGridRadius: 5,
+    count: 0
+  },
+  {
+    id: 'fuel_power_plant_mk1',
+    name: 'Бензиновая Электростанция v1',
+    description: 'Работает на бензине. Высокая мощность при компактном размере. Радиус покрытия: 5 клеток.',
+    baseCost: { steel: D(60), plastic: D(25) },
+    creditCost: D(1200),
+    costFactor: 1.15,
+    consumption: { gasoline: D(1.5) },
+    production: { energy: D(22) },
+    powerGridRadius: 5,
+    count: 0
+  },
+  {
+    id: 'energy_storage_mk1',
+    name: 'Энергохранилище v1',
+    description: 'Продвинутое хранилище энергии. Значительно увеличивает лимит.',
+    baseCost: { steel: D(80), plastic: D(40) },
+    creditCost: D(1500),
+    costFactor: 1.15,
+    production: {},
+    productionMultipliers: { energy: D(500) }, // Adds 500 to max energy
+    energyConsumption: D(0.3),
+    count: 0
+  },
+  // Фаза 2: Перерабатывающие здания
+  {
+    id: 'oil_refinery_mk1',
+    name: 'Нефтеперерабатывающий Завод v1',
+    description: 'Переработка: Нефть -> Бензин + Пластик.',
+    baseCost: { energy: D(600), steel: D(50), plastic: D(20) },
+    creditCost: D(1800),
+    costFactor: 1.15,
+    consumption: { energy: D(2.0), oil: D(0.5) },
+    production: { gasoline: D(0.35), plastic: D(0.2) },
+    count: 0
+  },
+  {
+    id: 'glass_factory_mk1',
+    name: 'Стекольный Завод v1',
+    description: 'Переработка: Песок -> Стекло.',
+    baseCost: { energy: D(500), steel: D(30) },
+    creditCost: D(1000),
+    costFactor: 1.15,
+    consumption: { energy: D(1.5), sand: D(0.8) },
+    production: { glass: D(0.4) },
+    count: 0
+  },
+  {
+    id: 'chemical_plant_mk1',
+    name: 'Химический Завод v1',
+    description: 'Переработка: Нефть + Природный газ -> Химикаты.',
+    baseCost: { energy: D(800), steel: D(60) },
+    creditCost: D(2200),
+    costFactor: 1.15,
+    consumption: { energy: D(2.5), oil: D(0.3), natural_gas: D(0.4) },
+    production: { chemicals: D(0.3) },
+    count: 0
+  },
+  // Фаза 2.3: Металлические шахты
+  {
+    id: 'uranium_mine_mk1',
+    name: 'Урановая Шахта v1',
+    description: 'Добывает радиоактивный уран из месторождений. Требует особой осторожности.',
+    baseCost: { steel: D(100), plastic: D(50) },
+    creditCost: D(2000),
+    costFactor: 1.15,
+    production: { uranium: D(0.18) },
+    energyConsumption: D(4.0),
+    count: 0
+  },
+  {
+    id: 'chrome_mine_mk1',
+    name: 'Хромовая Шахта v1',
+    description: 'Добывает хром — редкий металл для высокопрочных сплавов.',
+    baseCost: { steel: D(80), plastic: D(40) },
+    creditCost: D(1600),
+    costFactor: 1.15,
+    production: { chrome: D(0.22) },
+    energyConsumption: D(3.5),
+    count: 0
+  },
+  {
+    id: 'titanium_mine_mk1',
+    name: 'Титановая Шахта v1',
+    description: 'Добывает титан — лёгкий и прочный металл для космических конструкций.',
+    baseCost: { steel: D(90), plastic: D(45) },
+    creditCost: D(1800),
+    costFactor: 1.15,
+    production: { titanium: D(0.2) },
+    energyConsumption: D(3.8),
+    count: 0
+  },
+  // Фаза 2.4: Перерабатывающие здания
+  {
+    id: 'copper_mine_mk1',
+    name: 'Медный Рудник v1',
+    description: 'Добывает медь — проводящий металл для электроники.',
+    baseCost: { steel: D(60), ore: D(80) },
+    creditCost: D(1300),
+    costFactor: 1.13,
+    production: { copper: D(0.25) },
+    energyConsumption: D(3.0),
+    count: 0
+  },
+  {
+    id: 'gas_refinery_mk1',
+    name: 'Газоперерабатывающий Завод v1',
+    description: 'Перерабатывает природный газ в бензин.',
+    baseCost: { steel: D(85), plastic: D(55), glass: D(40) },
+    creditCost: D(1800),
+    costFactor: 1.14,
+    production: { gasoline: D(0.35) },
+    consumption: { natural_gas: D(0.5) },
+    energyConsumption: D(4.5),
+    count: 0
+  },
+  {
+    id: 'semiconductor_factory_mk1',
+    name: 'Завод Полупроводников v1',
+    description: 'Производит полупроводники из меди и песка — основа современной электроники.',
+    baseCost: { steel: D(120), plastic: D(70), glass: D(60) },
+    creditCost: D(3000),
+    costFactor: 1.16,
+    production: { semiconductors: D(0.15) },
+    consumption: { copper: D(0.2), sand: D(0.3) },
+    energyConsumption: D(5.5),
+    count: 0
+  },
+  {
+    id: 'dynamite_factory_mk1',
+    name: 'Динамитная Фабрика v1',
+    description: 'Производит динамит из химикатов — мощное взрывчатое вещество.',
+    baseCost: { steel: D(95), plastic: D(50), glass: D(35) },
+    creditCost: D(1900),
+    costFactor: 1.13,
+    production: { dynamite: D(0.15) },
+    consumption: { chemicals: D(0.25) },
+    energyConsumption: D(4.2),
+    count: 0
+  },
+  {
+    id: 'fiber_factory_mk1',
+    name: 'Завод Волокон v1',
+    description: 'Производит высокопрочное волокно из пластика для различных применений.',
+    baseCost: { steel: D(75), plastic: D(80) },
+    creditCost: D(1600),
+    costFactor: 1.12,
+    production: { fiber: D(0.18) },
+    consumption: { plastic: D(0.28) },
+    energyConsumption: D(3.8),
+    count: 0
+  },
+  // Фаза 2.6: Сложные производственные здания
+  {
+    id: 'ic_factory_mk1',
+    name: 'Завод Интегральных Микросхем v1',
+    description: 'Производит интегральные микросхемы из полупроводников — основа современной электроники.',
+    baseCost: { steel: D(150), plastic: D(90), glass: D(80) },
+    creditCost: D(3500),
+    costFactor: 1.18,
+    production: { integrated_circuit: D(0.10) },
+    consumption: { semiconductors: D(0.15), copper: D(0.12) },
+    energyConsumption: D(7.0),
+    count: 0
+  },
+  {
+    id: 'battery_factory_mk1',
+    name: 'Завод Аккумуляторов v1',
+    description: 'Производит мощные аккумуляторы для хранения энергии.',
+    baseCost: { steel: D(110), plastic: D(70), chemicals: D(60) },
+    creditCost: D(2600),
+    costFactor: 1.16,
+    production: { battery: D(0.12) },
+    consumption: { copper: D(0.18), chemicals: D(0.15) },
+    energyConsumption: D(6.2),
+    count: 0
+  },
+  {
+    id: 'engine_factory_mk1',
+    name: 'Завод Двигателей v1',
+    description: 'Производит двигатели для различных механизмов.',
+    baseCost: { steel: D(180), chrome: D(50), titanium: D(40) },
+    creditCost: D(3800),
+    costFactor: 1.19,
+    production: { engine: D(0.06) },
+    consumption: { steel: D(0.25), copper: D(0.15), fiber: D(0.12) },
+    energyConsumption: D(8.5),
+    count: 0
+  },
+  {
+    id: 'display_factory_mk1',
+    name: 'Завод Экранов v1',
+    description: 'Производит дисплеи и экраны для различного оборудования.',
+    baseCost: { steel: D(130), glass: D(100), plastic: D(80) },
+    creditCost: D(2900),
+    costFactor: 1.17,
+    production: { display: D(0.12) },
+    consumption: { glass: D(0.22), semiconductors: D(0.08) },
+    energyConsumption: D(6.8),
+    count: 0
+  },
+  {
+    id: 'computer_factory_mk1',
+    name: 'Компьютерная Фабрика v1',
+    description: 'Собирает компьютеры из комплектующих — вершина технологий.',
+    baseCost: { steel: D(200), plastic: D(120), glass: D(100) },
+    creditCost: D(6000),
+    costFactor: 1.22,
+    production: { computer: D(0.06) },
+    consumption: { integrated_circuit: D(0.12), display: D(0.08), battery: D(0.06) },
+    energyConsumption: D(9.0),
+    count: 0
+  },
+  {
+    id: 'liquid_fuel_plant_mk1',
+    name: 'Завод Жидкого Топлива v1',
+    description: 'Производит высокооктановое жидкое топливо из нефти.',
+    baseCost: { steel: D(140), plastic: D(80), glass: D(60) },
+    creditCost: D(2800),
+    costFactor: 1.15,
+    production: { liquid_fuel: D(0.35) },
+    consumption: { oil: D(0.4), chemicals: D(0.18) },
+    energyConsumption: D(7.0),
+    count: 0
+  },
+  {
+    id: 'chrome_alloy_smelter_mk1',
+    name: 'Плавильня Хромовых Сплавов v1',
+    description: 'Производит прочные хромовые сплавы из хрома и стали.',
+    baseCost: { steel: D(160), ore: D(120) },
+    creditCost: D(3000),
+    costFactor: 1.17,
+    production: { chrome_alloy: D(0.14) },
+    consumption: { chrome: D(0.2), steel: D(0.15) },
+    energyConsumption: D(8.0),
+    count: 0
+  },
+  {
+    id: 'titanium_alloy_smelter_mk1',
+    name: 'Плавильня Титановых Сплавов v1',
+    description: 'Производит легкие и прочные титановые сплавы для космических конструкций.',
+    baseCost: { steel: D(180), titanium: D(80) },
+    creditCost: D(3500),
+    costFactor: 1.18,
+    production: { titanium_alloy: D(0.12) },
+    consumption: { titanium: D(0.18), steel: D(0.15) },
+    energyConsumption: D(8.5),
+    count: 0
+  },
+  {
+    id: 'uranium_enrichment_plant_mk1',
+    name: 'Завод Обогащения Урана v1',
+    description: 'Обогащает уран для ядерных реакторов — опасная, но необходимая технология.',
+    baseCost: { steel: D(250), chrome: D(100), titanium: D(80) },
+    creditCost: D(6000),
+    costFactor: 1.25,
+    production: { enriched_uranium: D(0.04) },
+    consumption: { uranium: D(0.15), chemicals: D(0.2) },
+    energyConsumption: D(12.0),
+    count: 0
+  },
+  // Фаза 2.7: Военные здания
+  {
+    id: 'weapon_factory_mk1',
+    name: 'Оружейный Завод v1',
+    description: 'Производит оружие для обороны — стрелковое вооружение и защитные системы.',
+    baseCost: { steel: D(140), chrome: D(60), plastic: D(50) },
+    creditCost: D(2800),
+    costFactor: 1.17,
+    production: { weapon: D(0.10) },
+    consumption: { steel: D(0.2), chrome: D(0.12), dynamite: D(0.08) },
+    energyConsumption: D(7.0),
+    count: 0
+  },
+  {
+    id: 'artillery_factory_mk1',
+    name: 'Артиллерийский Завод v1',
+    description: 'Производит тяжёлую артиллерию для обороны базы от массированных атак.',
+    baseCost: { steel: D(200), chrome_alloy: D(80), titanium: D(60) },
+    creditCost: D(4200),
+    costFactor: 1.20,
+    production: { artillery: D(0.06) },
+    consumption: { steel: D(0.25), chrome_alloy: D(0.15), dynamite: D(0.12) },
+    energyConsumption: D(9.0),
+    count: 0
+  },
+  {
+    id: 'radar_factory_mk1',
+    name: 'Завод Радаров v1',
+    description: 'Производит радарные системы для раннего обнаружения угроз.',
+    baseCost: { steel: D(160), copper: D(100), semiconductors: D(70) },
+    creditCost: D(3500),
+    costFactor: 1.18,
+    production: { radar: D(0.08) },
+    consumption: { steel: D(0.18), copper: D(0.15), integrated_circuit: D(0.1) },
+    energyConsumption: D(8.0),
+    count: 0
+  },
+  {
+    id: 'nuclear_bomb_factory_mk1',
+    name: 'Завод Ядерных Бомб v1',
+    description: 'Производит ядерное оружие — последний аргумент в экстремальных ситуациях.',
+    baseCost: { steel: D(300), titanium_alloy: D(120), computer: D(50) },
+    creditCost: D(10000),
+    costFactor: 1.30,
+    production: { nuclear_bomb: D(0.02) },
+    consumption: { enriched_uranium: D(0.08), titanium_alloy: D(0.12), integrated_circuit: D(0.15) },
+    energyConsumption: D(15.0),
+    count: 0
+  },
+  // Фаза 2.8: Космические здания
+  {
+    id: 'jet_engine_factory_mk1',
+    name: 'Завод Реактивных Двигателей v1',
+    description: 'Производит мощные реактивные двигатели для космических кораблей.',
+    baseCost: { steel: D(250), titanium_alloy: D(150), engine: D(80) },
+    creditCost: D(7000),
+    costFactor: 1.22,
+    production: { jet_engine: D(0.06) },
+    consumption: { titanium_alloy: D(0.2), engine: D(0.15), liquid_fuel: D(0.3) },
+    energyConsumption: D(12.0),
+    count: 0
+  },
+  {
+    id: 'satellite_factory_mk1',
+    name: 'Завод Спутников v1',
+    description: 'Производит орбитальные спутники для связи и разведки.',
+    baseCost: { steel: D(200), computer: D(60), battery: D(40) },
+    creditCost: D(5500),
+    costFactor: 1.20,
+    production: { satellite: D(0.05) },
+    consumption: { steel: D(0.15), computer: D(0.1), integrated_circuit: D(0.18) },
+    energyConsumption: D(9.0),
+    count: 0
+  },
+  {
+    id: 'rocket_factory_mk1',
+    name: 'Ракетный Завод v1',
+    description: 'Производит ракеты-носители для космических запусков.',
+    baseCost: { steel: D(300), titanium_alloy: D(180), liquid_fuel: D(200) },
+    creditCost: D(8000),
+    costFactor: 1.24,
+    production: { rocket: D(0.04) },
+    consumption: { steel: D(0.25), titanium_alloy: D(0.2), liquid_fuel: D(0.4) },
+    energyConsumption: D(14.0),
+    count: 0
+  },
+  {
+    id: 'spaceship_factory_mk1',
+    name: 'Завод Космических Кораблей v1',
+    description: 'Производит звездолёты для дальних космических экспедиций.',
+    baseCost: { steel: D(400), titanium_alloy: D(250), jet_engine: D(60), computer: D(80) },
+    creditCost: D(10000),
+    costFactor: 1.28,
+    production: { spaceship: D(0.025) },
+    consumption: { titanium_alloy: D(0.3), jet_engine: D(0.08), computer: D(0.12) },
+    energyConsumption: D(18.0),
+    count: 0
+  },
+  {
+    id: 'console_factory_mk1',
+    name: 'Консольный Завод v1',
+    description: 'Производит управляющие консоли для космических систем.',
+    baseCost: { steel: D(180), computer: D(70), display: D(50) },
+    creditCost: D(5500),
+    costFactor: 1.18,
+    production: { console: D(0.06) },
+    consumption: { computer: D(0.12), display: D(0.08), integrated_circuit: D(0.15) },
+    energyConsumption: D(7.5),
+    count: 0
+  },
+  {
+    id: 'space_station_factory_mk1',
+    name: 'Завод Космических Станций v1',
+    description: 'Производит орбитальные станции — венец космических технологий.',
+    baseCost: { steel: D(500), titanium_alloy: D(300), spaceship: D(40), console: D(60) },
+    creditCost: D(15000),
+    costFactor: 1.35,
+    production: { space_station: D(0.015) },
+    consumption: { steel: D(0.4), titanium_alloy: D(0.35), spaceship: D(0.05), console: D(0.08) },
+    energyConsumption: D(25.0),
+    count: 0
+  },
+  {
+    id: 'space_colony_mk1',
+    name: 'Космическая Колония v1',
+    description: 'Самодостаточная колония в космосе. Производит множество ресурсов автономно.',
+    baseCost: { steel: D(800), space_station: D(10), computer: D(150), battery: D(200) },
+    creditCost: D(50000),
+    costFactor: 1.40,
+    production: { 
+      energy: D(60), 
+      steel: D(5), 
+      computer: D(2),
+      liquid_fuel: D(3),
+      satellite: D(0.5)
+    },
+    consumption: { },
+    energyConsumption: D(-60), // Производит энергию
+    count: 0
+  },
+  // Фаза 2.9: Специальные здания
+  {
+    id: 'robot_factory_mk1',
+    name: 'Завод Роботов v1',
+    description: 'Производит автоматизированных роботов для ускорения производства.',
+    baseCost: { steel: D(350), computer: D(120), engine: D(80), integrated_circuit: D(100) },
+    creditCost: D(12000),
+    costFactor: 1.25,
+    production: { robot: D(0.03) },
+    consumption: { steel: D(0.25), computer: D(0.15), engine: D(0.1), integrated_circuit: D(0.12) },
+    energyConsumption: D(18.0),
+    count: 0
+  },
+  {
+    id: 'resource_accelerator_mk1',
+    name: 'Ускоритель Ресурсов v1',
+    description: 'Ускоряет добычу всех ресурсов в радиусе 2 клеток на 15%.',
+    baseCost: { steel: D(500), computer: D(150), battery: D(120), robot: D(20) },
+    creditCost: D(20000),
+    costFactor: 1.30,
+    production: { },
+    consumption: { },
+    energyConsumption: D(25.0),
+    // Эффект близости будет реализован в Фазе 3
+    count: 0
+  },
+  {
+    id: 'recycler_mk1',
+    name: 'Переработчик Мусора v1',
+    description: 'Перерабатывает отходы производства, возвращая часть ресурсов.',
+    baseCost: { steel: D(300), computer: D(80), robot: D(15) },
+    creditCost: D(12000),
+    costFactor: 1.22,
+    production: { 
+      ore: D(2.0),
+      steel: D(1.0),
+      plastic: D(0.5),
+      copper: D(0.8)
+    },
+    consumption: { },
+    energyConsumption: D(15.0),
+    count: 0
+  },
+  {
+    id: 'bitcoin_farm_mk1',
+    name: 'Ферма Биткоинов v1',
+    description: 'Майнит криптовалюту, конвертируя её в кредиты. Требует огромного количества энергии.',
+    baseCost: { steel: D(600), computer: D(200), battery: D(150) },
+    creditCost: D(25000),
+    costFactor: 1.35,
+    production: { },
+    consumption: { },
+    energyConsumption: D(80.0),
+    // Особый эффект: генерирует кредиты напрямую (будет реализовано отдельно)
+    count: 0
+  },
+  {
+    id: 'advanced_warehouse_mk1',
+    name: 'Продвинутое Хранилище v1',
+    description: 'Значительно увеличивает лимиты всех ресурсов. Улучшает логистику в радиусе 5 клеток.',
+    baseCost: { steel: D(400), titanium_alloy: D(100), robot: D(25) },
+    creditCost: D(18000),
+    costFactor: 1.20,
+    production: { },
+    consumption: { },
+    energyConsumption: D(8.0),
+    logisticsRadius: 5,
+    productionMultipliers: {
+      ore: D(1000),
+      ice: D(1000),
+      carbon: D(1000),
+      steel: D(500),
+      natural_gas: D(800),
+      oil: D(800),
+      plastic: D(600),
+      glass: D(600),
+      copper: D(600),
+      semiconductors: D(400),
+      integrated_circuit: D(300),
+      battery: D(350),
+      computer: D(250),
+      weapon: D(300),
+      jet_engine: D(200),
+      satellite: D(150),
+      spaceship: D(100),
+    },
+    count: 0
+  },
+  {
+    id: 'logistics_hub_mk1',
+    name: 'Логистический Центр v1',
+    description: 'Увеличивает эффективность транспортировки ресурсов в радиусе 10 клеток на 20%. Убирает штрафы дальности.',
+    baseCost: { steel: D(450), computer: D(100), robot: D(30) },
+    creditCost: D(15000),
+    costFactor: 1.28,
+    production: { },
+    consumption: { },
+    energyConsumption: D(25.0),
+    logisticsRadius: 10,
+    // Эффект близости будет реализован в Фазе 3
+    count: 0
+  },
+  {
+    id: 'power_substation_mk1',
+    name: 'Подстанция v1',
+    description: 'Расширяет энергосеть на 3 клетки. Снижает энергопотребление всех зданий в радиусе 2 клеток на 10%.',
+    baseCost: { steel: D(350), copper: D(150), battery: D(100) },
+    creditCost: D(16000),
+    costFactor: 1.25,
+    production: { },
+    consumption: { },
+    energyConsumption: D(5.0),
+    powerGridRadius: 3,
+    // Эффект близости будет реализован в Фазе 3
+    count: 0
+  },
+  {
+    id: 'cooling_system_mk1',
+    name: 'Система Охлаждения v1',
+    description: 'Повышает производительность энергетических зданий в радиусе 2 клеток на 15%.',
+    baseCost: { steel: D(300), plastic: D(100), liquid_fuel: D(80) },
+    creditCost: D(14000),
+    costFactor: 1.24,
+    production: { },
+    consumption: { liquid_fuel: D(0.5) },
+    energyConsumption: D(12.0),
+    // Эффект близости будет реализован в Фазе 3
+    count: 0
+  },
+  // Фаза 4: Исследовательские здания
+  {
+    id: 'research_center_mk1',
+    name: 'Исследовательский Центр v1',
+    description: 'Генерирует очки исследований (RP) для разблокировки новых технологий.',
+    baseCost: { steel: D(200), computer: D(50), plastic: D(100) },
+    creditCost: D(5000),
+    costFactor: 1.22,
+    production: { },
+    consumption: { },
+    energyConsumption: D(8.0),
+    // Особый эффект: генерирует RP (будет реализовано отдельно)
+    count: 0
+  },
+  {
+    id: 'supercomputer_lab_mk1',
+    name: 'Лаборатория Супер Компьютеров v1',
+    description: 'Продвинутая лаборатория с мощными вычислительными системами. Генерирует больше RP.',
+    baseCost: { steel: D(500), computer: D(200), battery: D(150), display: D(100) },
+    creditCost: D(15000),
+    costFactor: 1.25,
+    production: { },
+    consumption: { },
+    energyConsumption: D(30.0),
+    // Особый эффект: генерирует больше RP (будет реализовано отдельно)
+    count: 0
+  },
+  {
+    id: 'quantum_lab_mk1',
+    name: 'Лаборатория Квантовых Компьютеров v1',
+    description: 'Революционная квантовая лаборатория. Максимальное производство RP.',
+    baseCost: { steel: D(1000), computer: D(500), enriched_uranium: D(200), titanium_alloy: D(300) },
+    creditCost: D(50000),
+    costFactor: 1.30,
+    production: { },
+    consumption: { enriched_uranium: D(0.5) },
+    energyConsumption: D(80.0),
+    // Особый эффект: генерирует максимальное количество RP (будет реализовано отдельно)
+    count: 0
+  },
+  // Фаза 5: Политический центр
+  {
+    id: 'political_center_mk1',
+    name: 'Политический Центр v1',
+    description: 'Центр управления политиками. Генерирует влияние и позволяет активировать политики.',
+    baseCost: { steel: D(300), computer: D(100), display: D(50), plastic: D(200) },
+    creditCost: D(10000),
+    costFactor: 1.25,
+    production: { },
+    consumption: { },
+    energyConsumption: D(15.0),
+    // Особый эффект: генерирует влияние (будет реализовано отдельно)
+    count: 0
+  },
+  // Фаза 7: Оборонительные здания для платформ
+  {
+    id: 'defense_turret_mk1',
+    name: 'Защитная Турель v1',
+    description: 'Автоматическая турель для защиты платформы. Атакует вражеские корабли в радиусе действия.',
+    baseCost: { steel: D(400), weapon: D(20), radar: D(5), integrated_circuit: D(30) },
+    creditCost: D(8000),
+    costFactor: 1.22,
+    production: { },
+    consumption: { },
+    energyConsumption: D(12.0),
+    combat: { dps: D(25.0), energyPerSecond: D(8.0) },
+    count: 0
+  },
+  {
+    id: 'defense_turret_mk2',
+    name: 'Защитная Турель v2',
+    description: 'Улучшенная турель с большей мощностью и дальностью стрельбы.',
+    baseCost: { steel: D(800), weapon: D(50), artillery: D(15), computer: D(40) },
+    creditCost: D(18000),
+    costFactor: 1.25,
+    production: { },
+    consumption: { },
+    energyConsumption: D(22.0),
+    combat: { dps: D(60.0), energyPerSecond: D(15.0) },
+    count: 0
+  },
+  {
+    id: 'radar_station_mk1',
+    name: 'Радарная Станция v1',
+    description: 'Расширяет радиус действия турелей на 50%. Предупреждает о вражеских атаках заранее.',
+    baseCost: { steel: D(600), radar: D(30), computer: D(60), display: D(40) },
+    creditCost: D(12000),
+    costFactor: 1.23,
+    production: { },
+    consumption: { },
+    energyConsumption: D(18.0),
+    // Эффект: увеличение дальности турелей будет реализован отдельно
+    count: 0
+  },
+  {
+    id: 'shield_generator_mk1',
+    name: 'Щитовой Генератор v1',
+    description: 'Создаёт энергетический щит для платформы. Блокирует энергетический урон и регенерирует.',
+    baseCost: { steel: D(700), battery: D(100), integrated_circuit: D(80), enriched_uranium: D(20) },
+    creditCost: D(15000),
+    costFactor: 1.28,
+    production: { },
+    consumption: { },
+    energyConsumption: D(25.0),
+    defense: { shieldMaxHp: D(500), shieldRegenPerSecond: D(10.0), energyPerSecond: D(20.0) },
+    count: 0
+  },
+  {
+    id: 'shield_generator_mk2',
+    name: 'Щитовой Генератор v2',
+    description: 'Продвинутый щитовой генератор с большей мощностью и скоростью регенерации.',
+    baseCost: { steel: D(1500), battery: D(250), computer: D(150), titanium_alloy: D(100) },
+    creditCost: D(35000),
+    costFactor: 1.32,
+    production: { },
+    consumption: { },
+    energyConsumption: D(50.0),
+    defense: { shieldMaxHp: D(1500), shieldRegenPerSecond: D(30.0), energyPerSecond: D(40.0) },
+    count: 0
+  },
+  {
+    id: 'armor_plating_mk1',
+    name: 'Бронепластины v1',
+    description: 'Дополнительное бронирование для платформы. Снижает физический урон на 30%.',
+    baseCost: { steel: D(900), chrome_alloy: D(150), titanium_alloy: D(120) },
+    creditCost: D(20000),
+    costFactor: 1.30,
+    production: { },
+    consumption: { },
+    energyConsumption: D(5.0),
+    // Эффект: увеличение брони платформы будет реализован отдельно
+    count: 0
   }
 ];
+
+// Инициализация правил близости для зданий
+const initializeBuildingProximityRules = (buildings: Building[]): Building[] => {
+  return buildings.map(building => {
+    const rules = getProximityRulesForBuilding(building.name);
+    if (rules) {
+      return { ...building, proximityRules: rules };
+    }
+    return building;
+  });
+};
+
+// Применяем правила близости к зданиям
+const BUILDINGS_WITH_PROXIMITY = initializeBuildingProximityRules(INITIAL_BUILDINGS);
 
 const INITIAL_RESOURCES = {
   energy: { amount: D(50), max: D(100), production: D(0) },
@@ -327,7 +1228,51 @@ const INITIAL_RESOURCES = {
   ice: { amount: D(0), max: D(800), production: D(0) },
   carbon: { amount: D(0), max: D(800), production: D(0) },
   steel: { amount: D(0), max: D(300), production: D(0) },
-  dark_matter: { amount: D(0), max: D(50), production: D(0) }
+  dark_matter: { amount: D(0), max: D(50), production: D(0) },
+  // Фаза 2: Базовые новые ресурсы
+  natural_gas: { amount: D(0), max: D(500), production: D(0) },
+  oil: { amount: D(0), max: D(500), production: D(0) },
+  gasoline: { amount: D(0), max: D(300), production: D(0) },
+  plastic: { amount: D(0), max: D(400), production: D(0) },
+  glass: { amount: D(0), max: D(400), production: D(0) },
+  chemicals: { amount: D(0), max: D(300), production: D(0) },
+  sand: { amount: D(0), max: D(1000), production: D(0) },
+  // Фаза 2.3: Металлические ресурсы
+  uranium: { amount: D(0), max: D(200), production: D(0) },
+  chrome: { amount: D(0), max: D(300), production: D(0) },
+  titanium: { amount: D(0), max: D(300), production: D(0) },
+  // Фаза 2.4-2.5: Продвинутые ресурсы
+  copper: { amount: D(0), max: D(400), production: D(0) },
+  semiconductors: { amount: D(0), max: D(200), production: D(0) },
+  dynamite: { amount: D(0), max: D(150), production: D(0) },
+  fiber: { amount: D(0), max: D(250), production: D(0) },
+  // Фаза 2.6: Сложные производственные ресурсы
+  integrated_circuit: { amount: D(0), max: D(150), production: D(0) },
+  battery: { amount: D(0), max: D(180), production: D(0) },
+  engine: { amount: D(0), max: D(120), production: D(0) },
+  display: { amount: D(0), max: D(160), production: D(0) },
+  computer: { amount: D(0), max: D(100), production: D(0) },
+  liquid_fuel: { amount: D(0), max: D(350), production: D(0) },
+  chrome_alloy: { amount: D(0), max: D(200), production: D(0) },
+  titanium_alloy: { amount: D(0), max: D(200), production: D(0) },
+  enriched_uranium: { amount: D(0), max: D(80), production: D(0) },
+  // Фаза 2.7: Военные ресурсы
+  weapon: { amount: D(0), max: D(150), production: D(0) },
+  artillery: { amount: D(0), max: D(100), production: D(0) },
+  radar: { amount: D(0), max: D(120), production: D(0) },
+  nuclear_bomb: { amount: D(0), max: D(50), production: D(0) },
+  // Фаза 2.8: Космические ресурсы
+  jet_engine: { amount: D(0), max: D(80), production: D(0) },
+  satellite: { amount: D(0), max: D(60), production: D(0) },
+  rocket: { amount: D(0), max: D(50), production: D(0) },
+  spaceship: { amount: D(0), max: D(40), production: D(0) },
+  console: { amount: D(0), max: D(90), production: D(0) },
+  space_station: { amount: D(0), max: D(20), production: D(0) },
+  // Фаза 2.9: Специальные ресурсы
+  robot: { amount: D(0), max: D(70), production: D(0) },
+  // Фаза 8.1: Экология
+  waste: { amount: D(0), max: D(10000), production: D(0) },
+  radioactive_waste: { amount: D(0), max: D(5000), production: D(0) },
 };
 
 const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
@@ -337,6 +1282,50 @@ const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   carbon: INITIAL_RESOURCES.carbon.max,
   steel: INITIAL_RESOURCES.steel.max,
   dark_matter: INITIAL_RESOURCES.dark_matter.max,
+  // Фаза 2: Базовые новые ресурсы
+  natural_gas: INITIAL_RESOURCES.natural_gas.max,
+  oil: INITIAL_RESOURCES.oil.max,
+  gasoline: INITIAL_RESOURCES.gasoline.max,
+  plastic: INITIAL_RESOURCES.plastic.max,
+  glass: INITIAL_RESOURCES.glass.max,
+  chemicals: INITIAL_RESOURCES.chemicals.max,
+  sand: INITIAL_RESOURCES.sand.max,
+  // Фаза 2.3: Металлические ресурсы
+  uranium: INITIAL_RESOURCES.uranium.max,
+  chrome: INITIAL_RESOURCES.chrome.max,
+  titanium: INITIAL_RESOURCES.titanium.max,
+  // Фаза 2.4-2.5: Продвинутые ресурсы
+  copper: INITIAL_RESOURCES.copper.max,
+  semiconductors: INITIAL_RESOURCES.semiconductors.max,
+  dynamite: INITIAL_RESOURCES.dynamite.max,
+  fiber: INITIAL_RESOURCES.fiber.max,
+  // Фаза 2.6: Сложные производственные ресурсы
+  integrated_circuit: INITIAL_RESOURCES.integrated_circuit.max,
+  battery: INITIAL_RESOURCES.battery.max,
+  engine: INITIAL_RESOURCES.engine.max,
+  display: INITIAL_RESOURCES.display.max,
+  computer: INITIAL_RESOURCES.computer.max,
+  liquid_fuel: INITIAL_RESOURCES.liquid_fuel.max,
+  chrome_alloy: INITIAL_RESOURCES.chrome_alloy.max,
+  titanium_alloy: INITIAL_RESOURCES.titanium_alloy.max,
+  enriched_uranium: INITIAL_RESOURCES.enriched_uranium.max,
+  // Фаза 2.7: Военные ресурсы
+  weapon: INITIAL_RESOURCES.weapon.max,
+  artillery: INITIAL_RESOURCES.artillery.max,
+  radar: INITIAL_RESOURCES.radar.max,
+  nuclear_bomb: INITIAL_RESOURCES.nuclear_bomb.max,
+  // Фаза 2.8: Космические ресурсы
+  jet_engine: INITIAL_RESOURCES.jet_engine.max,
+  satellite: INITIAL_RESOURCES.satellite.max,
+  rocket: INITIAL_RESOURCES.rocket.max,
+  spaceship: INITIAL_RESOURCES.spaceship.max,
+  console: INITIAL_RESOURCES.console.max,
+  space_station: INITIAL_RESOURCES.space_station.max,
+  // Фаза 2.9: Специальные ресурсы
+  robot: INITIAL_RESOURCES.robot.max,
+  // Фаза 8.1: Экология
+  waste: INITIAL_RESOURCES.waste.max,
+  radioactive_waste: INITIAL_RESOURCES.radioactive_waste.max,
 };
 
 const recomputeCaps = (resources: typeof INITIAL_RESOURCES, buildings: Building[], capsMultiplier: Decimal = D(1)) => {
@@ -349,6 +1338,50 @@ const recomputeCaps = (resources: typeof INITIAL_RESOURCES, buildings: Building[
     carbon: BASE_RESOURCE_MAX.carbon,
     steel: BASE_RESOURCE_MAX.steel,
     dark_matter: BASE_RESOURCE_MAX.dark_matter,
+    // Фаза 2: Базовые новые ресурсы
+    natural_gas: BASE_RESOURCE_MAX.natural_gas,
+    oil: BASE_RESOURCE_MAX.oil,
+    gasoline: BASE_RESOURCE_MAX.gasoline,
+    plastic: BASE_RESOURCE_MAX.plastic,
+    glass: BASE_RESOURCE_MAX.glass,
+    chemicals: BASE_RESOURCE_MAX.chemicals,
+    sand: BASE_RESOURCE_MAX.sand,
+    // Фаза 2.3: Металлические ресурсы
+    uranium: BASE_RESOURCE_MAX.uranium,
+    chrome: BASE_RESOURCE_MAX.chrome,
+    titanium: BASE_RESOURCE_MAX.titanium,
+    // Фаза 2.4-2.5: Продвинутые ресурсы
+    copper: BASE_RESOURCE_MAX.copper,
+    semiconductors: BASE_RESOURCE_MAX.semiconductors,
+    dynamite: BASE_RESOURCE_MAX.dynamite,
+    fiber: BASE_RESOURCE_MAX.fiber,
+    // Фаза 2.6: Сложные производственные ресурсы
+    integrated_circuit: BASE_RESOURCE_MAX.integrated_circuit,
+    battery: BASE_RESOURCE_MAX.battery,
+    engine: BASE_RESOURCE_MAX.engine,
+    display: BASE_RESOURCE_MAX.display,
+    computer: BASE_RESOURCE_MAX.computer,
+    liquid_fuel: BASE_RESOURCE_MAX.liquid_fuel,
+    chrome_alloy: BASE_RESOURCE_MAX.chrome_alloy,
+    titanium_alloy: BASE_RESOURCE_MAX.titanium_alloy,
+    enriched_uranium: BASE_RESOURCE_MAX.enriched_uranium,
+    // Фаза 2.7: Военные ресурсы
+    weapon: BASE_RESOURCE_MAX.weapon,
+    artillery: BASE_RESOURCE_MAX.artillery,
+    radar: BASE_RESOURCE_MAX.radar,
+    nuclear_bomb: BASE_RESOURCE_MAX.nuclear_bomb,
+    // Фаза 2.8: Космические ресурсы
+    jet_engine: BASE_RESOURCE_MAX.jet_engine,
+    satellite: BASE_RESOURCE_MAX.satellite,
+    rocket: BASE_RESOURCE_MAX.rocket,
+    spaceship: BASE_RESOURCE_MAX.spaceship,
+    console: BASE_RESOURCE_MAX.console,
+    space_station: BASE_RESOURCE_MAX.space_station,
+    // Фаза 2.9: Специальные ресурсы
+    robot: BASE_RESOURCE_MAX.robot,
+    // Фаза 8.1: Экология
+    waste: BASE_RESOURCE_MAX.waste,
+    radioactive_waste: BASE_RESOURCE_MAX.radioactive_waste,
   };
 
   for (const b of buildings) {
@@ -386,6 +1419,16 @@ const generateDeposits = (width: number, height: number) => {
   const oreChance = 0.10;
   const iceChance = 0.08;
   const carbonChance = 0.07;
+  // Фаза 2: Новые месторождения (более редкие)
+  const gasChance = 0.05;
+  const oilChance = 0.04;
+  const sandChance = 0.06;
+  // Фаза 2.3: Металлические месторождения (редкие)
+  const uraniumChance = 0.02;
+  const chromeChance = 0.03;
+  const titaniumChance = 0.025;
+  // Фаза 2.4: Медные месторождения
+  const copperChance = 0.04;
 
   const basePos = getBasePos({ width, height });
 
@@ -397,6 +1440,16 @@ const generateDeposits = (width: number, height: number) => {
       if (roll < oreChance) deposits[`${x},${y}`] = 'ore';
       else if (roll < oreChance + iceChance) deposits[`${x},${y}`] = 'ice';
       else if (roll < oreChance + iceChance + carbonChance) deposits[`${x},${y}`] = 'carbon';
+      // Фаза 2: Новые месторождения
+      else if (roll < oreChance + iceChance + carbonChance + gasChance) deposits[`${x},${y}`] = 'natural_gas';
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance) deposits[`${x},${y}`] = 'oil';
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance) deposits[`${x},${y}`] = 'sand';
+      // Фаза 2.3: Металлические месторождения
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance) deposits[`${x},${y}`] = 'uranium';
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance) deposits[`${x},${y}`] = 'chrome';
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance + titaniumChance) deposits[`${x},${y}`] = 'titanium';
+      // Фаза 2.4: Медные месторождения
+      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance + titaniumChance + copperChance) deposits[`${x},${y}`] = 'copper';
     }
   }
 
@@ -407,6 +1460,16 @@ const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
   if (buildingId === 'miner_mk1') return 'ore';
   if (buildingId === 'ice_extractor_mk1') return 'ice';
   if (buildingId === 'carbon_harvester_mk1') return 'carbon';
+  // Фаза 2: Новые добывающие здания
+  if (buildingId === 'gas_well_mk1') return 'natural_gas';
+  if (buildingId === 'oil_well_mk1') return 'oil';
+  if (buildingId === 'sand_quarry_mk1') return 'sand';
+  // Фаза 2.3: Металлические шахты
+  if (buildingId === 'uranium_mine_mk1') return 'uranium';
+  if (buildingId === 'chrome_mine_mk1') return 'chrome';
+  if (buildingId === 'titanium_mine_mk1') return 'titanium';
+  // Фаза 2.4: Медная шахта
+  if (buildingId === 'copper_mine_mk1') return 'copper';
   return null;
 };
 
@@ -499,6 +1562,18 @@ const DEFAULT_GRID = {
       carbon: INITIAL_RESOURCES.carbon.amount.toString(),
       steel: INITIAL_RESOURCES.steel.amount.toString(),
       dark_matter: INITIAL_RESOURCES.dark_matter.amount.toString(),
+      // Фаза 2: Базовые новые ресурсы
+      natural_gas: INITIAL_RESOURCES.natural_gas.amount.toString(),
+      oil: INITIAL_RESOURCES.oil.amount.toString(),
+      gasoline: INITIAL_RESOURCES.gasoline.amount.toString(),
+      plastic: INITIAL_RESOURCES.plastic.amount.toString(),
+      glass: INITIAL_RESOURCES.glass.amount.toString(),
+      chemicals: INITIAL_RESOURCES.chemicals.amount.toString(),
+      sand: INITIAL_RESOURCES.sand.amount.toString(),
+      // Фаза 2.3: Металлические ресурсы
+      uranium: INITIAL_RESOURCES.uranium.amount.toString(),
+      chrome: INITIAL_RESOURCES.chrome.amount.toString(),
+      titanium: INITIAL_RESOURCES.titanium.amount.toString(),
     },
   } as Record<string, Partial<Record<ResourceType, string>>>,
   activeTransports: [] as Array<{
@@ -595,27 +1670,120 @@ const spendCostFromBase = (
 };
 
 const INITIAL_MARKET_EVENT: MarketEvent = {
-  id: 'none',
-  name: 'Стабильность',
-  multiplier: 1,
+  id: 'normal',
+  name: 'Обычный рынок',
+  multiplier: 1.0,
+};
+
+// Base prices from balance.md
+const BASE_MARKET_PRICES: Record<TradeResourceType, Decimal> = {
+  ore: D(2),
+  ice: D(3),
+  carbon: D(4),
+  steel: D(15),
+  // Фаза 2: Базовые новые ресурсы
+  natural_gas: D(5),
+  oil: D(6),
+  gasoline: D(12),
+  plastic: D(10),
+  glass: D(8),
+  sand: D(1),
+  // Фаза 2.3: Металлические ресурсы
+  uranium: D(50),
+  chrome: D(25),
+  titanium: D(30),
+  // Фаза 2.4-2.5: Продвинутые ресурсы
+  copper: D(8),
+  semiconductors: D(35),
+  dynamite: D(22),
+  fiber: D(16),
+  // Фаза 2.6: Сложные производственные ресурсы
+  integrated_circuit: D(60),
+  battery: D(45),
+  engine: D(80),
+  display: D(55),
+  computer: D(120),
+  liquid_fuel: D(18),
+  chrome_alloy: D(40),
+  titanium_alloy: D(50),
+  enriched_uranium: D(150),
+  // Фаза 2.7: Военные ресурсы
+  weapon: D(70),
+  artillery: D(100),
+  radar: D(90),
+  nuclear_bomb: D(500),
+  // Фаза 2.8: Космические ресурсы
+  jet_engine: D(200),
+  satellite: D(300),
+  rocket: D(250),
+  spaceship: D(500),
+  console: D(150),
+  space_station: D(1000),
+  // Фаза 2.9: Специальные ресурсы
+  robot: D(180),
 };
 
 const INITIAL_MARKET = {
-  prices: {
-    ore: D(1.2),
-    ice: D(1.1),
-    carbon: D(1.5),
-    steel: D(6.5),
-  },
+  prices: BASE_MARKET_PRICES,
   event: INITIAL_MARKET_EVENT,
   nextUpdateAt: Date.now() + MARKET_UPDATE_SECONDS * 1000,
   history: {
-    ore: [{ t: Date.now(), price: D(1.2).toString() }],
-    ice: [{ t: Date.now(), price: D(1.1).toString() }],
-    carbon: [{ t: Date.now(), price: D(1.5).toString() }],
-    steel: [{ t: Date.now(), price: D(6.5).toString() }],
+    ore: [{ t: Date.now(), price: D(2).toString() }],
+    ice: [{ t: Date.now(), price: D(3).toString() }],
+    carbon: [{ t: Date.now(), price: D(4).toString() }],
+    steel: [{ t: Date.now(), price: D(15).toString() }],
+    // Фаза 2: Базовые новые ресурсы
+    natural_gas: [{ t: Date.now(), price: D(5).toString() }],
+    oil: [{ t: Date.now(), price: D(6).toString() }],
+    gasoline: [{ t: Date.now(), price: D(12).toString() }],
+    plastic: [{ t: Date.now(), price: D(10).toString() }],
+    glass: [{ t: Date.now(), price: D(8).toString() }],
+    sand: [{ t: Date.now(), price: D(1).toString() }],
+    // Фаза 2.3: Металлические ресурсы
+    uranium: [{ t: Date.now(), price: D(50).toString() }],
+    chrome: [{ t: Date.now(), price: D(25).toString() }],
+    titanium: [{ t: Date.now(), price: D(30).toString() }],
+    // Фаза 2.4-2.5: Продвинутые ресурсы
+    copper: [{ t: Date.now(), price: D(8).toString() }],
+    semiconductors: [{ t: Date.now(), price: D(35).toString() }],
+    dynamite: [{ t: Date.now(), price: D(22).toString() }],
+    fiber: [{ t: Date.now(), price: D(16).toString() }],
+    // Фаза 2.6: Сложные производственные ресурсы
+    integrated_circuit: [{ t: Date.now(), price: D(60).toString() }],
+    battery: [{ t: Date.now(), price: D(45).toString() }],
+    engine: [{ t: Date.now(), price: D(80).toString() }],
+    display: [{ t: Date.now(), price: D(55).toString() }],
+    computer: [{ t: Date.now(), price: D(120).toString() }],
+    liquid_fuel: [{ t: Date.now(), price: D(18).toString() }],
+    chrome_alloy: [{ t: Date.now(), price: D(40).toString() }],
+    titanium_alloy: [{ t: Date.now(), price: D(50).toString() }],
+    enriched_uranium: [{ t: Date.now(), price: D(150).toString() }],
+    // Фаза 2.7: Военные ресурсы
+    weapon: [{ t: Date.now(), price: D(70).toString() }],
+    artillery: [{ t: Date.now(), price: D(100).toString() }],
+    radar: [{ t: Date.now(), price: D(90).toString() }],
+    nuclear_bomb: [{ t: Date.now(), price: D(500).toString() }],
+    // Фаза 2.8: Космические ресурсы
+    jet_engine: [{ t: Date.now(), price: D(200).toString() }],
+    satellite: [{ t: Date.now(), price: D(300).toString() }],
+    rocket: [{ t: Date.now(), price: D(250).toString() }],
+    spaceship: [{ t: Date.now(), price: D(500).toString() }],
+    console: [{ t: Date.now(), price: D(150).toString() }],
+    space_station: [{ t: Date.now(), price: D(1000).toString() }],
+    // Фаза 2.9: Специальные ресурсы
+    robot: [{ t: Date.now(), price: D(180).toString() }],
   } as Record<TradeResourceType, Array<{ t: number; price: string }>>,
 };
+
+// Market events configuration
+const MARKET_EVENTS: MarketEvent[] = [
+  { id: 'normal', name: 'Обычный рынок', multiplier: 1.0 },
+  { id: 'war', name: 'Военное время', multiplier: 1.5 },
+  { id: 'deficit', name: 'Дефицит ресурсов', multiplier: 1.8 },
+  { id: 'surplus', name: 'Перепроизводство', multiplier: 0.7 },
+  { id: 'boom', name: 'Экономический бум', multiplier: 1.2 },
+  { id: 'crisis', name: 'Экономический кризис', multiplier: 0.5 },
+];
 
 const MARKET_HISTORY_MAX_POINTS = 180;
 
@@ -629,6 +1797,46 @@ const pushMarketHistory = (
     ice: [...(prev?.ice ?? [])],
     carbon: [...(prev?.carbon ?? [])],
     steel: [...(prev?.steel ?? [])],
+    // Фаза 2: Базовые новые ресурсы
+    natural_gas: [...(prev?.natural_gas ?? [])],
+    oil: [...(prev?.oil ?? [])],
+    gasoline: [...(prev?.gasoline ?? [])],
+    plastic: [...(prev?.plastic ?? [])],
+    glass: [...(prev?.glass ?? [])],
+    sand: [...(prev?.sand ?? [])],
+    // Фаза 2.3: Металлические ресурсы
+    uranium: [...(prev?.uranium ?? [])],
+    chrome: [...(prev?.chrome ?? [])],
+    titanium: [...(prev?.titanium ?? [])],
+    // Фаза 2.4-2.5: Продвинутые ресурсы
+    copper: [...(prev?.copper ?? [])],
+    semiconductors: [...(prev?.semiconductors ?? [])],
+    dynamite: [...(prev?.dynamite ?? [])],
+    fiber: [...(prev?.fiber ?? [])],
+    // Фаза 2.6: Сложные производственные ресурсы
+    integrated_circuit: [...(prev?.integrated_circuit ?? [])],
+    battery: [...(prev?.battery ?? [])],
+    engine: [...(prev?.engine ?? [])],
+    display: [...(prev?.display ?? [])],
+    computer: [...(prev?.computer ?? [])],
+    liquid_fuel: [...(prev?.liquid_fuel ?? [])],
+    chrome_alloy: [...(prev?.chrome_alloy ?? [])],
+    titanium_alloy: [...(prev?.titanium_alloy ?? [])],
+    enriched_uranium: [...(prev?.enriched_uranium ?? [])],
+    // Фаза 2.7: Военные ресурсы
+    weapon: [...(prev?.weapon ?? [])],
+    artillery: [...(prev?.artillery ?? [])],
+    radar: [...(prev?.radar ?? [])],
+    nuclear_bomb: [...(prev?.nuclear_bomb ?? [])],
+    // Фаза 2.8: Космические ресурсы
+    jet_engine: [...(prev?.jet_engine ?? [])],
+    satellite: [...(prev?.satellite ?? [])],
+    rocket: [...(prev?.rocket ?? [])],
+    spaceship: [...(prev?.spaceship ?? [])],
+    console: [...(prev?.console ?? [])],
+    space_station: [...(prev?.space_station ?? [])],
+    // Фаза 2.9: Специальные ресурсы
+    robot: [...(prev?.robot ?? [])],
   };
 
   for (const r of TRADEABLE) {
@@ -677,33 +1885,29 @@ const randomInRange = (min: number, max: number) => min + Math.random() * (max -
 
 const rollEvent = (): MarketEvent => {
   const roll = Math.random();
-  if (roll < 0.80) return { id: 'none', name: 'Стабильность', multiplier: 1 };
-
-  const affected = TRADEABLE[Math.floor(Math.random() * TRADEABLE.length)];
-  const eventRoll = Math.random();
-
-  if (eventRoll < 0.34) {
-    // War: typically pumps steel
-    return { id: 'war', name: 'Война', multiplier: randomInRange(1.8, 3.0), affected: 'steel' };
+  // 50% - normal, 50% - special event
+  if (roll < 0.50) {
+    return MARKET_EVENTS[0]; // normal
   }
 
-  if (eventRoll < 0.67) {
-    return { id: 'deficit', name: 'Дефицит', multiplier: randomInRange(1.5, 3.0), affected };
-  }
-
-  return { id: 'oversupply', name: 'Переизбыток', multiplier: randomInRange(0.35, 0.7), affected };
+  // Pick random special event
+  const specialEvents = MARKET_EVENTS.slice(1);
+  const eventIndex = Math.floor(Math.random() * specialEvents.length);
+  return specialEvents[eventIndex];
 };
 
-const updateMarketPrices = (prevPrices: Record<TradeResourceType, Decimal>, event: MarketEvent) => {
+const updateMarketPrices = (prevPrices: Record<TradeResourceType, Decimal>) => {
   const next: Record<TradeResourceType, Decimal> = { ...prevPrices };
 
+  // Apply small volatility to prices (±5%)
   for (const res of TRADEABLE) {
-    const drift = randomInRange(0.85, 1.15);
-    next[res] = clampPrice(prevPrices[res].mul(drift));
-  }
-
-  if (event.id !== 'none' && event.affected) {
-    next[event.affected] = clampPrice(next[event.affected].mul(event.multiplier));
+    const volatility = randomInRange(0.95, 1.05);
+    const basePrice = BASE_MARKET_PRICES[res];
+    // Keep prices fluctuating around base price
+    const newPrice = prevPrices[res].mul(volatility);
+    // Gently pull prices back toward base price
+    const pullToBase = newPrice.mul(0.9).add(basePrice.mul(0.1));
+    next[res] = clampPrice(pullToBase);
   }
 
   return next;
@@ -711,7 +1915,8 @@ const updateMarketPrices = (prevPrices: Record<TradeResourceType, Decimal>, even
 
 export const useGameStore = create<GameState>((set, get) => ({
   resources: syncResourcesFromBase(INITIAL_RESOURCES, DEFAULT_GRID.buffers),
-  buildings: INITIAL_BUILDINGS,
+  buildings: BUILDINGS_WITH_PROXIMITY,
+  currency: INITIAL_CURRENCY,
   market: INITIAL_MARKET,
   combat: INITIAL_COMBAT,
   grid: DEFAULT_GRID,
@@ -725,7 +1930,22 @@ export const useGameStore = create<GameState>((set, get) => ({
   aegis: INITIAL_AEGIS,
   productionMatrix: INITIAL_PRODUCTION_MATRIX,
   quantumNet: INITIAL_QUANTUM_NET,
+  politics: INITIAL_POLITICS,
+  galaxies: INITIAL_GALAXIES,
+  fleet: INITIAL_FLEET,
+  pollution: INITIAL_POLLUTION,
+  intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
+  randomEvents: INITIAL_RANDOM_EVENTS,
+  achievements: INITIAL_ACHIEVEMENTS,
+  megastructures: INITIAL_MEGASTRUCTURES,
+  endgame: INITIAL_ENDGAME,
+  prestige: INITIAL_PRESTIGE,
   lastTick: Date.now(),
+  
+  // Energy balance telemetry
+  energyProduction: D(0),
+  energyConsumption: D(0),
+  energyEfficiency: 1.0,
 
   addResource: (type, amount) => {
     set((state) => {
@@ -753,14 +1973,30 @@ export const useGameStore = create<GameState>((set, get) => ({
       const building = state.buildings[buildingIndex];
       const cost = calculateCost(building);
 
-      // Check affordability
+      // Check credit affordability if creditCost is specified
+      if (building.creditCost) {
+        const creditCostScaled = building.creditCost.mul(Math.pow(building.costFactor, building.count));
+        if (state.currency.credits.lt(creditCostScaled)) return state;
+      }
+
+      // Check resource affordability
       for (const [resType, amount] of Object.entries(cost)) {
         const rType = resType as ResourceType;
         const needed = D(amount);
         if (!state.resources[rType] || state.resources[rType].amount.lt(needed)) return state;
       }
 
-      // Pay cost
+      // Pay credit cost
+      let newCurrency = state.currency;
+      if (building.creditCost) {
+        const creditCostScaled = building.creditCost.mul(Math.pow(building.costFactor, building.count));
+        newCurrency = {
+          ...state.currency,
+          credits: state.currency.credits.sub(creditCostScaled).max(D(0))
+        };
+      }
+
+      // Pay resource cost
       const newResources = { ...state.resources };
       for (const [resType, amount] of Object.entries(cost)) {
         const rType = resType as ResourceType;
@@ -780,7 +2016,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
       const capped = recomputeCaps(newResources, newBuildings, capsMult);
-      return { resources: capped, buildings: newBuildings };
+      return { resources: capped, buildings: newBuildings, currency: newCurrency };
     });
   },
 
@@ -873,6 +2109,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       let nextBuffers = buffers;
       if (!nextBuffers[k]) nextBuffers = { ...nextBuffers, [k]: {} };
 
+      // ФАЗА 8.5: Инициализируем уровень здания при постройке
+      const tileLevels = state.grid.tileLevels || {};
+      const nextTileLevels = { ...tileLevels, [k]: 1 };
+
       return {
         resources: capped,
         buildings: newBuildings,
@@ -880,6 +2120,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           ...state.grid,
           buffers: nextBuffers,
           tiles: { ...state.grid.tiles, [k]: buildId },
+          tileLevels: nextTileLevels,
           selected: pos,
           selectedBuildId: null, // Сбрасываем режим строительства после установки
         },
@@ -898,6 +2139,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const nextTiles = { ...state.grid.tiles };
       delete nextTiles[k];
+
+      // ФАЗА 8.5: Удаляем уровень здания при сносе
+      const tileLevels = state.grid.tileLevels || {};
+      const nextTileLevels = { ...tileLevels };
+      delete nextTileLevels[k];
 
       const newBuildings = [...state.buildings];
       const b = newBuildings[buildingIndex];
@@ -928,7 +2174,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // keep buffer record (so resources can remain, but it's ok). Optional cleanup later.
 
       return {
-        grid: { ...state.grid, tiles: nextTiles, buffers },
+        grid: { ...state.grid, tiles: nextTiles, tileLevels: nextTileLevels, buffers },
         buildings: newBuildings,
         resources: capped,
       };
@@ -954,23 +2200,29 @@ export const useGameStore = create<GameState>((set, get) => ({
       const actual = res.amount.min(sellAmount);
       if (actual.lte(0)) return state;
 
+      // Calculate sell price using market event
       const price = state.market.prices[type];
-      const tradeMult = computeTradeMultiplier(state.research.levels);
-      const earned = price.mul(actual).mul(D(tradeMult));
+      const eventMult = state.market.event?.multiplier ?? 1.0;
+      const earned = price.mul(actual).mul(D(eventMult));
 
       const nextResources = { ...state.resources };
-      // remove from base buffer
+      // Remove from base buffer
       let nextBuffers = state.grid.buffers;
       const cur = getBuf(nextBuffers, 'base', type);
       nextBuffers = setBuf(nextBuffers, 'base', type, cur.sub(actual).max(D(0)));
       nextResources[type] = { ...res, amount: res.amount.sub(actual) };
-      // Add energy (respect cap)
-      const curE = getBuf(nextBuffers, 'base', 'energy');
-      const nextE = curE.add(earned).min(nextResources.energy.max);
-      nextBuffers = setBuf(nextBuffers, 'base', 'energy', nextE);
-      nextResources.energy = { ...nextResources.energy, amount: nextE };
+      
+      // Add credits (no cap for currency)
+      const nextCurrency = {
+        ...state.currency,
+        credits: state.currency.credits.add(earned)
+      };
 
-      return { resources: nextResources, grid: { ...state.grid, buffers: nextBuffers } };
+      return { 
+        resources: nextResources, 
+        grid: { ...state.grid, buffers: nextBuffers },
+        currency: nextCurrency
+      };
     });
   },
 
@@ -982,15 +2234,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       const res = state.resources[type];
       if (!res) return state;
 
+      // Calculate buy price (30% markup)
       const price = state.market.prices[type];
-      const tradeMult = computeTradeMultiplier(state.research.levels);
-      const unitCost = price.div(D(tradeMult)).max(D(0));
+      const eventMult = state.market.event?.multiplier ?? 1.0;
+      const unitCost = price.mul(D(eventMult)).mul(D(1.3)); // +30% markup for buying
 
+      const currentCredits = state.currency.credits;
+      if (currentCredits.lte(0)) return state;
+
+      // Respect cap of the purchased resource in base
       let buffers = state.grid.buffers;
-      const curE = getBuf(buffers, 'base', 'energy');
-      if (curE.lte(0)) return state;
-
-      // Respect cap of the purchased resource in base.
       const curR = getBuf(buffers, 'base', type);
       const capR = state.resources[type].max;
       const room = capR.sub(curR).max(D(0));
@@ -1000,17 +2253,197 @@ export const useGameStore = create<GameState>((set, get) => ({
       const desiredCost = unitCost.mul(desired);
       if (desiredCost.lte(0)) return state;
 
-      // Clamp to affordable amount.
-      const affordable = curE.div(unitCost).max(D(0));
+      // Clamp to affordable amount
+      const affordable = currentCredits.div(unitCost).max(D(0));
       const actual = desired.min(affordable);
       if (actual.lte(0)) return state;
 
       const cost = unitCost.mul(actual);
-      buffers = setBuf(buffers, 'base', 'energy', curE.sub(cost).max(D(0)));
+      
+      // Deduct credits and add resource
+      const nextCurrency = {
+        ...state.currency,
+        credits: currentCredits.sub(cost).max(D(0))
+      };
+      
       buffers = setBuf(buffers, 'base', type, curR.add(actual));
-
       const nextResources = syncResourcesFromBase({ ...state.resources }, buffers);
-      return { resources: nextResources, grid: { ...state.grid, buffers } };
+      
+      return { 
+        resources: nextResources, 
+        grid: { ...state.grid, buffers },
+        currency: nextCurrency
+      };
+    });
+  },
+
+  // Generate a new random contract
+  generateContract: () => {
+    set((state) => {
+      const tiers = ['easy', 'medium', 'hard', 'epic'] as const;
+      const tier = tiers[Math.floor(Math.random() * tiers.length)];
+      
+      // Resource requirements based on tier
+      const multipliers = { easy: 50, medium: 200, hard: 800, epic: 3000 };
+      const mult = multipliers[tier];
+      
+      const resources: (TradeResourceType)[] = ['ore', 'ice', 'carbon', 'steel'];
+      const reqCount = tier === 'easy' ? 1 : tier === 'medium' ? 2 : tier === 'hard' ? 3 : 4;
+      const selectedResources = resources.sort(() => Math.random() - 0.5).slice(0, reqCount);
+      
+      const requirements: Partial<Record<ResourceType, Decimal>> = {};
+      selectedResources.forEach(res => {
+        requirements[res] = D(mult * (0.5 + Math.random()));
+      });
+      
+      // Rewards based on tier
+      const creditRewards = { easy: 100, medium: 500, hard: 2500, epic: 15000 };
+      const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
+      const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
+      
+      const contract: Contract = {
+        id: `contract_${Date.now()}_${Math.random()}`,
+        title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
+        description: `Доставьте необходимые ресурсы`,
+        requirements,
+        rewards: {
+          credits: D(creditRewards[tier]),
+          researchPoints: D(rpRewards[tier]),
+          influence: D(influenceRewards[tier]),
+        },
+        expiresAt: Date.now() + 120000, // 2 minutes
+        tier,
+      };
+      
+      const contracts = [...(state.market.contracts ?? []), contract];
+      // Keep max 5 contracts
+      if (contracts.length > 5) contracts.shift();
+      
+      return {
+        market: { ...state.market, contracts }
+      };
+    });
+  },
+
+  // Complete a contract
+  completeContract: (contractId: string) => {
+    set((state) => {
+      const contracts = state.market.contracts ?? [];
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract) return state;
+      
+      // Check if player has required resources
+      let buffers = state.grid.buffers;
+      for (const [resType, amount] of Object.entries(contract.requirements)) {
+        const rType = resType as ResourceType;
+        const have = getBuf(buffers, 'base', rType);
+        if (have.lt(amount)) return state; // Can't afford
+      }
+      
+      // Deduct resources
+      for (const [resType, amount] of Object.entries(contract.requirements)) {
+        const rType = resType as ResourceType;
+        const cur = getBuf(buffers, 'base', rType);
+        buffers = setBuf(buffers, 'base', rType, cur.sub(amount).max(D(0)));
+      }
+      
+      // Add rewards
+      const nextCurrency = {
+        credits: state.currency.credits.add(contract.rewards.credits ?? D(0)),
+        researchPoints: state.currency.researchPoints.add(contract.rewards.researchPoints ?? D(0)),
+        influence: state.currency.influence.add(contract.rewards.influence ?? D(0)),
+      };
+      
+      // Remove completed contract
+      const nextContracts = contracts.filter(c => c.id !== contractId);
+      
+      const nextResources = syncResourcesFromBase({ ...state.resources }, buffers);
+      
+      return {
+        resources: nextResources,
+        grid: { ...state.grid, buffers },
+        currency: nextCurrency,
+        market: { ...state.market, contracts: nextContracts }
+      };
+    });
+  },
+
+  // Place a trading order (buy/sell at target price)
+  placeTradingOrder: (resource: TradeResourceType, type: 'buy' | 'sell', targetPrice: Decimal, amount: Decimal) => {
+    set((state) => {
+      const amountDec = D(amount);
+      const targetPriceDec = D(targetPrice);
+      
+      if (amountDec.lte(0) || targetPriceDec.lte(0)) return state;
+      
+      let collateral = D(0);
+      let buffers = state.grid.buffers;
+      let nextCurrency = { ...state.currency };
+      
+      if (type === 'buy') {
+        // Lock credits as collateral
+        collateral = targetPriceDec.mul(amountDec).mul(D(1.3)); // +30% markup
+        if (nextCurrency.credits.lt(collateral)) return state;
+        nextCurrency.credits = nextCurrency.credits.sub(collateral);
+      } else {
+        // Lock resources as collateral
+        collateral = amountDec;
+        const have = getBuf(buffers, 'base', resource);
+        if (have.lt(collateral)) return state;
+        buffers = setBuf(buffers, 'base', resource, have.sub(collateral));
+      }
+      
+      const order: TradingOrder = {
+        id: `order_${Date.now()}_${Math.random()}`,
+        resource,
+        type,
+        targetPrice: targetPriceDec,
+        amount: amountDec,
+        collateral,
+        placedAt: Date.now(),
+        expiresAt: Date.now() + 300000, // 5 minutes
+      };
+      
+      const orders = [...(state.market.orders ?? []), order];
+      
+      const nextResources = syncResourcesFromBase({ ...state.resources }, buffers);
+      
+      return {
+        resources: nextResources,
+        grid: { ...state.grid, buffers },
+        currency: nextCurrency,
+        market: { ...state.market, orders }
+      };
+    });
+  },
+
+  // Cancel a trading order
+  cancelTradingOrder: (orderId: string) => {
+    set((state) => {
+      const orders = state.market.orders ?? [];
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return state;
+      
+      // Return collateral
+      let buffers = state.grid.buffers;
+      let nextCurrency = { ...state.currency };
+      
+      if (order.type === 'buy') {
+        nextCurrency.credits = nextCurrency.credits.add(order.collateral);
+      } else {
+        const cur = getBuf(buffers, 'base', order.resource);
+        buffers = setBuf(buffers, 'base', order.resource, cur.add(order.collateral));
+      }
+      
+      const nextOrders = orders.filter(o => o.id !== orderId);
+      const nextResources = syncResourcesFromBase({ ...state.resources }, buffers);
+      
+      return {
+        resources: nextResources,
+        grid: { ...state.grid, buffers },
+        currency: nextCurrency,
+        market: { ...state.market, orders: nextOrders }
+      };
     });
   },
 
@@ -1040,9 +2473,40 @@ export const useGameStore = create<GameState>((set, get) => ({
       grid = { ...grid, buffers };
 
       return {
-        research: { levels },
+        research: { 
+          levels,
+          technologies: state.research.technologies 
+        },
         resources,
         grid,
+      };
+    });
+  },
+
+  researchTechnology: (id) => {
+    set((state) => {
+      const tech = TECHNOLOGIES[id];
+      
+      // Check if can research
+      if (!canResearchTechnology(id, state.research.technologies, state.currency.researchPoints.toNumber())) {
+        return state;
+      }
+      
+      // Deduct research points
+      const newRP = state.currency.researchPoints.sub(tech.cost);
+      
+      // Unlock technology
+      const technologies = { ...state.research.technologies, [id]: true };
+      
+      return {
+        currency: {
+          ...state.currency,
+          researchPoints: newRP,
+        },
+        research: {
+          ...state.research,
+          technologies,
+        },
       };
     });
   },
@@ -1249,6 +2713,59 @@ export const useGameStore = create<GameState>((set, get) => ({
     }));
   },
 
+  activatePolicy: (policyId: import('../core/gameTypes').PolicyId) => {
+    set((state) => {
+      const policy = POLICIES[policyId];
+      
+      if (!policy) return state;
+      
+      const check = canActivatePolicy(
+        policyId,
+        Number(state.currency.influence.toString()),
+        state.research.technologies,
+        state.politics.activePolicies,
+        state.politics.maxActivePolicies
+      );
+      
+      if (!check.can) {
+        console.warn(`Cannot activate policy: ${check.reason}`);
+        return state;
+      }
+      
+      // Deduct influence cost
+      const newInfluence = state.currency.influence.sub(D(policy.influenceCost)).max(D(0));
+      
+      return {
+        ...state,
+        currency: {
+          ...state.currency,
+          influence: newInfluence,
+        },
+        politics: {
+          ...state.politics,
+          activePolicies: [...state.politics.activePolicies, policyId],
+          lastActivated: {
+            ...(state.politics.lastActivated || {}),
+            [policyId]: Date.now(),
+          },
+        },
+      };
+    });
+  },
+
+  deactivatePolicy: (policyId: import('../core/gameTypes').PolicyId) => {
+    set((state) => {
+      if (!state.politics.activePolicies.includes(policyId)) return state;
+      
+      return {
+        politics: {
+          ...state.politics,
+          activePolicies: state.politics.activePolicies.filter(id => id !== policyId),
+        },
+      };
+    });
+  },
+
   prestigeReset: () => {
     set((state) => {
       const life = Number(state.meta.lifetimeEnergyProduced.toString());
@@ -1297,7 +2814,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
       };
 
-      const nextBuildings = INITIAL_BUILDINGS.map((b) => {
+      const nextBuildings = BUILDINGS_WITH_PROXIMITY.map((b) => {
         if (preserveId && nextTiles['0,0'] === preserveId && b.id === preserveId) return { ...b, count: 1 };
         return b;
       });
@@ -1310,6 +2827,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       return {
         resources,
         buildings: nextBuildings,
+        currency: { 
+          credits: INITIAL_CURRENCY.credits, // Reset credits
+          researchPoints: state.currency.researchPoints, // Keep research points
+          influence: state.currency.influence, // Keep influence
+        },
         market: nextMarket,
         combat: nextCombat,
         grid: { ...nextGrid, buffers },
@@ -1323,6 +2845,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         aegis: INITIAL_AEGIS,
         productionMatrix: INITIAL_PRODUCTION_MATRIX,
         quantumNet: state.quantumNet,
+        politics: state.politics, // Keep politics state on prestige
+        galaxies: state.galaxies, // Keep galaxies state on prestige
         lastTick: now,
       };
     });
@@ -1402,8 +2926,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       const capsMult = computeCapsMultiplier(levels, state.meta.qubits);
       const combatMult = computeCombatMultiplier(levels, state.meta.qubits);
 
+      // Update proximity multipliers for all buildings
+      const buildingsWithProximity = updateAllProximityMultipliers(state.buildings, state.grid.tiles);
+
       // caps first
-      let newResources = recomputeCaps({ ...state.resources }, state.buildings, capsMult);
+      let newResources = recomputeCaps({ ...state.resources }, buildingsWithProximity, capsMult);
 
       const baseKey = 'base';
 
@@ -1458,6 +2985,50 @@ export const useGameStore = create<GameState>((set, get) => ({
         carbon: getBuf(buffers, baseKey, 'carbon'),
         steel: getBuf(buffers, baseKey, 'steel'),
         dark_matter: getBuf(buffers, baseKey, 'dark_matter'),
+        // Фаза 2: Базовые новые ресурсы
+        natural_gas: getBuf(buffers, baseKey, 'natural_gas'),
+        oil: getBuf(buffers, baseKey, 'oil'),
+        gasoline: getBuf(buffers, baseKey, 'gasoline'),
+        plastic: getBuf(buffers, baseKey, 'plastic'),
+        glass: getBuf(buffers, baseKey, 'glass'),
+        chemicals: getBuf(buffers, baseKey, 'chemicals'),
+        sand: getBuf(buffers, baseKey, 'sand'),
+        // Фаза 2.3: Металлические ресурсы
+        uranium: getBuf(buffers, baseKey, 'uranium'),
+        chrome: getBuf(buffers, baseKey, 'chrome'),
+        titanium: getBuf(buffers, baseKey, 'titanium'),
+        // Фаза 2.4-2.5: Продвинутые ресурсы
+        copper: getBuf(buffers, baseKey, 'copper'),
+        semiconductors: getBuf(buffers, baseKey, 'semiconductors'),
+        dynamite: getBuf(buffers, baseKey, 'dynamite'),
+        fiber: getBuf(buffers, baseKey, 'fiber'),
+        // Фаза 2.6: Сложные производственные ресурсы
+        integrated_circuit: getBuf(buffers, baseKey, 'integrated_circuit'),
+        battery: getBuf(buffers, baseKey, 'battery'),
+        engine: getBuf(buffers, baseKey, 'engine'),
+        display: getBuf(buffers, baseKey, 'display'),
+        computer: getBuf(buffers, baseKey, 'computer'),
+        liquid_fuel: getBuf(buffers, baseKey, 'liquid_fuel'),
+        chrome_alloy: getBuf(buffers, baseKey, 'chrome_alloy'),
+        titanium_alloy: getBuf(buffers, baseKey, 'titanium_alloy'),
+        enriched_uranium: getBuf(buffers, baseKey, 'enriched_uranium'),
+        // Фаза 2.7: Военные ресурсы
+        weapon: getBuf(buffers, baseKey, 'weapon'),
+        artillery: getBuf(buffers, baseKey, 'artillery'),
+        radar: getBuf(buffers, baseKey, 'radar'),
+        nuclear_bomb: getBuf(buffers, baseKey, 'nuclear_bomb'),
+        // Фаза 2.8: Космические ресурсы
+        jet_engine: getBuf(buffers, baseKey, 'jet_engine'),
+        satellite: getBuf(buffers, baseKey, 'satellite'),
+        rocket: getBuf(buffers, baseKey, 'rocket'),
+        spaceship: getBuf(buffers, baseKey, 'spaceship'),
+        console: getBuf(buffers, baseKey, 'console'),
+        space_station: getBuf(buffers, baseKey, 'space_station'),
+        // Фаза 2.9: Специальные ресурсы
+        robot: getBuf(buffers, baseKey, 'robot'),
+        // Фаза 8.1: Экология
+        waste: getBuf(buffers, baseKey, 'waste'),
+        radioactive_waste: getBuf(buffers, baseKey, 'radioactive_waste'),
       };
 
       // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Находим ближайшие источники для каждого потребителя
@@ -1507,8 +3078,57 @@ export const useGameStore = create<GameState>((set, get) => ({
         return sources.sort((a, b) => a.dist - b.dist);
       };
 
+      // Calculate energy balance BEFORE production
+      let totalEnergyProduction = D(0);
+      let totalEnergyConsumption = D(0);
+      
+      buildingsWithProximity.forEach((b) => {
+        if (b.count <= 0) return;
+        
+        const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
+        if (placedCount === 0) return;
+        
+        // Energy production
+        if (b.production?.energy) {
+          totalEnergyProduction = totalEnergyProduction.add(D(b.production.energy).mul(placedCount));
+        }
+        
+        // Passive energy consumption
+        if (b.energyConsumption) {
+          totalEnergyConsumption = totalEnergyConsumption.add(D(b.energyConsumption).mul(placedCount));
+        }
+        
+        // Active consumption (from consumption field, not energyConsumption)
+        if (b.consumption?.energy) {
+          totalEnergyConsumption = totalEnergyConsumption.add(D(b.consumption.energy).mul(placedCount));
+        }
+      });
+      
+      // Combat energy consumption
+      if (waveActiveEconomy) {
+        buildingsWithProximity.forEach((b) => {
+          if (b.count <= 0) return;
+          const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
+          if (placedCount === 0) return;
+          
+          if (b.combat?.energyPerSecond) {
+            totalEnergyConsumption = totalEnergyConsumption.add(D(b.combat.energyPerSecond).mul(placedCount));
+          }
+          if (b.defense?.energyPerSecond) {
+            totalEnergyConsumption = totalEnergyConsumption.add(D(b.defense.energyPerSecond).mul(placedCount));
+          }
+        });
+      }
+      
+      // Calculate efficiency: if consumption > production, reduce efficiency
+      let energyEfficiency = 1.0;
+      if (totalEnergyConsumption.gt(totalEnergyProduction) && totalEnergyProduction.gt(0)) {
+        energyEfficiency = Number(totalEnergyProduction.div(totalEnergyConsumption).toString());
+        energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
+      }
+
       // Produce/consume into local tile buffers
-      state.buildings.forEach((b) => {
+      buildingsWithProximity.forEach((b) => {
         if (b.count <= 0) return;
 
         // Find all placed instances of this building
@@ -1518,11 +3138,40 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
         if (placedKeys.length === 0) return;
 
+        // Создаем список всех зданий с координатами для проверки покрытия (нужен для энергосети и логистики)
+        const allBuildingsWithCoords: Building[] = buildingsWithProximity
+          .map(building => {
+            const coordKeys = Object.entries(state.grid.tiles)
+              .filter(([_, id]) => id === building.id)
+              .map(([key]) => {
+                const pos = parseKey(key);
+                return pos ? { ...building, coord: pos } : null;
+              })
+              .filter(b => b !== null) as Building[];
+            return coordKeys;
+          })
+          .flat();
+
+        // Получаем позицию базы для логистических расчетов
+        const basePosition = getBasePos(state.grid);
+
         for (const tileKey of placedKeys) {
           if (!buffers[tileKey]) buffers[tileKey] = {};
 
           const tilePos = parseKey(tileKey);
           if (!tilePos) continue;
+
+          // Фаза 8.2: Проверка энергопокрытия
+          // Здания без энергопокрытия не работают (кроме источников энергии)
+          const isPowerSource = b.powerGridRadius && b.powerGridRadius > 0;
+          if (!isPowerSource) {
+            const isPowered = isBuildingPowered({ x: tilePos.x, y: tilePos.y }, allBuildingsWithCoords);
+            
+            // Если здание не в зоне покрытия - пропускаем его (не производит и не потребляет)
+            if (!isPowered) {
+              continue;
+            }
+          }
 
           const tilePolicy = state.grid.marketPolicy?.[tileKey];
 
@@ -1635,10 +3284,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Determine how much we can run given inputs.
           let ratio = D(1);
           if (b.consumption) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               const perSecondAdj = rType === 'energy' ? D(perSecond).mul(D(coldFusionMult)) : D(perSecond);
-              const need = perSecondAdj.mul(dtFacilities);
+              const need = perSecondAdj.mul(dtFacilities).mul(buildingLevel); // Умножаем на уровень
+
               if (need.lte(0)) continue;
 
               // Energy consumption comes from base buffer
@@ -1653,10 +3304,11 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
 
           if (b.consumption && ratio.gt(0)) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               const perSecondAdj = rType === 'energy' ? D(perSecond).mul(D(coldFusionMult)) : D(perSecond);
-              const consume = perSecondAdj.mul(dtFacilities).mul(ratio);
+              const consume = perSecondAdj.mul(dtFacilities).mul(ratio).mul(buildingLevel); // Умножаем на уровень
 
               if (rType === 'energy') {
                 const cur = getBuf(buffers, baseKey, 'energy');
@@ -1694,6 +3346,39 @@ export const useGameStore = create<GameState>((set, get) => ({
               }
               
               let produced = D(perSecond).mul(dtFacilities).mul(ratio);
+              
+              // ФАЗА 8.5: Применяем множитель уровня здания (линейный рост производства)
+              const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+              produced = produced.mul(buildingLevel);
+              
+              // Apply energy efficiency reduction to non-energy production
+              if (rType !== 'energy' && energyEfficiency < 1.0) {
+                produced = produced.mul(energyEfficiency);
+              }
+              
+              // Apply pollution penalty to all non-energy production (Фаза 8.1)
+              if (rType !== 'energy' && state.pollution.efficiencyMultiplier < 1.0) {
+                produced = produced.mul(state.pollution.efficiencyMultiplier);
+              }
+              
+              // Apply proximity multiplier (if building has proximity rules)
+              if (b.proximityMultiplier && b.proximityMultiplier !== 1) {
+                produced = produced.mul(b.proximityMultiplier);
+              }
+              
+              // ФАЗА 8.3: Применяем логистический штраф за дальность
+              // Здания далеко от базы/складов работают менее эффективно
+              if (rType !== 'energy') {
+                const logisticsEfficiency = calculateLogisticsEfficiency(
+                  tilePos,
+                  basePosition,
+                  allBuildingsWithCoords
+                );
+                if (logisticsEfficiency < 1.0) {
+                  produced = produced.mul(logisticsEfficiency);
+                }
+              }
+              
               if (rType !== 'energy' && produced.gt(0) && doubleChance > 0 && Math.random() < doubleChance) {
                 produced = produced.mul(2);
               }
@@ -1819,14 +3504,100 @@ export const useGameStore = create<GameState>((set, get) => ({
       let nextMarket = state.market;
       if (now >= state.market.nextUpdateAt) {
         const event = rollEvent();
-        const prices = updateMarketPrices(state.market.prices, event);
+        const prices = updateMarketPrices(state.market.prices);
         const history = pushMarketHistory(state.market.history, prices, now);
+        
+        // Generate new contract periodically (20% chance)
+        let contracts = state.market.contracts ?? [];
+        if (Math.random() < 0.2 && contracts.length < 5) {
+          const tiers = ['easy', 'medium', 'hard', 'epic'] as const;
+          const tier = tiers[Math.floor(Math.random() * tiers.length)];
+          const multipliers = { easy: 50, medium: 200, hard: 800, epic: 3000 };
+          const mult = multipliers[tier];
+          const resources: (TradeResourceType)[] = ['ore', 'ice', 'carbon', 'steel'];
+          const reqCount = tier === 'easy' ? 1 : tier === 'medium' ? 2 : tier === 'hard' ? 3 : 4;
+          const selectedResources = resources.sort(() => Math.random() - 0.5).slice(0, reqCount);
+          const requirements: Partial<Record<ResourceType, Decimal>> = {};
+          selectedResources.forEach(res => {
+            requirements[res] = D(mult * (0.5 + Math.random()));
+          });
+          const creditRewards = { easy: 100, medium: 500, hard: 2500, epic: 15000 };
+          const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
+          const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
+          const contract: Contract = {
+            id: `contract_${now}_${Math.random()}`,
+            title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
+            description: `Доставьте необходимые ресурсы`,
+            requirements,
+            rewards: {
+              credits: D(creditRewards[tier]),
+              researchPoints: D(rpRewards[tier]),
+              influence: D(influenceRewards[tier]),
+            },
+            expiresAt: now + 120000,
+            tier,
+          };
+          contracts = [...contracts, contract];
+        }
+        
+        // Remove expired contracts
+        contracts = contracts.filter(c => c.expiresAt > now);
+        
+        // Process trading orders
+        let orders = state.market.orders ?? [];
+        const executedOrders: string[] = [];
+        let nextCurrency = state.currency;
+        
+        for (const order of orders) {
+          // Check if order expired
+          if (order.expiresAt <= now) {
+            executedOrders.push(order.id);
+            // Return collateral
+            if (order.type === 'buy') {
+              nextCurrency = {
+                ...nextCurrency,
+                credits: nextCurrency.credits.add(order.collateral)
+              };
+            } else {
+              const cur = getBuf(buffers, baseKey, order.resource);
+              buffers = setBuf(buffers, baseKey, order.resource, cur.add(order.collateral));
+            }
+            continue;
+          }
+          
+          // Check if target price reached
+          const currentPrice = prices[order.resource];
+          const eventMult = event?.multiplier ?? 1.0;
+          const effectivePrice = currentPrice.mul(D(eventMult));
+          
+          if (order.type === 'buy' && effectivePrice.lte(order.targetPrice)) {
+            // Execute buy order
+            executedOrders.push(order.id);
+            const cur = getBuf(buffers, baseKey, order.resource);
+            buffers = setBuf(buffers, baseKey, order.resource, cur.add(order.amount));
+            // Collateral was already locked, no need to return
+          } else if (order.type === 'sell' && effectivePrice.gte(order.targetPrice)) {
+            // Execute sell order
+            executedOrders.push(order.id);
+            const earned = order.targetPrice.mul(order.amount);
+            nextCurrency = {
+              ...nextCurrency,
+              credits: nextCurrency.credits.add(earned)
+            };
+            // Resources were already locked, no need to return
+          }
+        }
+        
+        orders = orders.filter(o => !executedOrders.includes(o.id));
+        
         nextMarket = {
           ...state.market,
           prices,
           event,
           nextUpdateAt: now + MARKET_UPDATE_SECONDS * 1000,
           history,
+          contracts,
+          orders,
         };
       }
 
@@ -2236,6 +4007,83 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Sync global resources again (combat may have changed base buffers)
       newResources = syncResourcesFromBase(newResources, buffers);
 
+      // Special buildings: Research centers and Bitcoin farm
+      let nextCurrency = state.currency;
+      
+      // Research points generation
+      const researchCenterCount = Object.values(state.grid.tiles).filter(id => id === 'research_center_mk1').length;
+      const supercomputerLabCount = Object.values(state.grid.tiles).filter(id => id === 'supercomputer_lab_mk1').length;
+      const quantumLabCount = Object.values(state.grid.tiles).filter(id => id === 'quantum_lab_mk1').length;
+      
+      // RP per building per second (базовые значения)
+      const researchCenterRP = D(0.5); // 0.5 RP/sec
+      const supercomputerLabRP = D(2.0); // 2.0 RP/sec
+      const quantumLabRP = D(10.0); // 10.0 RP/sec
+      
+      const totalRPPerSec = researchCenterRP.mul(researchCenterCount)
+        .add(supercomputerLabRP.mul(supercomputerLabCount))
+        .add(quantumLabRP.mul(quantumLabCount));
+      
+      if (totalRPPerSec.gt(0)) {
+        const rpGained = totalRPPerSec.mul(dt).mul(energyEfficiency); // Снижается при нехватке энергии
+        nextCurrency = {
+          ...nextCurrency,
+          researchPoints: nextCurrency.researchPoints.add(rpGained),
+        };
+      }
+      
+      // Bitcoin farm: generates credits
+      const bitcoinFarmCount = Object.values(state.grid.tiles).filter(id => id === 'bitcoin_farm_mk1').length;
+      if (bitcoinFarmCount > 0) {
+        const creditsPerFarmPerSec = D(5.0); // 5 credits/sec per farm
+        const creditsGained = creditsPerFarmPerSec.mul(bitcoinFarmCount).mul(dt).mul(energyEfficiency);
+        nextCurrency = {
+          ...nextCurrency,
+          credits: nextCurrency.credits.add(creditsGained),
+        };
+      }
+      
+      // Political Center: generates influence
+      const politicalCenterCount = Object.values(state.grid.tiles).filter(id => id === 'political_center_mk1').length;
+      if (politicalCenterCount > 0) {
+        const influencePerCenterPerSec = D(0.2); // 0.2 influence/sec per center
+        const influenceGained = influencePerCenterPerSec.mul(politicalCenterCount).mul(dt).mul(energyEfficiency);
+        nextCurrency = {
+          ...nextCurrency,
+          influence: nextCurrency.influence.add(influenceGained),
+        };
+      }
+      
+      // Policy upkeep: deduct influence for active policies
+      if (state.politics.activePolicies.length > 0) {
+        let totalUpkeep = D(0);
+        
+        for (const policyId of state.politics.activePolicies) {
+          const policy = POLICIES[policyId];
+          if (policy && policy.influenceUpkeep) {
+            totalUpkeep = totalUpkeep.add(D(policy.influenceUpkeep).mul(dt));
+          }
+        }
+        
+        if (totalUpkeep.gt(0)) {
+          const newInfluence = nextCurrency.influence.sub(totalUpkeep).max(D(0));
+          
+          // If influence drops to 0, deactivate all policies
+          if (newInfluence.lte(0)) {
+            nextCurrency = {
+              ...nextCurrency,
+              influence: D(0),
+            };
+            // Note: we'll need to update politics state below
+          } else {
+            nextCurrency = {
+              ...nextCurrency,
+              influence: newInfluence,
+            };
+          }
+        }
+      }
+
       // Production display = change in base buffer per second (approx, includes combat drain)
       if (dt > 0) {
         for (const r of Object.keys(newResources) as ResourceType[]) {
@@ -2246,8 +4094,576 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
 
+      // Update platforms (autonomous mining and combat)
+      const newNotifications: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
+      
+      const updatedPlatforms = state.galaxies.platforms.map(platform => {
+        // Platforms will mine resources from their deposits automatically
+        // TODO: Implement actual resource generation based on deposits on platform grid
+        // TODO: Store resources in platform.resources
+        // TODO: Apply mining bonus (1 + miningLevel * 0.5) to production
+        
+        let updatedPlatform = { ...platform };
+        const galaxy = GALAXIES[platform.galaxyId];
+        
+        // Check if it's time to spawn new enemy
+        if (galaxy && galaxy.enemyLevelRange && now >= platform.combat.nextWaveAt) {
+          // Spawn a wave of enemies
+          const numEnemies = Math.floor(Math.random() * 3) + 1; // 1-3 enemies
+          const newEnemies = [...platform.combat.enemies];
+          let hasBoss = false;
+          
+          for (let i = 0; i < numEnemies; i++) {
+            const shouldSpawnBoss = Math.random() < (galaxy.bossChance || 0);
+            const enemyLevel = Math.floor(Math.random() * (galaxy.enemyLevelRange[1] - galaxy.enemyLevelRange[0] + 1)) + galaxy.enemyLevelRange[0];
+            
+            let enemyType: string | null = null;
+            
+            if (shouldSpawnBoss) {
+              enemyType = getBossForLevel(enemyLevel);
+              if (enemyType) hasBoss = true;
+            } else {
+              const validEnemyTypes = galaxy.enemyTypes?.filter(type => ENEMY_DEFINITIONS[type as EnemyType]) || [];
+              if (validEnemyTypes.length > 0) {
+                enemyType = validEnemyTypes[Math.floor(Math.random() * validEnemyTypes.length)];
+              }
+            }
+            
+            if (enemyType) {
+              const newEnemy = createPlatformEnemy(enemyType as EnemyType, enemyLevel);
+              newEnemies.push(newEnemy);
+            }
+          }
+          
+          // Add notification about the attack
+          if (newEnemies.length > platform.combat.enemies.length) {
+            const enemyCount = newEnemies.length - platform.combat.enemies.length;
+            const message = hasBoss 
+              ? `⚠️ БОСС атакует платформу "${platform.name}"! Защищайтесь!`
+              : `Обнаружено ${enemyCount} врагов у платформы "${platform.name}"`;
+            
+            nextCurrency = { ...nextCurrency }; // Will be updated below with notifications
+            // Store notification to add later
+            newNotifications.push({
+              type: hasBoss ? 'warning' : 'attack',
+              title: hasBoss ? '☠️ Босс атакует!' : '⚔️ Атака на платформу',
+              message,
+              platformId: platform.id,
+            });
+          }
+          
+          updatedPlatform = {
+            ...updatedPlatform,
+            combat: {
+              ...updatedPlatform.combat,
+              enemies: newEnemies,
+              underAttack: true,
+              nextWaveAt: now + 120000, // Next wave in 2 minutes
+            },
+          };
+        }
+        
+        // Process combat if there are enemies
+        if (updatedPlatform.combat.enemies.length > 0) {
+          // Calculate platform defense
+          const turretDamage = updatedPlatform.combat.turretCount * 10; // 10 DPS per turret
+          const assignedShips = state.fleet.ships.filter(s => s.assignedTo === platform.id && s.status !== 'repairing');
+          const shipDamage = assignedShips.reduce((total, ship) => {
+            return total + ship.dps.toNumber();
+          }, 0);
+          
+          const totalDefenseDPS = turretDamage + shipDamage;
+          const damageDealt = D(totalDefenseDPS).mul(dt);
+          
+          // Calculate enemy damage to platform
+          let totalEnemyDamage = D(0);
+          const updatedEnemies = updatedPlatform.combat.enemies.map(enemy => {
+            if (enemy.hp.lte(0)) return enemy;
+            
+            const enemyDPS = enemy.dps || D(10);
+            totalEnemyDamage = totalEnemyDamage.add(enemyDPS.mul(dt));
+            
+            // Apply damage to enemy
+            const enemyDamageTaken = damageDealt.div(updatedPlatform.combat.enemies.length); // Distribute damage
+            return {
+              ...enemy,
+              hp: enemy.hp.sub(enemyDamageTaken).max(0),
+            };
+          });
+          
+          // Filter out dead enemies and grant loot
+          const deadEnemies = updatedEnemies.filter(e => e.hp.lte(0));
+          const aliveEnemies = updatedEnemies.filter(e => e.hp.gt(0));
+          
+          // Grant loot from dead enemies (will be added to currency below)
+          deadEnemies.forEach(enemy => {
+            if (enemy.loot) {
+              nextCurrency = {
+                ...nextCurrency,
+                credits: nextCurrency.credits.add(enemy.loot.credits || D(0)),
+              };
+              
+              if (enemy.loot.resources) {
+                Object.entries(enemy.loot.resources).forEach(([resource, amount]) => {
+                  const resType = resource as ResourceType;
+                  if (newResources[resType]) {
+                    newResources[resType] = {
+                      ...newResources[resType],
+                      amount: newResources[resType].amount.add(amount as any),
+                    };
+                  }
+                });
+              }
+            }
+          });
+          
+          // Apply damage to platform
+          let newShieldHp = updatedPlatform.shieldHp;
+          let newArmor = updatedPlatform.armor;
+          let newHp = updatedPlatform.hp;
+          
+          let remainingDamage = totalEnemyDamage;
+          
+          // First, damage shields
+          if (newShieldHp.gt(0)) {
+            const effectiveDamage = remainingDamage.mul(1); // No reduction from shields
+            if (effectiveDamage.gte(newShieldHp)) {
+              remainingDamage = effectiveDamage.sub(newShieldHp);
+              newShieldHp = D(0);
+            } else {
+              newShieldHp = newShieldHp.sub(effectiveDamage);
+              remainingDamage = D(0);
+            }
+          }
+          
+          // Then, damage armor
+          if (remainingDamage.gt(0) && newArmor.gt(0)) {
+            const armorEffectiveness = 0.5; // Armor absorbs 50% of damage
+            const effectiveDamage = remainingDamage.mul(armorEffectiveness);
+            if (effectiveDamage.gte(newArmor)) {
+              remainingDamage = remainingDamage.sub(newArmor.div(armorEffectiveness));
+              newArmor = D(0);
+            } else {
+              newArmor = newArmor.sub(effectiveDamage);
+              remainingDamage = D(0);
+            }
+          }
+          
+          // Finally, damage hull
+          if (remainingDamage.gt(0)) {
+            newHp = newHp.sub(remainingDamage).max(0);
+          }
+          
+          updatedPlatform = {
+            ...updatedPlatform,
+            hp: newHp,
+            armor: newArmor,
+            shieldHp: newShieldHp,
+            combat: {
+              ...updatedPlatform.combat,
+              enemies: aliveEnemies,
+              underAttack: aliveEnemies.length > 0,
+              damagePerSecond: totalEnemyDamage.div(dt > 0 ? dt : 1),
+            },
+          };
+        } else {
+          // No enemies, regenerate shields
+          const newShieldHp = updatedPlatform.shieldHp.add(updatedPlatform.combat.shieldRegenPerSecond.mul(dt)).min(updatedPlatform.shieldMaxHp);
+          
+          updatedPlatform = {
+            ...updatedPlatform,
+            shieldHp: newShieldHp,
+            combat: {
+              ...updatedPlatform.combat,
+              underAttack: false,
+            },
+          };
+        }
+        
+        return updatedPlatform;
+      });
+
+      // Auto-transport resources from platforms to main station
+      let nextGalaxies = { ...state.galaxies };
+      if (state.galaxies.autoTransportEnabled && updatedPlatforms.length > 0) {
+        const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
+        const totalTransportCost = transportCostPerPlatform.mul(updatedPlatforms.length).mul(dt);
+        
+        if (state.galaxies.fuelReserve.gte(totalTransportCost)) {
+          nextGalaxies = {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+            fuelReserve: state.galaxies.fuelReserve.sub(totalTransportCost),
+          };
+          // TODO: Actually transfer resources from platforms to main station
+        } else {
+          nextGalaxies = {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          };
+        }
+      } else {
+        nextGalaxies = {
+          ...state.galaxies,
+          platforms: updatedPlatforms,
+        };
+      }
+
+      // Add new notifications
+      if (newNotifications.length > 0) {
+        const addedNotifications = newNotifications.map(notif => ({
+          ...notif,
+          id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          read: false,
+        } as import('../core/gameTypes').Notification));
+        
+        nextGalaxies = {
+          ...nextGalaxies,
+          notifications: [...addedNotifications, ...nextGalaxies.notifications].slice(0, 50),
+        };
+      }
+
+      // Фаза 8.1: Pollution system
+      let nextPollution = { ...state.pollution };
+      
+      // Generate waste from production buildings
+      let wasteGenerated = D(0);
+      let radioactiveWasteGenerated = D(0);
+      
+      buildingsWithProximity.forEach((b) => {
+        if (b.count <= 0) return;
+        
+        const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
+        if (placedCount === 0) return;
+        
+        // Different buildings generate different amounts of waste
+        let wastePerBuilding = D(0);
+        let radioactiveWastePerBuilding = D(0);
+        
+        // Check if eco_friendly policy is active
+        const ecoFriendly = state.politics.activePolicies.includes('eco_friendly');
+        
+        // Production buildings generate waste (0.01 waste per production cycle)
+        if (b.production && !b.id.includes('generator') && !b.id.includes('solar')) {
+          const productionTotal = Object.values(b.production).reduce((sum, amount) => sum.add(amount), D(0));
+          wastePerBuilding = productionTotal.mul(0.01).mul(dtFacilities);
+        }
+        
+        // Nuclear buildings generate radioactive waste
+        if (b.id.includes('nuclear') || b.id.includes('enriched_uranium')) {
+          radioactiveWastePerBuilding = D(0.05).mul(dtFacilities).mul(placedCount);
+        }
+        
+        // Apply eco_friendly policy (50% waste reduction)
+        if (ecoFriendly) {
+          wastePerBuilding = wastePerBuilding.mul(0.5);
+          radioactiveWastePerBuilding = radioactiveWastePerBuilding.mul(0.5);
+        }
+        
+        wasteGenerated = wasteGenerated.add(wastePerBuilding.mul(placedCount));
+        radioactiveWasteGenerated = radioactiveWasteGenerated.add(radioactiveWastePerBuilding);
+      });
+      
+      // Add generated waste to totals
+      nextPollution.wasteAmount = nextPollution.wasteAmount.add(wasteGenerated);
+      nextPollution.radioactiveWasteAmount = nextPollution.radioactiveWasteAmount.add(radioactiveWasteGenerated);
+      
+      // Waste Recycler buildings reduce waste
+      const recyclerBuilding = buildingsWithProximity.find((b) => b.id === 'waste_recycler');
+      if (recyclerBuilding && recyclerBuilding.count > 0) {
+        const recyclerPower = D(2).mul(dtFacilities); // 2 waste per second per recycler
+        
+        // Find all placed recyclers and create pollution zones
+        const pollutionZones: Array<{ x: number; y: number; radius: number; intensity: number }> = [];
+        for (const [k, buildingId] of Object.entries(state.grid.tiles)) {
+          if (buildingId === 'waste_recycler') {
+            const pos = parseKey(k);
+            if (pos) {
+              pollutionZones.push({
+                x: pos.x,
+                y: pos.y,
+                radius: 3,
+                intensity: 0.8, // 80% waste reduction in radius
+              });
+              
+              // Recycle waste in the area
+              nextPollution.wasteAmount = nextPollution.wasteAmount.sub(recyclerPower).max(D(0));
+            }
+          }
+        }
+        
+        nextPollution.pollutionZones = pollutionZones;
+      }
+      
+      // Calculate efficiency penalty from pollution
+      // -5% efficiency per 1000 waste
+      const wastePenalty = nextPollution.wasteAmount.div(1000).mul(0.05).toNumber();
+      const radioactivePenalty = nextPollution.radioactiveWasteAmount.div(500).mul(0.1).toNumber();
+      nextPollution.efficiencyMultiplier = Math.max(0.1, 1.0 - wastePenalty - radioactivePenalty);
+
+      // Process intergalactic caravans
+      const nextIntergalacticLogistics = { ...state.intergalacticLogistics };
+      const updatedCaravans = [...nextIntergalacticLogistics.caravans];
+      const caravansToRemove: string[] = [];
+      
+      for (let i = 0; i < updatedCaravans.length; i++) {
+        const caravan = { ...updatedCaravans[i] };
+        
+        if (caravan.status === 'traveling') {
+          // Update progress
+          const elapsed = now - caravan.departureTime;
+          const totalTime = caravan.arrivalTime - caravan.departureTime;
+          caravan.progress = Math.min(1, elapsed / totalTime);
+          
+          // Check for random attacks
+          if (Math.random() < caravan.riskLevel * dt * 0.1) { // 10% chance per second scaled by risk
+            caravan.status = 'under_attack';
+            caravan.underAttackBy = [
+              createPlatformEnemy('pirate_raider', Math.floor(Math.random() * 10) + 5), // Random pirate level 5-15
+            ];
+            
+            // Add notification
+            nextGalaxies.notifications.push({
+              id: `notif_caravan_attack_${now}_${Math.random()}`,
+              type: 'attack',
+              title: '🚨 Караван атакован!',
+              message: `Караван ${caravan.id.slice(0, 8)} подвергся нападению пиратов!`,
+              timestamp: now,
+              read: false,
+            });
+          }
+          
+          // Check if arrived
+          if (now >= caravan.arrivalTime) {
+            caravan.status = 'delivered';
+            
+            // Deliver cargo to destination
+            if (caravan.toId === 'main_base') {
+              // Add to main base resources
+              Object.entries(caravan.cargo).forEach(([resType, amount]) => {
+                if (amount) {
+                  const resource = newResources[resType as import('../core/gameTypes').ResourceType];
+                  if (resource) {
+                    resource.amount = resource.amount.add(amount);
+                  }
+                }
+              });
+            } else {
+              // Add to platform resources
+              const platformIndex = nextGalaxies.platforms.findIndex(p => p.id === caravan.toId);
+              if (platformIndex >= 0) {
+                const platform = nextGalaxies.platforms[platformIndex];
+                Object.entries(caravan.cargo).forEach(([resType, amount]) => {
+                  if (amount) {
+                    const resource = platform.resources[resType as import('../core/gameTypes').ResourceType];
+                    if (resource) {
+                      resource.amount = resource.amount.add(amount);
+                    }
+                  }
+                });
+              }
+            }
+            
+            // Add success notification
+            nextGalaxies.notifications.push({
+              id: `notif_caravan_delivered_${now}_${Math.random()}`,
+              type: 'success',
+              title: '✅ Караван доставлен',
+              message: `Караван ${caravan.id.slice(0, 8)} успешно прибыл в пункт назначения!`,
+              timestamp: now,
+              read: false,
+            });
+            
+            // Mark for removal
+            caravansToRemove.push(caravan.id);
+          }
+        } else if (caravan.status === 'under_attack' && caravan.underAttackBy) {
+          // Process combat
+          const totalEnemyDps = caravan.underAttackBy.reduce((sum, enemy) => sum.add(enemy.dps), D(0));
+          const damage = totalEnemyDps.mul(dt);
+          
+          // Caravan takes damage (reduce defense)
+          caravan.defense = caravan.defense.sub(damage).max(D(0));
+          
+          // If defense reaches zero, caravan is destroyed
+          if (caravan.defense.lte(0)) {
+            caravan.status = 'destroyed';
+            
+            // Add failure notification
+            nextGalaxies.notifications.push({
+              id: `notif_caravan_destroyed_${now}_${Math.random()}`,
+              type: 'warning',
+              title: '💥 Караван уничтожен!',
+              message: `Караван ${caravan.id.slice(0, 8)} был уничтожен пиратами. Груз потерян.`,
+              timestamp: now,
+              read: false,
+            });
+            
+            // Mark for removal
+            caravansToRemove.push(caravan.id);
+          } else {
+            // Caravan fights back
+            const caravanDps = caravan.defense.mul(0.5); // 50% of defense rating as DPS
+            caravan.underAttackBy = caravan.underAttackBy.filter(enemy => {
+              const enemyDamage = caravanDps.mul(dt);
+              enemy.hp = enemy.hp.sub(enemyDamage);
+              return enemy.hp.gt(0);
+            });
+            
+            // If all enemies defeated, continue traveling
+            if (caravan.underAttackBy.length === 0) {
+              caravan.status = 'traveling';
+              delete caravan.underAttackBy;
+              
+              // Add notification
+              nextGalaxies.notifications.push({
+                id: `notif_caravan_survived_${now}_${Math.random()}`,
+                type: 'success',
+                title: '⚔️ Атака отбита',
+                message: `Караван ${caravan.id.slice(0, 8)} успешно отбил атаку и продолжает путь!`,
+                timestamp: now,
+                read: false,
+              });
+            }
+          }
+        }
+        
+        updatedCaravans[i] = caravan;
+      }
+      
+      // Remove completed/destroyed caravans
+      nextIntergalacticLogistics.caravans = updatedCaravans.filter(c => !caravansToRemove.includes(c.id));
+
+      // =======================================
+      // Фаза 8.6: Обработка случайных событий
+      // =======================================
+      
+      let nextRandomEvents = { ...state.randomEvents };
+      
+      // Проверяем, пора ли генерировать новое событие
+      if (nextRandomEvents.eventsEnabled && now >= nextRandomEvents.nextEventAt) {
+        const newEvent = generateRandomEvent();
+        
+        // Вычисляем следующее время события
+        const baseInterval = BASE_EVENT_INTERVAL_MIN + Math.random() * (BASE_EVENT_INTERVAL_MAX - BASE_EVENT_INTERVAL_MIN);
+        const adjustedInterval = baseInterval / nextRandomEvents.eventFrequencyMultiplier;
+        
+        nextRandomEvents = {
+          ...nextRandomEvents,
+          activeEvents: [...nextRandomEvents.activeEvents, newEvent],
+          nextEventAt: now + adjustedInterval,
+        };
+        
+        // Уведомление о событии будет создано через addNotification вне set()
+        // Или сохраним событие для создания уведомления после return
+      }
+      
+      // Обрабатываем активные события с временными эффектами
+      const updatedActiveEvents = nextRandomEvents.activeEvents.map(event => {
+        if (event.expiresAt && now >= event.expiresAt) {
+          return { ...event, status: 'expired' as const };
+        }
+        return event;
+      }).filter(event => event.status !== 'expired');
+      
+      nextRandomEvents = {
+        ...nextRandomEvents,
+        activeEvents: updatedActiveEvents,
+      };
+
+      // =======================================
+      // Фаза 9: Обработка строительства мегаструктур
+      // =======================================
+      
+      let nextMegastructures = { ...state.megastructures };
+      
+      // Обработка строительства мегаструктур в очереди
+      const updatedQueue = nextMegastructures.constructionQueue.map(construction => {
+        const megastructure = MEGASTRUCTURES[construction.megastructureId];
+        if (!megastructure) return construction;
+        
+        // Увеличение прогресса строительства (100% за buildTime секунд)
+        const progressPerSecond = 100 / megastructure.buildTime;
+        const newProgress = Math.min(100, construction.progress + progressPerSecond * dt);
+        
+        return {
+          ...construction,
+          progress: newProgress,
+        };
+      });
+      
+      // Проверяем завершенные постройки
+      const completedMegastructures = updatedQueue.filter(c => c.progress >= 100);
+      const remainingQueue = updatedQueue.filter(c => c.progress < 100);
+      
+      // Перемещаем завершенные мегаструктуры в список построенных
+      let newBuiltMegastructures = { ...nextMegastructures.built };
+      
+      completedMegastructures.forEach(construction => {
+        const megastructure = MEGASTRUCTURES[construction.megastructureId];
+        if (megastructure) {
+          newBuiltMegastructures[construction.megastructureId] = {
+            completedAt: now,
+            buildProgress: 100,
+            active: true,
+          };
+          
+          // Награды за постройку
+          const rewards = getMegastructureRewards(construction.megastructureId);
+          nextCurrency = {
+            ...nextCurrency,
+            credits: nextCurrency.credits.add(rewards.credits),
+            researchPoints: nextCurrency.researchPoints.add(rewards.researchPoints),
+            influence: nextCurrency.influence.add(rewards.influence),
+          };
+          
+          // Уведомление о завершении
+          nextGalaxies.notifications.push({
+            id: `megastructure_complete_${construction.megastructureId}_${now}`,
+            type: 'success',
+            title: `🎉 Мегаструктура построена!`,
+            message: `${megastructure.name} завершена и активна!`,
+            timestamp: now,
+            read: false,
+          });
+        }
+      });
+      
+      nextMegastructures = {
+        ...nextMegastructures,
+        built: newBuiltMegastructures,
+        constructionQueue: remainingQueue,
+      };
+      
+      // Применяем эффекты активных мегаструктур
+      Object.entries(nextMegastructures.built).forEach(([id, info]) => {
+        if (!info.active) return;
+        
+        const megastructure = MEGASTRUCTURES[id as MegastructureId];
+        if (!megastructure) return;
+        
+        // Энергия
+        if (megastructure.effects.energyProduction) {
+          totalEnergyProduction = totalEnergyProduction.add(megastructure.effects.energyProduction);
+        }
+        
+        // Влияние
+        if (megastructure.effects.influenceBonus) {
+          nextCurrency = {
+            ...nextCurrency,
+            influence: nextCurrency.influence.add(D(megastructure.effects.influenceBonus).mul(dt)),
+          };
+        }
+        
+        // Бонус к производству применяется через multiplier (будет учтен в game loop)
+        // Бонус к исследованиям применяется к начислению RP
+      });
+
       return {
         resources: newResources,
+        buildings: buildingsWithProximity,
+        currency: nextCurrency,
         market: nextMarket,
         combat: nextCombat,
         grid: { 
@@ -2265,7 +4681,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         nanoSwarm: state.nanoSwarm,
         productionMatrix: state.productionMatrix,
         quantumNet: state.quantumNet,
+        galaxies: nextGalaxies,
+        pollution: nextPollution,
+        intergalacticLogistics: nextIntergalacticLogistics,
+        randomEvents: nextRandomEvents,
+        megastructures: nextMegastructures,
         lastTick: now,
+        energyProduction: totalEnergyProduction,
+        energyConsumption: totalEnergyConsumption,
+        energyEfficiency,
       };
     });
   },
@@ -2275,6 +4699,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     const save = {
       resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
       buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
+      currency: {
+        credits: state.currency.credits.toString(),
+        researchPoints: state.currency.researchPoints.toString(),
+        influence: state.currency.influence.toString(),
+      },
       market: {
         prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
         event: state.market.event,
@@ -2314,6 +4743,71 @@ export const useGameStore = create<GameState>((set, get) => ({
       aegis: state.aegis,
       productionMatrix: state.productionMatrix,
       quantumNet: state.quantumNet,
+      politics: state.politics,
+      galaxies: {
+        currentGalaxyId: state.galaxies.currentGalaxyId,
+        unlockedGalaxies: state.galaxies.unlockedGalaxies,
+        platforms: state.galaxies.platforms,
+        autoTransportEnabled: state.galaxies.autoTransportEnabled,
+        fuelReserve: state.galaxies.fuelReserve.toString(),
+      },
+      pollution: {
+        wasteAmount: state.pollution.wasteAmount.toString(),
+        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
+        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
+        pollutionZones: state.pollution.pollutionZones,
+      },
+      intergalacticLogistics: {
+        caravans: state.intergalacticLogistics.caravans.map(c => ({
+          ...c,
+          cargo: Object.fromEntries(
+            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
+          ),
+          fuelCost: c.fuelCost.toString(),
+          fuelPaid: c.fuelPaid.toString(),
+          defense: c.defense.toString(),
+          underAttackBy: c.underAttackBy?.map(e => ({
+            ...e,
+            maxHp: e.maxHp.toString(),
+            hp: e.hp.toString(),
+            dps: e.dps.toString(),
+            armor: e.armor.toString(),
+          })),
+        })),
+        upgrades: state.intergalacticLogistics.upgrades,
+        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
+        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
+          ...r,
+          triggerAmount: r.triggerAmount.toString(),
+          sendAmount: r.sendAmount.toString(),
+        })),
+      },
+      randomEvents: {
+        activeEvents: state.randomEvents.activeEvents.map(e => ({
+          ...e,
+          effects: e.effects
+            ? {
+                ...e.effects,
+                resourceGain: e.effects.resourceGain
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                resourceLoss: e.effects.resourceLoss
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
+                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
+              }
+            : undefined,
+        })),
+        eventHistory: state.randomEvents.eventHistory,
+        nextEventAt: state.randomEvents.nextEventAt,
+        eventsEnabled: state.randomEvents.eventsEnabled,
+        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
+      },
       grid: state.grid,
       lastTick: state.lastTick,
     };
@@ -2350,6 +4844,12 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ...INITIAL_RESEARCH.levels,
                 ...save.research.levels,
               },
+              technologies: save.research.technologies
+                ? {
+                    ...INITIAL_RESEARCH.technologies,
+                    ...save.research.technologies,
+                  }
+                : INITIAL_RESEARCH.technologies,
             }
           : state.research;
 
@@ -2377,6 +4877,14 @@ export const useGameStore = create<GameState>((set, get) => ({
               blueprints: D(save.meta.blueprints ?? 0).max(D(0)),
             }
           : state.meta;
+
+        const loadedCurrency: CurrencyState = save.currency
+          ? {
+              credits: D(save.currency.credits ?? 1000).max(D(0)),
+              researchPoints: D(save.currency.researchPoints ?? 0).max(D(0)),
+              influence: D(save.currency.influence ?? 0).max(D(0)),
+            }
+          : state.currency;
 
         const loadedProductionMatrix: ProductionMatrixState = save.productionMatrix && typeof save.productionMatrix === 'object'
           ? {
@@ -2407,6 +4915,114 @@ export const useGameStore = create<GameState>((set, get) => ({
               preservedBuildingId: typeof save.quantumNet.preservedBuildingId === 'string' ? save.quantumNet.preservedBuildingId : null,
             }
           : state.quantumNet;
+
+        const loadedPolitics: import('../core/gameTypes').PoliticsState = save.politics && typeof save.politics === 'object'
+          ? {
+              activePolicies: Array.isArray(save.politics.activePolicies) ? save.politics.activePolicies : [],
+              maxActivePolicies: typeof save.politics.maxActivePolicies === 'number' ? save.politics.maxActivePolicies : 3,
+              lastActivated: save.politics.lastActivated && typeof save.politics.lastActivated === 'object' ? save.politics.lastActivated : {},
+            }
+          : state.politics;
+
+        const loadedGalaxies: import('../core/gameTypes').GalaxiesState = save.galaxies && typeof save.galaxies === 'object'
+          ? {
+              currentGalaxyId: (save.galaxies.currentGalaxyId as import('../core/gameTypes').GalaxyId) ?? state.galaxies.currentGalaxyId,
+              unlockedGalaxies: Array.isArray(save.galaxies.unlockedGalaxies) ? save.galaxies.unlockedGalaxies : state.galaxies.unlockedGalaxies,
+              platforms: Array.isArray(save.galaxies.platforms) ? save.galaxies.platforms : state.galaxies.platforms,
+              autoTransportEnabled: typeof save.galaxies.autoTransportEnabled === 'boolean' ? save.galaxies.autoTransportEnabled : state.galaxies.autoTransportEnabled,
+              fuelReserve: D(save.galaxies.fuelReserve ?? state.galaxies.fuelReserve.toString()),
+              notifications: Array.isArray(save.galaxies.notifications) ? save.galaxies.notifications : [],
+            }
+          : state.galaxies;
+
+        const loadedPollution: import('../core/gameTypes').PollutionState = save.pollution && typeof save.pollution === 'object'
+          ? {
+              wasteAmount: D(save.pollution.wasteAmount ?? '0'),
+              radioactiveWasteAmount: D(save.pollution.radioactiveWasteAmount ?? '0'),
+              efficiencyMultiplier: typeof save.pollution.efficiencyMultiplier === 'number' ? save.pollution.efficiencyMultiplier : 1.0,
+              pollutionZones: Array.isArray(save.pollution.pollutionZones) ? save.pollution.pollutionZones : [],
+            }
+          : INITIAL_POLLUTION;
+
+        const loadedIntergalacticLogistics: import('../core/gameTypes').IntergalacticLogisticsState = save.intergalacticLogistics && typeof save.intergalacticLogistics === 'object'
+          ? {
+              caravans: Array.isArray(save.intergalacticLogistics.caravans)
+                ? save.intergalacticLogistics.caravans.map((c: any) => ({
+                    ...c,
+                    cargo: Object.fromEntries(
+                      Object.entries(c.cargo || {}).map(([k, v]) => [k, D(v as any)])
+                    ),
+                    fuelCost: D(c.fuelCost ?? '0'),
+                    fuelPaid: D(c.fuelPaid ?? '0'),
+                    defense: D(c.defense ?? '10'),
+                    underAttackBy: Array.isArray(c.underAttackBy)
+                      ? c.underAttackBy.map((e: any) => ({
+                          ...e,
+                          maxHp: D(e.maxHp ?? '100'),
+                          hp: D(e.hp ?? '100'),
+                          dps: D(e.dps ?? '10'),
+                          armor: D(e.armor ?? '0'),
+                        }))
+                      : undefined,
+                  }))
+                : [],
+              upgrades: save.intergalacticLogistics.upgrades && typeof save.intergalacticLogistics.upgrades === 'object'
+                ? {
+                    speed: typeof save.intergalacticLogistics.upgrades.speed === 'number' ? save.intergalacticLogistics.upgrades.speed : 0,
+                    capacity: typeof save.intergalacticLogistics.upgrades.capacity === 'number' ? save.intergalacticLogistics.upgrades.capacity : 0,
+                    defense: typeof save.intergalacticLogistics.upgrades.defense === 'number' ? save.intergalacticLogistics.upgrades.defense : 0,
+                  }
+                : INITIAL_INTERGALACTIC_LOGISTICS.upgrades,
+              autoSendToMainBase: typeof save.intergalacticLogistics.autoSendToMainBase === 'boolean' ? save.intergalacticLogistics.autoSendToMainBase : false,
+              autoRoutes: Array.isArray(save.intergalacticLogistics.autoRoutes)
+                ? save.intergalacticLogistics.autoRoutes.map((r: any) => ({
+                    ...r,
+                    triggerAmount: D(r.triggerAmount ?? '0'),
+                    sendAmount: D(r.sendAmount ?? '0'),
+                  }))
+                : [],
+            }
+          : INITIAL_INTERGALACTIC_LOGISTICS;
+
+        const loadedRandomEvents: RandomEventsState = save.randomEvents && typeof save.randomEvents === 'object'
+          ? {
+              activeEvents: Array.isArray(save.randomEvents.activeEvents)
+                ? save.randomEvents.activeEvents.map((e: any) => ({
+                    ...e,
+                    effects: e.effects && typeof e.effects === 'object'
+                      ? {
+                          ...e.effects,
+                          resourceGain: e.effects.resourceGain && typeof e.effects.resourceGain === 'object'
+                            ? Object.fromEntries(
+                                Object.entries(e.effects.resourceGain).map(([k, v]) => [k, D(v as any)])
+                              )
+                            : undefined,
+                          resourceLoss: e.effects.resourceLoss && typeof e.effects.resourceLoss === 'object'
+                            ? Object.fromEntries(
+                                Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, D(v as any)])
+                              )
+                            : undefined,
+                          researchPointsGain: e.effects.researchPointsGain ? D(e.effects.researchPointsGain) : undefined,
+                          energyLoss: e.effects.energyLoss ? D(e.effects.energyLoss) : undefined,
+                        }
+                      : undefined,
+                  }))
+                : [],
+              eventHistory: Array.isArray(save.randomEvents.eventHistory) ? save.randomEvents.eventHistory : [],
+              nextEventAt: typeof save.randomEvents.nextEventAt === 'number' ? save.randomEvents.nextEventAt : Date.now() + BASE_EVENT_INTERVAL_MIN,
+              eventsEnabled: typeof save.randomEvents.eventsEnabled === 'boolean' ? save.randomEvents.eventsEnabled : true,
+              eventFrequencyMultiplier: typeof save.randomEvents.eventFrequencyMultiplier === 'number' ? save.randomEvents.eventFrequencyMultiplier : 1.0,
+            }
+          : INITIAL_RANDOM_EVENTS;
+
+        const loadedAchievements: import('../core/gameTypes').AchievementsState = save.achievements && typeof save.achievements === 'object'
+          ? {
+              unlocked: typeof save.achievements.unlocked === 'object' ? save.achievements.unlocked : {},
+              recentlyUnlocked: Array.isArray(save.achievements.recentlyUnlocked)
+                ? save.achievements.recentlyUnlocked
+                : [],
+            }
+          : INITIAL_ACHIEVEMENTS;
 
         const loadedExpedition: ExpeditionState = save.expedition && typeof save.expedition === 'object'
           ? {
@@ -2507,6 +5123,178 @@ export const useGameStore = create<GameState>((set, get) => ({
                       .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
                       .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
                   : (market.history?.steel ?? []),
+                // Фаза 2: Базовые новые ресурсы
+                natural_gas: Array.isArray(rawHistory.natural_gas)
+                  ? rawHistory.natural_gas
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.natural_gas ?? []),
+                oil: Array.isArray(rawHistory.oil)
+                  ? rawHistory.oil
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.oil ?? []),
+                gasoline: Array.isArray(rawHistory.gasoline)
+                  ? rawHistory.gasoline
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.gasoline ?? []),
+                plastic: Array.isArray(rawHistory.plastic)
+                  ? rawHistory.plastic
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.plastic ?? []),
+                glass: Array.isArray(rawHistory.glass)
+                  ? rawHistory.glass
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.glass ?? []),
+                sand: Array.isArray(rawHistory.sand)
+                  ? rawHistory.sand
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.sand ?? []),
+                // Фаза 2.3: Металлические ресурсы
+                uranium: Array.isArray(rawHistory.uranium)
+                  ? rawHistory.uranium
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.uranium ?? []),
+                chrome: Array.isArray(rawHistory.chrome)
+                  ? rawHistory.chrome
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.chrome ?? []),
+                titanium: Array.isArray(rawHistory.titanium)
+                  ? rawHistory.titanium
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.titanium ?? []),
+                // Фаза 2.4-2.5: Продвинутые ресурсы
+                copper: Array.isArray(rawHistory.copper)
+                  ? rawHistory.copper
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.copper ?? []),
+                semiconductors: Array.isArray(rawHistory.semiconductors)
+                  ? rawHistory.semiconductors
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.semiconductors ?? []),
+                dynamite: Array.isArray(rawHistory.dynamite)
+                  ? rawHistory.dynamite
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.dynamite ?? []),
+                fiber: Array.isArray(rawHistory.fiber)
+                  ? rawHistory.fiber
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.fiber ?? []),
+                // Фаза 2.6: Сложные производственные ресурсы
+                integrated_circuit: Array.isArray(rawHistory.integrated_circuit)
+                  ? rawHistory.integrated_circuit
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.integrated_circuit ?? []),
+                battery: Array.isArray(rawHistory.battery)
+                  ? rawHistory.battery
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.battery ?? []),
+                engine: Array.isArray(rawHistory.engine)
+                  ? rawHistory.engine
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.engine ?? []),
+                display: Array.isArray(rawHistory.display)
+                  ? rawHistory.display
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.display ?? []),
+                computer: Array.isArray(rawHistory.computer)
+                  ? rawHistory.computer
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.computer ?? []),
+                liquid_fuel: Array.isArray(rawHistory.liquid_fuel)
+                  ? rawHistory.liquid_fuel
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.liquid_fuel ?? []),
+                chrome_alloy: Array.isArray(rawHistory.chrome_alloy)
+                  ? rawHistory.chrome_alloy
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.chrome_alloy ?? []),
+                titanium_alloy: Array.isArray(rawHistory.titanium_alloy)
+                  ? rawHistory.titanium_alloy
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.titanium_alloy ?? []),
+                enriched_uranium: Array.isArray(rawHistory.enriched_uranium)
+                  ? rawHistory.enriched_uranium
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.enriched_uranium ?? []),
+                // Фаза 2.7: Военные ресурсы
+                weapon: Array.isArray(rawHistory.weapon)
+                  ? rawHistory.weapon
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.weapon ?? []),
+                artillery: Array.isArray(rawHistory.artillery)
+                  ? rawHistory.artillery
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.artillery ?? []),
+                radar: Array.isArray(rawHistory.radar)
+                  ? rawHistory.radar
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.radar ?? []),
+                nuclear_bomb: Array.isArray(rawHistory.nuclear_bomb)
+                  ? rawHistory.nuclear_bomb
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.nuclear_bomb ?? []),
+                // Фаза 2.8: Космические ресурсы
+                jet_engine: Array.isArray(rawHistory.jet_engine)
+                  ? rawHistory.jet_engine
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.jet_engine ?? []),
+                satellite: Array.isArray(rawHistory.satellite)
+                  ? rawHistory.satellite
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.satellite ?? []),
+                rocket: Array.isArray(rawHistory.rocket)
+                  ? rawHistory.rocket
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.rocket ?? []),
+                spaceship: Array.isArray(rawHistory.spaceship)
+                  ? rawHistory.spaceship
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.spaceship ?? []),
+                console: Array.isArray(rawHistory.console)
+                  ? rawHistory.console
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.console ?? []),
+                space_station: Array.isArray(rawHistory.space_station)
+                  ? rawHistory.space_station
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.space_station ?? []),
+                // Фаза 2.9: Специальные ресурсы
+                robot: Array.isArray(rawHistory.robot)
+                  ? rawHistory.robot
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.robot ?? []),
               }
             : undefined;
 
@@ -2611,6 +5399,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         return {
           resources: newResources,
           buildings: newBuildings,
+          currency: loadedCurrency,
           market,
           combat,
           grid: nextGrid,
@@ -2624,6 +5413,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           aegis: loadedAegis,
           productionMatrix: loadedProductionMatrix,
           quantumNet: loadedQuantumNet,
+          politics: loadedPolitics,
+          galaxies: loadedGalaxies,
+          pollution: loadedPollution,
+          intergalacticLogistics: loadedIntergalacticLogistics,
+          randomEvents: loadedRandomEvents,
+          achievements: loadedAchievements,
           lastTick: Date.now(),
         };
       });
@@ -2632,16 +5427,1156 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
+  // Galaxy system methods
+  switchGalaxy: (galaxyId: import('../core/gameTypes').GalaxyId) => {
+    set((state) => {
+      // Can only switch to unlocked galaxies
+      if (!state.galaxies.unlockedGalaxies.includes(galaxyId)) {
+        console.warn(`Galaxy ${galaxyId} is not unlocked yet`);
+        return state;
+      }
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          currentGalaxyId: galaxyId,
+        },
+      };
+    });
+  },
+
+  unlockGalaxy: (galaxyId: import('../core/gameTypes').GalaxyId) => {
+    set((state) => {
+      if (state.galaxies.unlockedGalaxies.includes(galaxyId)) {
+        return state; // Already unlocked
+      }
+      
+      // TODO: Add cost requirements (e.g., influence, credits)
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          unlockedGalaxies: [...state.galaxies.unlockedGalaxies, galaxyId],
+        },
+      };
+    });
+  },
+
+  createPlatform: (galaxyId: import('../core/gameTypes').GalaxyId, name: string) => {
+    set((state) => {
+      if (!state.galaxies.unlockedGalaxies.includes(galaxyId)) {
+        console.warn(`Cannot create platform in locked galaxy ${galaxyId}`);
+        return state;
+      }
+      
+      // Cost requirements
+      const cost = {
+        credits: D(50000),
+        influence: D(1000),
+      };
+      
+      if (state.currency.credits.lt(cost.credits) || state.currency.influence.lt(cost.influence)) {
+        console.warn('Not enough resources to create platform');
+        return state;
+      }
+      
+      const newPlatform: import('../core/gameTypes').SpacePlatform = {
+        id: `platform_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        galaxyId,
+        name,
+        grid: {
+          width: 10,
+          height: 10,
+          selected: null,
+          tiles: {},
+          deposits: {}, // TODO: Generate deposits based on galaxy
+          buffers: { base: {} },
+          lastDtSeconds: 0,
+          selectedBuildId: null,
+        },
+        buildings: [],
+        resources: {} as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
+        maxHp: D(1000),
+        hp: D(1000),
+        armor: D(200),
+        maxArmor: D(200),
+        shieldMaxHp: D(500),
+        shieldHp: D(500),
+        shieldRegenRate: D(5),
+        upgrades: {
+          defense: 0,
+          mining: 0,
+          storage: 0,
+        },
+        combat: {
+          underAttack: false,
+          waveEndsAt: 0,
+          nextWaveAt: Date.now() + 120000, // First wave in 2 minutes
+          enemies: [],
+          damagePerSecond: D(0),
+          shieldRegenPerSecond: D(5),
+          turretCount: 0,
+          radarCount: 0,
+          radarRange: 1,
+        },
+      };
+      
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(cost.credits),
+          influence: state.currency.influence.sub(cost.influence),
+        },
+        galaxies: {
+          ...state.galaxies,
+          platforms: [...state.galaxies.platforms, newPlatform],
+        },
+      };
+    });
+  },
+
+  upgradePlatform: (platformId: string, upgradeType: 'defense' | 'mining' | 'storage') => {
+    set((state) => {
+      const platformIndex = state.galaxies.platforms.findIndex(p => p.id === platformId);
+      if (platformIndex === -1) {
+        console.warn(`Platform ${platformId} not found`);
+        return state;
+      }
+      
+      const platform = state.galaxies.platforms[platformIndex];
+      const currentLevel = platform.upgrades?.[upgradeType] || 0;
+      
+      // Calculate cost based on level
+      const baseCosts: Record<string, number> = {
+        defense: 10000,
+        mining: 15000,
+        storage: 8000,
+      };
+      const base = baseCosts[upgradeType] || 10000;
+      const cost = D(Math.floor(base * Math.pow(1.5, currentLevel)));
+      
+      if (state.currency.credits.lt(cost)) {
+        console.warn('Not enough credits to upgrade platform');
+        return state;
+      }
+      
+      const updatedPlatform = {
+        ...platform,
+        upgrades: {
+          ...platform.upgrades,
+          [upgradeType]: currentLevel + 1,
+        },
+      };
+      
+      // Update stats based on upgrade type
+      if (upgradeType === 'defense') {
+        updatedPlatform.maxHp = platform.maxHp.mul(1.5);
+        updatedPlatform.hp = platform.hp.mul(1.5);
+        updatedPlatform.maxArmor = platform.maxArmor.mul(1.4);
+        updatedPlatform.armor = platform.armor.mul(1.4);
+        updatedPlatform.shieldMaxHp = platform.shieldMaxHp.mul(1.5);
+        updatedPlatform.shieldHp = platform.shieldHp.mul(1.5);
+        updatedPlatform.shieldRegenRate = platform.shieldRegenRate.mul(1.3);
+      }
+      
+      const newPlatforms = [...state.galaxies.platforms];
+      newPlatforms[platformIndex] = updatedPlatform;
+      
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(cost),
+        },
+        galaxies: {
+          ...state.galaxies,
+          platforms: newPlatforms,
+        },
+      };
+    });
+  },
+
+  removePlatform: (platformId: string) => {
+    set((state) => {
+      const platformExists = state.galaxies.platforms.some(p => p.id === platformId);
+      if (!platformExists) {
+        console.warn(`Platform ${platformId} not found`);
+        return state;
+      }
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          platforms: state.galaxies.platforms.filter(p => p.id !== platformId),
+        },
+      };
+    });
+  },
+
+  toggleAutoTransport: () => {
+    set((state) => ({
+      galaxies: {
+        ...state.galaxies,
+        autoTransportEnabled: !state.galaxies.autoTransportEnabled,
+      },
+    }));
+  },
+
+  // Fleet system actions
+  buildShip: (shipType: import('../core/gameTypes').ShipType) => {
+    set((state) => {
+      const def = SHIP_DEFINITIONS[shipType];
+      
+      // Check if we can afford it
+      const canAfford = Object.entries(def.buildCost).every(([resource, cost]) => {
+        if (resource === 'credits') {
+          return state.currency.credits.gte(cost as any);
+        }
+        return state.resources[resource as import('../core/gameTypes').ResourceType]?.amount.gte(cost as any) ?? false;
+      });
+      
+      if (!canAfford) {
+        console.warn(`Cannot afford to build ${shipType}`);
+        return state;
+      }
+      
+      // Deduct costs
+      const newResources = { ...state.resources };
+      let newCredits = state.currency.credits;
+      
+      for (const [resource, cost] of Object.entries(def.buildCost)) {
+        if (resource === 'credits') {
+          newCredits = newCredits.sub(cost as any);
+        } else {
+          const resType = resource as import('../core/gameTypes').ResourceType;
+          newResources[resType] = {
+            ...newResources[resType],
+            amount: newResources[resType].amount.sub(cost as any),
+          };
+        }
+      }
+      
+      // Create ship
+      const stats = calculateShipStats(shipType, 1, 0);
+      const newShip: import('../core/gameTypes').Ship = {
+        id: `ship_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: shipType,
+        name: generateShipName(),
+        level: 1,
+        maxHp: stats.maxHp,
+        hp: stats.maxHp,
+        dps: stats.dps,
+        armor: stats.armor,
+        speed: stats.speed,
+        status: 'idle',
+        experience: 0,
+        upgradeLevel: 0,
+      };
+      
+      return {
+        resources: newResources,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        fleet: {
+          ...state.fleet,
+          ships: [...state.fleet.ships, newShip],
+        },
+      };
+    });
+  },
+
+  upgradeShip: (shipId: string) => {
+    set((state) => {
+      const shipIndex = state.fleet.ships.findIndex(s => s.id === shipId);
+      if (shipIndex === -1) return state;
+      
+      const ship = state.fleet.ships[shipIndex];
+      const cost = calculateShipUpgradeCost(ship.type, ship.upgradeLevel);
+      
+      // Check if we can afford it
+      const canAfford = Object.entries(cost).every(([resource, costAmount]) => {
+        if (resource === 'credits') {
+          return state.currency.credits.gte(costAmount as any);
+        }
+        return state.resources[resource as import('../core/gameTypes').ResourceType]?.amount.gte(costAmount as any) ?? false;
+      });
+      
+      if (!canAfford) {
+        console.warn(`Cannot afford to upgrade ship ${shipId}`);
+        return state;
+      }
+      
+      // Deduct costs
+      const newResources = { ...state.resources };
+      let newCredits = state.currency.credits;
+      
+      for (const [resource, costAmount] of Object.entries(cost)) {
+        if (resource === 'credits') {
+          newCredits = newCredits.sub(costAmount as any);
+        } else {
+          const resType = resource as import('../core/gameTypes').ResourceType;
+          newResources[resType] = {
+            ...newResources[resType],
+            amount: newResources[resType].amount.sub(costAmount as any),
+          };
+        }
+      }
+      
+      // Upgrade ship
+      const newUpgradeLevel = ship.upgradeLevel + 1;
+      const newStats = calculateShipStats(ship.type, ship.level, newUpgradeLevel);
+      
+      const updatedShip: import('../core/gameTypes').Ship = {
+        ...ship,
+        upgradeLevel: newUpgradeLevel,
+        maxHp: newStats.maxHp,
+        hp: ship.hp.mul(newStats.maxHp).div(ship.maxHp), // Scale current HP
+        dps: newStats.dps,
+        armor: newStats.armor,
+      };
+      
+      const newShips = [...state.fleet.ships];
+      newShips[shipIndex] = updatedShip;
+      
+      return {
+        resources: newResources,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        fleet: {
+          ...state.fleet,
+          ships: newShips,
+        },
+      };
+    });
+  },
+
+  assignShip: (shipId: string, targetId: string) => {
+    set((state) => {
+      const shipIndex = state.fleet.ships.findIndex(s => s.id === shipId);
+      if (shipIndex === -1) return state;
+      
+      const updatedShip = {
+        ...state.fleet.ships[shipIndex],
+        assignedTo: targetId,
+        status: 'defending' as const,
+      };
+      
+      const newShips = [...state.fleet.ships];
+      newShips[shipIndex] = updatedShip;
+      
+      return {
+        fleet: {
+          ...state.fleet,
+          ships: newShips,
+        },
+      };
+    });
+  },
+
+  repairShip: (shipId: string) => {
+    set((state) => {
+      const shipIndex = state.fleet.ships.findIndex(s => s.id === shipId);
+      if (shipIndex === -1) return state;
+      
+      const ship = state.fleet.ships[shipIndex];
+      
+      // Repair cost: 20% of build cost
+      const def = SHIP_DEFINITIONS[ship.type];
+      const repairCost = Object.fromEntries(
+        Object.entries(def.buildCost).map(([res, cost]) => [res, (cost as any).mul(0.2)])
+      );
+      
+      // Check if we can afford it
+      const canAfford = Object.entries(repairCost).every(([resource, cost]) => {
+        if (resource === 'credits') {
+          return state.currency.credits.gte(cost as any);
+        }
+        return state.resources[resource as import('../core/gameTypes').ResourceType]?.amount.gte(cost as any) ?? false;
+      });
+      
+      if (!canAfford) {
+        console.warn(`Cannot afford to repair ship ${shipId}`);
+        return state;
+      }
+      
+      // Deduct costs
+      const newResources = { ...state.resources };
+      let newCredits = state.currency.credits;
+      
+      for (const [resource, cost] of Object.entries(repairCost)) {
+        if (resource === 'credits') {
+          newCredits = newCredits.sub(cost as any);
+        } else {
+          const resType = resource as import('../core/gameTypes').ResourceType;
+          newResources[resType] = {
+            ...newResources[resType],
+            amount: newResources[resType].amount.sub(cost as any),
+          };
+        }
+      }
+      
+      // Repair ship to full HP
+      const updatedShip = {
+        ...ship,
+        hp: ship.maxHp,
+        status: 'idle' as const,
+      };
+      
+      const newShips = [...state.fleet.ships];
+      newShips[shipIndex] = updatedShip;
+      
+      return {
+        resources: newResources,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        fleet: {
+          ...state.fleet,
+          ships: newShips,
+        },
+      };
+    });
+  },
+
+  scrapShip: (shipId: string) => {
+    set((state) => {
+      const shipIndex = state.fleet.ships.findIndex(s => s.id === shipId);
+      if (shipIndex === -1) return state;
+      
+      const ship = state.fleet.ships[shipIndex];
+      
+      // Get 30% of resources back
+      const def = SHIP_DEFINITIONS[ship.type];
+      const scrapReturn = Object.fromEntries(
+        Object.entries(def.buildCost)
+          .filter(([res]) => res !== 'credits')
+          .map(([res, cost]) => [res, (cost as any).mul(0.3)])
+      );
+      
+      const newResources = { ...state.resources };
+      for (const [resource, amount] of Object.entries(scrapReturn)) {
+        const resType = resource as import('../core/gameTypes').ResourceType;
+        newResources[resType] = {
+          ...newResources[resType],
+          amount: newResources[resType].amount.add(amount as any),
+        };
+      }
+      
+      return {
+        resources: newResources,
+        fleet: {
+          ...state.fleet,
+          ships: state.fleet.ships.filter(s => s.id !== shipId),
+        },
+      };
+    });
+  },
+
+  toggleAutoDefend: () => {
+    set((state) => ({
+      fleet: {
+        ...state.fleet,
+        autoDefend: !state.fleet.autoDefend,
+      },
+    }));
+  },
+
+  // Combat Functions
+  spawnPlatformEnemy: (platformId: string) => {
+    set((state) => {
+      const platformIndex = state.galaxies.platforms.findIndex(p => p.id === platformId);
+      if (platformIndex === -1) return state;
+      
+      const platform = state.galaxies.platforms[platformIndex];
+      const galaxy = GALAXIES[platform.galaxyId];
+      if (!galaxy || !galaxy.enemyLevelRange) return state;
+      
+      // Check if should spawn boss
+      const shouldSpawnBoss = Math.random() < (galaxy.bossChance || 0);
+      const enemyLevel = Math.floor(Math.random() * (galaxy.enemyLevelRange[1] - galaxy.enemyLevelRange[0] + 1)) + galaxy.enemyLevelRange[0];
+      
+      let enemyType: string | null = null;
+      
+      if (shouldSpawnBoss) {
+        enemyType = getBossForLevel(enemyLevel);
+      } else {
+        const validEnemyTypes = galaxy.enemyTypes?.filter(type => ENEMY_DEFINITIONS[type as EnemyType]) || [];
+        if (validEnemyTypes.length > 0) {
+          enemyType = validEnemyTypes[Math.floor(Math.random() * validEnemyTypes.length)];
+        }
+      }
+      
+      if (!enemyType) return state;
+      
+      const newEnemy = createPlatformEnemy(enemyType as EnemyType, enemyLevel);
+      
+      const updatedPlatforms = [...state.galaxies.platforms];
+      updatedPlatforms[platformIndex] = {
+        ...platform,
+        combat: {
+          ...platform.combat,
+          enemies: [...platform.combat.enemies, newEnemy],
+          underAttack: true,
+        },
+      };
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          platforms: updatedPlatforms,
+        },
+      };
+    });
+  },
+
+  processPlatformCombat: (platformId: string, dt: number) => {
+    set((state) => {
+      const platformIndex = state.galaxies.platforms.findIndex(p => p.id === platformId);
+      if (platformIndex === -1) return state;
+      
+      const platform = state.galaxies.platforms[platformIndex];
+      if (platform.combat.enemies.length === 0) {
+        // No enemies, regenerate shields
+        const newShieldHp = platform.shieldHp.add(platform.combat.shieldRegenPerSecond.mul(dt)).min(platform.shieldMaxHp);
+        
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...platform,
+          shieldHp: newShieldHp,
+          combat: {
+            ...platform.combat,
+            underAttack: false,
+          },
+        };
+        
+        return {
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
+      // Calculate platform defense
+      const turretDamage = platform.combat.turretCount * 10; // 10 DPS per turret
+      const assignedShips = state.fleet.ships.filter(s => s.assignedTo === platformId && s.status !== 'repairing');
+      const shipDamage = assignedShips.reduce((total, ship) => {
+        return total + ship.dps.toNumber();
+      }, 0);
+      
+      const totalDefenseDPS = turretDamage + shipDamage;
+      const damageDealt = D(totalDefenseDPS).mul(dt);
+      
+      // Calculate enemy damage to platform
+      let totalEnemyDamage = D(0);
+      const updatedEnemies = platform.combat.enemies.map(enemy => {
+        if (enemy.hp.lte(0)) return enemy;
+        
+        const enemyDPS = enemy.dps || D(10);
+        totalEnemyDamage = totalEnemyDamage.add(enemyDPS.mul(dt));
+        
+        // Apply damage to enemy
+        const enemyDamageTaken = damageDealt.div(platform.combat.enemies.length); // Distribute damage
+        return {
+          ...enemy,
+          hp: enemy.hp.sub(enemyDamageTaken).max(0),
+        };
+      });
+      
+      // Filter out dead enemies and grant loot
+      const deadEnemies = updatedEnemies.filter(e => e.hp.lte(0));
+      const aliveEnemies = updatedEnemies.filter(e => e.hp.gt(0));
+      
+      let newCurrency = { ...state.currency };
+      let newResources = { ...state.resources };
+      
+      // Grant loot from dead enemies
+      deadEnemies.forEach(enemy => {
+        if (enemy.loot) {
+          newCurrency.credits = newCurrency.credits.add(enemy.loot.credits || D(0));
+          
+          if (enemy.loot.resources) {
+            Object.entries(enemy.loot.resources).forEach(([resource, amount]) => {
+              const resType = resource as import('../core/gameTypes').ResourceType;
+              if (newResources[resType]) {
+                newResources[resType] = {
+                  ...newResources[resType],
+                  amount: newResources[resType].amount.add(amount as any),
+                };
+              }
+            });
+          }
+        }
+      });
+      
+      // Apply damage to platform
+      let newShieldHp = platform.shieldHp;
+      let newArmor = platform.armor;
+      let newHp = platform.hp;
+      
+      let remainingDamage = totalEnemyDamage;
+      
+      // First, damage shields
+      if (newShieldHp.gt(0)) {
+        const effectiveDamage = remainingDamage.mul(1); // No reduction from shields
+        if (effectiveDamage.gte(newShieldHp)) {
+          remainingDamage = effectiveDamage.sub(newShieldHp);
+          newShieldHp = D(0);
+        } else {
+          newShieldHp = newShieldHp.sub(effectiveDamage);
+          remainingDamage = D(0);
+        }
+      }
+      
+      // Then, damage armor
+      if (remainingDamage.gt(0) && newArmor.gt(0)) {
+        const armorEffectiveness = 0.5; // Armor absorbs 50% of damage
+        const effectiveDamage = remainingDamage.mul(armorEffectiveness);
+        if (effectiveDamage.gte(newArmor)) {
+          remainingDamage = remainingDamage.sub(newArmor.div(armorEffectiveness));
+          newArmor = D(0);
+        } else {
+          newArmor = newArmor.sub(effectiveDamage);
+          remainingDamage = D(0);
+        }
+      }
+      
+      // Finally, damage hull
+      if (remainingDamage.gt(0)) {
+        newHp = newHp.sub(remainingDamage).max(0);
+      }
+      
+      const updatedPlatforms = [...state.galaxies.platforms];
+      updatedPlatforms[platformIndex] = {
+        ...platform,
+        hp: newHp,
+        armor: newArmor,
+        shieldHp: newShieldHp,
+        combat: {
+          ...platform.combat,
+          enemies: aliveEnemies,
+          underAttack: aliveEnemies.length > 0,
+          damagePerSecond: totalEnemyDamage.div(dt),
+        },
+      };
+      
+      return {
+        currency: newCurrency,
+        resources: newResources,
+        galaxies: {
+          ...state.galaxies,
+          platforms: updatedPlatforms,
+        },
+      };
+    });
+  },
+
+  updatePlatformDefenses: (platformId: string) => {
+    set((state) => {
+      const platformIndex = state.galaxies.platforms.findIndex(p => p.id === platformId);
+      if (platformIndex === -1) return state;
+      
+      const platform = state.galaxies.platforms[platformIndex];
+      
+      // Count defense buildings on platform
+      let turretCount = 0;
+      let radarCount = 0;
+      let maxRadarRange = 1;
+      let totalShieldRegen = D(5); // Base regen
+      
+      platform.buildings.forEach(building => {
+        if (building.id === 'defense_turret_mk1') {
+          turretCount += building.count;
+        } else if (building.id === 'defense_turret_mk2') {
+          turretCount += building.count * 2; // Mk2 counts as 2
+        } else if (building.id === 'radar_station_mk1') {
+          radarCount += building.count;
+          maxRadarRange = Math.max(maxRadarRange, 2);
+        } else if (building.id === 'shield_generator_mk1') {
+          totalShieldRegen = totalShieldRegen.add(D(10).mul(building.count));
+        } else if (building.id === 'shield_generator_mk2') {
+          totalShieldRegen = totalShieldRegen.add(D(25).mul(building.count));
+        } else if (building.id === 'armor_plating_mk1') {
+          // Armor handled elsewhere
+        }
+      });
+      
+      const updatedPlatforms = [...state.galaxies.platforms];
+      updatedPlatforms[platformIndex] = {
+        ...platform,
+        combat: {
+          ...platform.combat,
+          turretCount,
+          radarCount,
+          radarRange: maxRadarRange,
+          shieldRegenPerSecond: totalShieldRegen,
+        },
+      };
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          platforms: updatedPlatforms,
+        },
+      };
+    });
+  },
+
+  repairPlatform: (platformId: string, repairType: 'hull' | 'armor' | 'shield' | 'all') => {
+    set((state) => {
+      const platformIndex = state.galaxies.platforms.findIndex(p => p.id === platformId);
+      if (platformIndex === -1) return state;
+      
+      const platform = state.galaxies.platforms[platformIndex];
+      
+      // Calculate repair costs and amounts
+      let totalCost = D(0);
+      let newHp = platform.hp;
+      let newArmor = platform.armor;
+      let newShieldHp = platform.shieldHp;
+      
+      if (repairType === 'hull' || repairType === 'all') {
+        const hullDamage = platform.maxHp.sub(platform.hp);
+        if (hullDamage.gt(0)) {
+          const hullRepairCost = hullDamage.mul(10); // 10 credits per HP
+          totalCost = totalCost.add(hullRepairCost);
+          newHp = platform.maxHp;
+        }
+      }
+      
+      if (repairType === 'armor' || repairType === 'all') {
+        const armorDamage = platform.maxArmor.sub(platform.armor);
+        if (armorDamage.gt(0)) {
+          const armorRepairCost = armorDamage.mul(5); // 5 credits per armor point
+          totalCost = totalCost.add(armorRepairCost);
+          newArmor = platform.maxArmor;
+        }
+      }
+      
+      if (repairType === 'shield' || repairType === 'all') {
+        const shieldDamage = platform.shieldMaxHp.sub(platform.shieldHp);
+        if (shieldDamage.gt(0)) {
+          const shieldRepairCost = shieldDamage.mul(3); // 3 credits per shield HP
+          totalCost = totalCost.add(shieldRepairCost);
+          newShieldHp = platform.shieldMaxHp;
+        }
+      }
+      
+      // Check if player has enough credits
+      if (state.currency.credits.lt(totalCost)) {
+        console.warn('Not enough credits to repair platform');
+        return state;
+      }
+      
+      const updatedPlatforms = [...state.galaxies.platforms];
+      updatedPlatforms[platformIndex] = {
+        ...platform,
+        hp: newHp,
+        armor: newArmor,
+        shieldHp: newShieldHp,
+      };
+      
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(totalCost),
+        },
+        galaxies: {
+          ...state.galaxies,
+          platforms: updatedPlatforms,
+        },
+      };
+    });
+  },
+
+  addNotification: (notification: Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>) => {
+    set((state) => {
+      const newNotification: import('../core/gameTypes').Notification = {
+        ...notification,
+        id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        read: false,
+      };
+      
+      // Keep only last 50 notifications
+      const notifications = [newNotification, ...state.galaxies.notifications].slice(0, 50);
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          notifications,
+        },
+      };
+    });
+  },
+
+  markNotificationRead: (notificationId: string) => {
+    set((state) => {
+      const notifications = state.galaxies.notifications.map(n =>
+        n.id === notificationId ? { ...n, read: true } : n
+      );
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          notifications,
+        },
+      };
+    });
+  },
+
+  clearNotifications: () => {
+    set((state) => ({
+      galaxies: {
+        ...state.galaxies,
+        notifications: [],
+      },
+    }));
+  },
+
+  // Intergalactic logistics actions
+  sendCaravan: (fromId, toId, resources) => {
+    set((state) => {
+      const { intergalacticLogistics, galaxies } = state;
+      
+      // Determine source and destination galaxies
+      let fromGalaxyId: import('../core/gameTypes').GalaxyId = 'galaxy_1_nebula_beginning';
+      let toGalaxyId: import('../core/gameTypes').GalaxyId = 'galaxy_1_nebula_beginning';
+      
+      if (fromId !== 'main_base') {
+        const platform = galaxies.platforms.find(p => p.id === fromId);
+        if (platform) fromGalaxyId = platform.galaxyId;
+      }
+      
+      if (toId !== 'main_base') {
+        const platform = galaxies.platforms.find(p => p.id === toId);
+        if (platform) toGalaxyId = platform.galaxyId;
+      }
+      
+      // Calculate travel time based on distance and upgrades
+      const baseTime = fromGalaxyId === toGalaxyId ? 30 : 180; // 30s same galaxy, 3min different
+      const speedMultiplier = 1 / (1 + intergalacticLogistics.upgrades.speed * 0.2); // -20% per level
+      const travelTime = baseTime * speedMultiplier;
+      
+      // Calculate fuel cost
+      let totalCargo = D(0);
+      Object.values(resources).forEach(amount => {
+        if (amount) totalCargo = totalCargo.plus(amount);
+      });
+      const fuelCost = totalCargo.mul(0.01).mul(fromGalaxyId === toGalaxyId ? 1 : 3); // Higher cost for intergalactic
+      
+      // Check if we have enough fuel (liquid_fuel preferred, gasoline as backup)
+      const liquidFuel = state.resources.liquid_fuel?.amount || D(0);
+      const gasoline = state.resources.gasoline?.amount || D(0);
+      const totalFuel = liquidFuel.plus(gasoline);
+      
+      if (totalFuel.lt(fuelCost)) {
+        console.warn('Not enough fuel for caravan');
+        return state;
+      }
+      
+      // Deduct fuel
+      let remainingFuelCost = fuelCost;
+      let newResources = { ...state.resources };
+      if (liquidFuel.gte(remainingFuelCost)) {
+        newResources.liquid_fuel = {
+          ...newResources.liquid_fuel!,
+          amount: liquidFuel.minus(remainingFuelCost),
+        };
+      } else {
+        newResources.liquid_fuel = {
+          ...newResources.liquid_fuel!,
+          amount: D(0),
+        };
+        remainingFuelCost = remainingFuelCost.minus(liquidFuel);
+        newResources.gasoline = {
+          ...newResources.gasoline!,
+          amount: gasoline.minus(remainingFuelCost),
+        };
+      }
+      
+      // Deduct resources from source
+      if (fromId === 'main_base') {
+        Object.entries(resources).forEach(([resType, amount]) => {
+          if (amount && newResources[resType as import('../core/gameTypes').ResourceType]) {
+            newResources[resType as import('../core/gameTypes').ResourceType] = {
+              ...newResources[resType as import('../core/gameTypes').ResourceType]!,
+              amount: newResources[resType as import('../core/gameTypes').ResourceType]!.amount.minus(amount),
+            };
+          }
+        });
+      } else {
+        // Deduct from platform
+        const platformIndex = galaxies.platforms.findIndex(p => p.id === fromId);
+        if (platformIndex >= 0) {
+          const platform = { ...galaxies.platforms[platformIndex] };
+          Object.entries(resources).forEach(([resType, amount]) => {
+            if (amount && platform.resources[resType as import('../core/gameTypes').ResourceType]) {
+              platform.resources[resType as import('../core/gameTypes').ResourceType] = {
+                ...platform.resources[resType as import('../core/gameTypes').ResourceType]!,
+                amount: platform.resources[resType as import('../core/gameTypes').ResourceType]!.amount.minus(amount),
+              };
+            }
+          });
+          const newPlatforms = [...galaxies.platforms];
+          newPlatforms[platformIndex] = platform;
+          galaxies.platforms = newPlatforms;
+        }
+      }
+      
+      // Calculate risk level
+      const fromGalaxy = Object.values(GALAXIES).find(g => g.id === fromGalaxyId);
+      const toGalaxy = Object.values(GALAXIES).find(g => g.id === toGalaxyId);
+      const dangerMap: Record<import('../core/gameTypes').GalaxyDangerLevel, number> = { very_low: 0.05, low: 0.1, medium: 0.2, high: 0.35, very_high: 0.5, extreme: 0.7 };
+      const avgDanger = ((dangerMap[fromGalaxy?.dangerLevel || 'low'] || 0.1) + 
+                         (dangerMap[toGalaxy?.dangerLevel || 'low'] || 0.1)) / 2;
+      
+      // Create new caravan
+      const now = Date.now();
+      const newCaravan: import('../core/gameTypes').Caravan = {
+        id: `caravan_${now}_${Math.random().toString(36).substr(2, 9)}`,
+        fromId,
+        toId,
+        fromGalaxyId,
+        toGalaxyId,
+        cargo: resources,
+        status: 'traveling',
+        progress: 0,
+        departureTime: now,
+        arrivalTime: now + travelTime * 1000,
+        fuelCost,
+        fuelPaid: fuelCost,
+        riskLevel: avgDanger,
+        defense: D(10 + intergalacticLogistics.upgrades.defense * 5),
+      };
+      
+      return {
+        ...state,
+        resources: newResources,
+        galaxies,
+        intergalacticLogistics: {
+          ...intergalacticLogistics,
+          caravans: [...intergalacticLogistics.caravans, newCaravan],
+        },
+      };
+    });
+  },
+
+  upgradeCaravanSystem: (upgradeType) => {
+    set((state) => {
+      const { intergalacticLogistics, currency } = state;
+      const currentLevel = intergalacticLogistics.upgrades[upgradeType];
+      
+      // Cost increases exponentially
+      const baseCost = { speed: 1000, capacity: 800, defense: 1200 };
+      const cost = D(baseCost[upgradeType]).mul(Math.pow(1.5, currentLevel));
+      
+      if (currency.credits.lt(cost)) {
+        console.warn('Not enough credits for upgrade');
+        return state;
+      }
+      
+      return {
+        ...state,
+        currency: {
+          ...currency,
+          credits: currency.credits.minus(cost),
+        },
+        intergalacticLogistics: {
+          ...intergalacticLogistics,
+          upgrades: {
+            ...intergalacticLogistics.upgrades,
+            [upgradeType]: currentLevel + 1,
+          },
+        },
+      };
+    });
+  },
+
+  // Building level system (Фаза 8.5)
+  upgradeBuildingAt: (coord) => {
+    set((state) => {
+      const tileKey = `${coord.x},${coord.y}`;
+      const buildingId = state.grid.tiles[tileKey];
+      
+      if (!buildingId) {
+        console.warn('No building at this location');
+        return state;
+      }
+      
+      // Get current level from tileLevels
+      const tileLevels = state.grid.tileLevels || {};
+      const currentLevel = tileLevels[tileKey] || 1;
+      
+      if (currentLevel >= 500) {
+        console.warn('Building is already at max level (500)');
+        return state;
+      }
+      
+      // Find the building definition
+      const building = state.buildings.find(b => b.id === buildingId);
+      if (!building) {
+        console.warn('Building definition not found');
+        return state;
+      }
+      
+      // Calculate upgrade cost (exponential growth: cost * 1.15^level)
+      const upgradeCost: Partial<Record<import('../core/gameTypes').ResourceType, import('break_eternity.js').default>> = {};
+      let canAfford = true;
+      
+      Object.entries(building.baseCost).forEach(([resource, baseCost]) => {
+        const cost = (baseCost as import('break_eternity.js').default).mul(Math.pow(1.15, currentLevel));
+        upgradeCost[resource as import('../core/gameTypes').ResourceType] = cost;
+        
+        const available = state.resources[resource as import('../core/gameTypes').ResourceType]?.amount || D(0);
+        if (available.lt(cost)) {
+          canAfford = false;
+        }
+      });
+      
+      // Check credits if building has creditCost
+      if (building.creditCost) {
+        const creditCost = building.creditCost.mul(Math.pow(1.15, currentLevel));
+        if (state.currency.credits.lt(creditCost)) {
+          canAfford = false;
+        }
+      }
+      
+      if (!canAfford) {
+        console.warn('Cannot afford building upgrade');
+        return state;
+      }
+      
+      // Deduct costs
+      const newResources = { ...state.resources };
+      Object.entries(upgradeCost).forEach(([resource, cost]) => {
+        if (cost && newResources[resource as import('../core/gameTypes').ResourceType]) {
+          newResources[resource as import('../core/gameTypes').ResourceType] = {
+            ...newResources[resource as import('../core/gameTypes').ResourceType]!,
+            amount: newResources[resource as import('../core/gameTypes').ResourceType]!.amount.minus(cost),
+          };
+        }
+      });
+      
+      let newCredits = state.currency.credits;
+      if (building.creditCost) {
+        const creditCost = building.creditCost.mul(Math.pow(1.15, currentLevel));
+        newCredits = newCredits.minus(creditCost);
+      }
+      
+      // Upgrade the building level
+      const newTileLevels = { ...tileLevels, [tileKey]: currentLevel + 1 };
+      
+      return {
+        ...state,
+        resources: newResources,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        grid: {
+          ...state.grid,
+          tileLevels: newTileLevels,
+        },
+      };
+    });
+  },
+
+  downgradeBuildingAt: (coord) => {
+    set((state) => {
+      const tileKey = `${coord.x},${coord.y}`;
+      const buildingId = state.grid.tiles[tileKey];
+      
+      if (!buildingId) {
+        console.warn('No building at this location');
+        return state;
+      }
+      
+      // Get current level from tileLevels
+      const tileLevels = state.grid.tileLevels || {};
+      const currentLevel = tileLevels[tileKey] || 1;
+      
+      if (currentLevel <= 1) {
+        console.warn('Building is already at level 1');
+        return state;
+      }
+      
+      // Find the building definition
+      const building = state.buildings.find(b => b.id === buildingId);
+      if (!building) {
+        console.warn('Building definition not found');
+        return state;
+      }
+      
+      // Calculate refund (50% of previous upgrade cost)
+      const previousLevel = currentLevel - 1;
+      const refund: Partial<Record<import('../core/gameTypes').ResourceType, import('break_eternity.js').default>> = {};
+      
+      Object.entries(building.baseCost).forEach(([resource, baseCost]) => {
+        const cost = (baseCost as import('break_eternity.js').default).mul(Math.pow(1.15, previousLevel));
+        refund[resource as import('../core/gameTypes').ResourceType] = cost.mul(0.5); // 50% refund
+      });
+      
+      // Refund resources
+      const newResources = { ...state.resources };
+      Object.entries(refund).forEach(([resource, amount]) => {
+        if (amount && newResources[resource as import('../core/gameTypes').ResourceType]) {
+          newResources[resource as import('../core/gameTypes').ResourceType] = {
+            ...newResources[resource as import('../core/gameTypes').ResourceType]!,
+            amount: newResources[resource as import('../core/gameTypes').ResourceType]!.amount.plus(amount),
+          };
+        }
+      });
+      
+      let newCredits = state.currency.credits;
+      if (building.creditCost) {
+        const creditRefund = building.creditCost.mul(Math.pow(1.15, previousLevel)).mul(0.5);
+        newCredits = newCredits.plus(creditRefund);
+      }
+      
+      // Downgrade the building level
+      const newTileLevels = { ...tileLevels, [tileKey]: currentLevel - 1 };
+      
+      return {
+        ...state,
+        resources: newResources,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        grid: {
+          ...state.grid,
+          tileLevels: newTileLevels,
+        },
+      };
+    });
+  },
+
+  upgradeBuildingById: (_buildingId, _instanceId) => {
+    // For future implementation if needed (for buildings not on grid)
+    console.warn('upgradeBuildingById not yet implemented');
+  },
+
+  downgradeBuildingById: (_buildingId, _instanceId) => {
+    // For future implementation if needed (for buildings not on grid)
+    console.warn('downgradeBuildingById not yet implemented');
+  },
+
   resetGame: () => {
     const now = Date.now();
     const capsMult = computeCapsMultiplier(INITIAL_RESEARCH.levels, INITIAL_META.qubits);
-    let resources = recomputeCaps({ ...INITIAL_RESOURCES }, INITIAL_BUILDINGS, capsMult);
+    let resources = recomputeCaps({ ...INITIAL_RESOURCES }, BUILDINGS_WITH_PROXIMITY, capsMult);
     let buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
     resources = syncResourcesFromBase(resources, buffers);
 
     set({
       resources,
-      buildings: INITIAL_BUILDINGS,
+      buildings: BUILDINGS_WITH_PROXIMITY,
+      currency: INITIAL_CURRENCY,
       market: { ...INITIAL_MARKET, nextUpdateAt: now + MARKET_UPDATE_SECONDS * 1000 },
       combat: {
         ...INITIAL_COMBAT,
@@ -2663,10 +6598,871 @@ export const useGameStore = create<GameState>((set, get) => ({
       aegis: INITIAL_AEGIS,
       productionMatrix: INITIAL_PRODUCTION_MATRIX,
       quantumNet: INITIAL_QUANTUM_NET,
+      politics: INITIAL_POLITICS,
+      galaxies: INITIAL_GALAXIES,
+      fleet: INITIAL_FLEET,
+      pollution: INITIAL_POLLUTION,
+      intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
+      randomEvents: INITIAL_RANDOM_EVENTS,
+      achievements: INITIAL_ACHIEVEMENTS,
       lastTick: now,
     });
-  }
+  },
+
+  // =======================================
+  // Фаза 8.6: Random Events System
+  // =======================================
+  
+  resolveEvent: (eventId, _choiceId) => {
+    set((state) => {
+      const event = state.randomEvents.activeEvents.find(e => e.id === eventId);
+      if (!event || event.status !== 'pending') return state;
+      
+      // Применяем эффекты события
+      const updatedState = applyEventEffects(state, event);
+      
+      // Обновляем статус события
+      const updatedEvents = state.randomEvents.activeEvents.map(e =>
+        e.id === eventId ? { ...e, status: 'resolved' as const } : e
+      );
+      
+      // Добавляем в историю
+      const eventHistory = [
+        {
+          type: event.type,
+          timestamp: Date.now(),
+          title: event.title,
+        },
+        ...state.randomEvents.eventHistory,
+      ].slice(0, 20); // Храним последние 20
+      
+      return {
+        ...updatedState,
+        randomEvents: {
+          ...updatedState.randomEvents,
+          activeEvents: updatedEvents.filter(e => e.status !== 'resolved'),
+          eventHistory,
+        },
+      };
+    });
+  },
+  
+  dismissEvent: (eventId) => {
+    set((state) => ({
+      randomEvents: {
+        ...state.randomEvents,
+        activeEvents: state.randomEvents.activeEvents.filter(e => e.id !== eventId),
+      },
+    }));
+  },
+  
+  toggleRandomEvents: () => {
+    set((state) => ({
+      randomEvents: {
+        ...state.randomEvents,
+        eventsEnabled: !state.randomEvents.eventsEnabled,
+      },
+    }));
+  },
+
+  // Фаза 8.7: Система достижений
+  unlockAchievement: (achievementId: string) => {
+    set((state) => {
+      // Check if already unlocked
+      if (state.achievements.unlocked[achievementId]) {
+        return state;
+      }
+
+      const now = Date.now();
+      const newUnlocked = {
+        ...state.achievements.unlocked,
+        [achievementId]: now,
+      };
+
+      const newRecentlyUnlocked = [
+        ...state.achievements.recentlyUnlocked,
+        { achievementId, unlockedAt: now },
+      ];
+
+      // Apply achievement rewards
+      const achievement = getAchievementById(achievementId);
+      let newCurrency = { ...state.currency };
+      
+      if (achievement?.reward) {
+        if (achievement.reward.credits) {
+          newCurrency.credits = newCurrency.credits.add(achievement.reward.credits);
+        }
+        if (achievement.reward.researchPoints) {
+          newCurrency.researchPoints = newCurrency.researchPoints.add(achievement.reward.researchPoints);
+        }
+        if (achievement.reward.influence) {
+          newCurrency.influence = newCurrency.influence.add(achievement.reward.influence);
+        }
+      }
+
+      // Add notification
+      const notifications: import('../core/gameTypes').Notification[] = [
+        ...state.galaxies.notifications,
+        {
+          id: `achievement_${achievementId}_${now}`,
+          type: 'success' as const,
+          title: `🎉 ${achievement?.name || achievementId}`,
+          message: `Достижение разблокировано!`,
+          timestamp: now,
+          read: false,
+        },
+      ];
+
+      return {
+        achievements: {
+          ...state.achievements,
+          unlocked: newUnlocked,
+          recentlyUnlocked: newRecentlyUnlocked,
+        },
+        currency: newCurrency,
+        galaxies: {
+          ...state.galaxies,
+          notifications,
+        },
+      };
+    });
+  },
+
+  // === ФАЗА 9: МЕГАСТРУКТУРЫ И ЭНДГЕЙМ ===
+
+  // Начать строительство мегаструктуры
+  startMegastructure: (megastructureId: MegastructureId) => {
+    set((state) => {
+      const megastructure = MEGASTRUCTURES[megastructureId];
+      if (!megastructure) return state;
+
+      // Проверка возможности строительства
+      const check = canBuildMegastructure(megastructureId, {
+        credits: state.currency.credits,
+        researchPoints: state.currency.researchPoints,
+        influence: state.currency.influence,
+        resources: state.resources,
+        technologies: state.research.technologies,
+        megastructures: state.megastructures,
+      });
+
+      if (!check.canBuild) {
+        // Можно добавить уведомление о недостающих ресурсах
+        return state;
+      }
+
+      // Оплата стоимости
+      let newCurrency = {
+        ...state.currency,
+        credits: state.currency.credits.sub(megastructure.buildCost.credits),
+        researchPoints: state.currency.researchPoints.sub(megastructure.buildCost.researchPoints),
+        influence: state.currency.influence.sub(megastructure.buildCost.influence),
+      };
+
+      let newResources = { ...state.resources };
+      let buffers = state.grid.buffers;
+
+      for (const [resType, amount] of Object.entries(megastructure.buildCost.resources)) {
+        const type = resType as ResourceType;
+        const cur = getBuf(buffers, 'base', type);
+        const next = cur.sub(amount).max(D(0));
+        buffers = setBuf(buffers, 'base', type, next);
+        newResources[type] = { ...newResources[type], amount: next };
+      }
+
+      // Добавить в очередь строительства
+      const newQueue = [
+        ...state.megastructures.constructionQueue,
+        {
+          megastructureId,
+          startedAt: Date.now(),
+          progress: 0,
+        },
+      ];
+
+      // Уведомление
+      const notifications: import('../core/gameTypes').Notification[] = [
+        ...state.galaxies.notifications,
+        {
+          id: `megastructure_${megastructureId}_${Date.now()}`,
+          type: 'info' as const,
+          title: `🏗️ Начато строительство`,
+          message: `${megastructure.name} - строительство началось!`,
+          timestamp: Date.now(),
+          read: false,
+        },
+      ];
+
+      return {
+        currency: newCurrency,
+        resources: newResources,
+        grid: { ...state.grid, buffers },
+        megastructures: {
+          ...state.megastructures,
+          constructionQueue: newQueue,
+        },
+        galaxies: {
+          ...state.galaxies,
+          notifications,
+        },
+      };
+    });
+  },
+
+  // Включить/выключить мегаструктуру
+  toggleMegastructure: (megastructureId: MegastructureId, active: boolean) => {
+    set((state) => {
+      const built = state.megastructures.built[megastructureId];
+      if (!built) return state;
+
+      const newBuilt = {
+        ...state.megastructures.built,
+        [megastructureId]: {
+          ...built,
+          active,
+        },
+      };
+
+      return {
+        megastructures: {
+          ...state.megastructures,
+          built: newBuilt,
+        },
+      };
+    });
+  },
+
+  // Проверить требования для концовки
+  checkEndingRequirements: (endingId: EndingId) => {
+    set((state) => {
+      const result = checkEndingRequirements(endingId, {
+        galaxies: [], // Simplified: use platforms count
+        platforms: state.galaxies.platforms,
+        ships: state.fleet.ships,
+        megastructures: state.megastructures,
+        contracts: 0, // TODO: track completed contracts count
+        technologies: state.research.technologies,
+        activePolicies: state.politics.activePolicies,
+      });
+
+      // Обновить прогресс концовки
+      const newProgress = {
+        ...state.endgame.currentEndingProgress,
+        [endingId]: result.progress,
+      };
+
+      return {
+        endgame: {
+          ...state.endgame,
+          currentEndingProgress: newProgress,
+        },
+      };
+    });
+  },
+
+  // Достичь концовки
+  achieveEnding: (endingId: EndingId) => {
+    set((state) => {
+      const endingData = GAME_ENDINGS[endingId];
+      if (!endingData) return state;
+
+      // Проверить, выполнены ли требования
+      const result = checkEndingRequirements(endingId, {
+        galaxies: [], // Simplified: use platforms count
+        platforms: state.galaxies.platforms,
+        ships: state.fleet.ships,
+        megastructures: state.megastructures,
+        contracts: 0, // TODO: track completed contracts count
+        technologies: state.research.technologies,
+        activePolicies: state.politics.activePolicies,
+      });
+
+      if (!result.met) {
+        // Показать недостающие требования
+        const notifications: import('../core/gameTypes').Notification[] = [
+          ...state.galaxies.notifications,
+          {
+            id: `ending_requirements_${endingId}_${Date.now()}`,
+            type: 'warning' as const,
+            title: `Недостающие требования`,
+            message: `${result.missingRequirements.join(', ')}`,
+            timestamp: Date.now(),
+            read: false,
+          },
+        ];
+
+        return {
+          galaxies: {
+            ...state.galaxies,
+            notifications,
+          },
+        };
+      }
+
+      // Разблокировать концовку
+      const now = Date.now();
+      const newEnding: import('../core/gameTypes').GameEnding = {
+        ...endingData,
+        unlocked: true,
+        achievedAt: now,
+      };
+
+      const newEndings = {
+        ...state.endgame.endings,
+        [endingId]: newEnding,
+      };
+
+      // Уведомление о победе
+      const notifications: import('../core/gameTypes').Notification[] = [
+        ...state.galaxies.notifications,
+        {
+          id: `ending_achieved_${endingId}_${now}`,
+          type: 'success' as const,
+          title: `🎉 КОНЦОВКА ДОСТИГНУТА!`,
+          message: `${endingData.name} - Вы достигли концовки игры!`,
+          timestamp: now,
+          read: false,
+        },
+      ];
+
+      return {
+        endgame: {
+          ...state.endgame,
+          endings: newEndings,
+          victoryAchieved: true,
+          victoryEndingId: endingId,
+        },
+        galaxies: {
+          ...state.galaxies,
+          notifications,
+        },
+      };
+    });
+  },
+
+  // === ФАЗА 9.3: ПРЕСТИЖ-СИСТЕМА ===
+
+  // Рассчитать сколько Quantum Points игрок получит при престиже
+  calculatePrestigeGain: () => {
+    const state = get();
+    
+    // Подсчет построенных мегаструктур
+    const megastructuresBuilt = Object.keys(state.megastructures.built).length;
+    
+    // Подсчет достигнутых концовок
+    const endingsAchieved = Object.values(state.endgame.endings).filter(e => e.unlocked).length;
+    
+    const quantumPoints = calculateQuantumPoints({
+      totalCreditsEarned: state.prestige.stats.totalCreditsEarned,
+      researchPoints: state.currency.researchPoints,
+      influence: state.currency.influence,
+      megastructuresBuilt,
+      endingsAchieved,
+      prestigeCount: state.prestige.prestigeCount,
+    });
+    
+    return quantumPoints;
+  },
+
+  // Выполнить престиж (сброс прогресса с сохранением улучшений)
+  performPrestige: () => {
+    set((state) => {
+      // Рассчитать получаемые Quantum Points
+      const quantumGain = get().calculatePrestigeGain();
+      
+      if (quantumGain <= 0) {
+        // Недостаточно прогресса для престижа
+        return state;
+      }
+
+      // Сохраняем статистику
+      const now = Date.now();
+      const playTime = (now - state.lastTick) / 1000;
+      const endingsAchieved = Object.values(state.endgame.endings)
+        .filter(e => e.unlocked)
+        .map(e => e.id);
+      
+      // Обновляем престиж-статистику
+      const newPrestige: import('../core/gameTypes').PrestigeState = {
+        ...state.prestige,
+        lifetimeQuantumPoints: state.prestige.lifetimeQuantumPoints + quantumGain,
+        availableQuantumPoints: state.prestige.availableQuantumPoints + quantumGain,
+        prestigeCount: state.prestige.prestigeCount + 1,
+        stats: {
+          totalPlaytime: state.prestige.stats.totalPlaytime + playTime,
+          totalCreditsEarned: state.prestige.stats.totalCreditsEarned.add(state.currency.credits),
+          totalResearchPoints: state.prestige.stats.totalResearchPoints.add(state.currency.researchPoints),
+          maxBuildingsBuilt: Math.max(
+            state.prestige.stats.maxBuildingsBuilt,
+            Object.keys(state.grid.tiles).length
+          ),
+          endingsAchieved: Array.from(new Set([...state.prestige.stats.endingsAchieved, ...endingsAchieved])),
+        },
+      };
+
+      // Получаем бонусы престижа
+      const bonuses = getTotalPrestigeBonuses(newPrestige);
+      
+      // Сохраняем ресурсы согласно resourceRetention
+      const retainedResources: any = {};
+      if (bonuses.resourceRetention > 0) {
+        const retentionRate = bonuses.resourceRetention / 100;
+        for (const [resType, resState] of Object.entries(state.resources)) {
+          retainedResources[resType] = {
+            ...resState,
+            amount: resState.amount.mul(retentionRate),
+          };
+        }
+      }
+
+      // Сбрасываем игру к начальному состоянию, но сохраняем престиж
+      const freshState = {
+        ...INITIAL_RESOURCES,
+        ...retainedResources, // Применяем сохраненные ресурсы
+      };
+
+      // Применяем стартовые бонусы
+      const startingCredits = INITIAL_CURRENCY.credits.add(bonuses.startingCredits);
+      const startingInfluence = INITIAL_CURRENCY.influence.add(bonuses.startingInfluence);
+
+      // Разблокируем технологии Эры 1-3 если куплено улучшение
+      let unlockedTechs = { ...INITIAL_RESEARCH.technologies };
+      if (newPrestige.upgrades['quantum_tech_unlock']) {
+        // Автоматически разблокировать технологии Эры 1-3
+        Object.values(TECHNOLOGIES).forEach(tech => {
+          if (tech.era <= 3) {
+            unlockedTechs[tech.id] = true;
+          }
+        });
+      }
+
+      // Уведомление о престиже
+      const notifications: import('../core/gameTypes').Notification[] = [
+        {
+          id: `prestige_${now}`,
+          type: 'success' as const,
+          title: `✨ ПРЕСТИЖ!`,
+          message: `Вы получили ${quantumGain} Quantum Points! Престиж #${newPrestige.prestigeCount}`,
+          timestamp: now,
+          read: false,
+        },
+      ];
+
+      return {
+        // Сброс основных систем
+        resources: syncResourcesFromBase(freshState, DEFAULT_GRID.buffers),
+        buildings: BUILDINGS_WITH_PROXIMITY.map(b => ({ ...b, count: 0 })),
+        currency: {
+          ...INITIAL_CURRENCY,
+          credits: startingCredits,
+          influence: startingInfluence,
+        },
+        market: INITIAL_MARKET,
+        combat: INITIAL_COMBAT,
+        grid: DEFAULT_GRID,
+        research: {
+          ...INITIAL_RESEARCH,
+          technologies: unlockedTechs,
+        },
+        demons: INITIAL_DEMONS,
+        meta: INITIAL_META,
+        expedition: INITIAL_EXPEDITION,
+        nanoSwarm: INITIAL_NANO_SWARM,
+        ship: INITIAL_SHIP,
+        starChart: INITIAL_STAR_CHART,
+        aegis: INITIAL_AEGIS,
+        productionMatrix: INITIAL_PRODUCTION_MATRIX,
+        quantumNet: INITIAL_QUANTUM_NET,
+        politics: INITIAL_POLITICS,
+        galaxies: {
+          ...INITIAL_GALAXIES,
+          notifications,
+        },
+        fleet: INITIAL_FLEET,
+        pollution: INITIAL_POLLUTION,
+        intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
+        randomEvents: INITIAL_RANDOM_EVENTS,
+        achievements: INITIAL_ACHIEVEMENTS,
+        megastructures: INITIAL_MEGASTRUCTURES,
+        endgame: INITIAL_ENDGAME,
+        
+        // Сохраняем престиж
+        prestige: newPrestige,
+        lastTick: now,
+        energyProduction: D(0),
+        energyConsumption: D(0),
+        energyEfficiency: 1.0,
+      };
+    });
+  },
+
+  // Купить улучшение престижа
+  buyPrestigeUpgrade: (upgradeId: PrestigeUpgradeId) => {
+    set((state) => {
+      const check = canBuyPrestigeUpgrade(upgradeId, state.prestige);
+      
+      if (!check.canBuy) {
+        // Можно добавить уведомление
+        return state;
+      }
+
+      const upgrade = PRESTIGE_UPGRADES[upgradeId];
+      const currentLevel = state.prestige.upgrades[upgradeId] || 0;
+      const cost = upgrade.cost * (currentLevel + 1);
+
+      // Проверка для улучшений за концовки
+      if (upgrade.category === 'ending') {
+        // Проверяем, достигнута ли нужная концовка
+        const requiredEnding = upgradeId.replace('_', '') as any; // Упрощенная проверка
+        // В реальности нужна более точная проверка
+        const hasEnding = Object.values(state.endgame.endings).some(e => e.unlocked);
+        if (!hasEnding) {
+          return state;
+        }
+      }
+
+      const newUpgrades = {
+        ...state.prestige.upgrades,
+        [upgradeId]: currentLevel + 1,
+      };
+
+      return {
+        prestige: {
+          ...state.prestige,
+          availableQuantumPoints: state.prestige.availableQuantumPoints - cost,
+          upgrades: newUpgrades,
+        },
+      };
+    });
+  },
+
+  // Переключить быстрый режим
+  toggleFastMode: () => {
+    set((state) => {
+      // Проверяем, куплено ли улучшение
+      if (!state.prestige.upgrades['quantum_fast_mode']) {
+        return state;
+      }
+
+      return {
+        prestige: {
+          ...state.prestige,
+          fastModeEnabled: !state.prestige.fastModeEnabled,
+        },
+      };
+    });
+  },
 }));
+
+// Вспомогательная функция для применения эффектов события
+function applyEventEffects(state: GameState, event: RandomEvent): GameState {
+  if (!event.effects) return state;
+  
+  let newState = { ...state };
+  const effects = event.effects;
+  
+  // Бонус к ресурсам
+  if (effects.resourceGain) {
+    for (const [resType, amount] of Object.entries(effects.resourceGain)) {
+      const type = resType as ResourceType;
+      const res = newState.resources[type];
+      const cur = getBuf(newState.grid.buffers, 'base', type);
+      const cappedNext = cur.add(amount).min(res.max);
+      const nextBuffers = setBuf(newState.grid.buffers, 'base', type, cappedNext);
+      
+      newState = {
+        ...newState,
+        grid: { ...newState.grid, buffers: nextBuffers },
+        resources: {
+          ...newState.resources,
+          [type]: { ...res, amount: cappedNext },
+        },
+      };
+    }
+  }
+  
+  // Потеря ресурсов
+  if (effects.resourceLoss) {
+    for (const [resType, amount] of Object.entries(effects.resourceLoss)) {
+      const type = resType as ResourceType;
+      const res = newState.resources[type];
+      const cur = getBuf(newState.grid.buffers, 'base', type);
+      const newAmount = cur.sub(amount).max(D(0));
+      const nextBuffers = setBuf(newState.grid.buffers, 'base', type, newAmount);
+      
+      newState = {
+        ...newState,
+        grid: { ...newState.grid, buffers: nextBuffers },
+        resources: {
+          ...newState.resources,
+          [type]: { ...res, amount: newAmount },
+        },
+      };
+    }
+  }
+  
+  // Бонус к очкам исследований
+  if (effects.researchPointsGain) {
+    const newRp = newState.currency.researchPoints.add(effects.researchPointsGain);
+    newState = {
+      ...newState,
+      currency: {
+        ...newState.currency,
+        researchPoints: newRp,
+      },
+    };
+  }
+  
+  // Потеря энергии
+  if (effects.energyLoss) {
+    const cur = getBuf(newState.grid.buffers, 'base', 'energy');
+    const newAmount = cur.sub(effects.energyLoss).max(D(0));
+    const nextBuffers = setBuf(newState.grid.buffers, 'base', 'energy', newAmount);
+    
+    newState = {
+      ...newState,
+      grid: { ...newState.grid, buffers: nextBuffers },
+      resources: {
+        ...newState.resources,
+        energy: { ...newState.resources.energy, amount: newAmount },
+      },
+    };
+  }
+  
+  // Разблокировка случайной технологии
+  if (effects.unlockRandomTechnology) {
+    const availableTechs = Object.keys(TECHNOLOGIES).filter(
+      techId => !newState.research.technologies[techId as import('../core/gameTypes').TechnologyId]
+    );
+    
+    if (availableTechs.length > 0) {
+      const randomTech = availableTechs[Math.floor(Math.random() * availableTechs.length)] as import('../core/gameTypes').TechnologyId;
+      newState = {
+        ...newState,
+        research: {
+          ...newState.research,
+          technologies: { ...newState.research.technologies, [randomTech]: true },
+        },
+      };
+      
+      // Уведомление будет добавлено в resolveEvent через addNotification
+    }
+  }
+  
+  return newState;
+}
+
+// Генератор случайных событий
+function generateRandomEvent(): RandomEvent {
+  const now = Date.now();
+  
+  // Выбираем тип события на основе весов
+  const totalWeight = Object.values(EVENT_CONFIGS).reduce((sum, cfg) => sum + cfg.weight, 0);
+  let random = Math.random() * totalWeight;
+  let selectedConfig = EVENT_CONFIGS.meteor_shower;
+  
+  for (const config of Object.values(EVENT_CONFIGS)) {
+    random -= config.weight;
+    if (random <= 0) {
+      selectedConfig = config;
+      break;
+    }
+  }
+  
+  const eventId = `event_${now}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Генерируем эффекты на основе типа события
+  const effects = generateEventEffects(selectedConfig.type);
+  
+  // Генерируем описание
+  const description = formatEventDescription(selectedConfig, effects);
+  
+  return {
+    id: eventId,
+    type: selectedConfig.type,
+    title: selectedConfig.title,
+    description,
+    icon: selectedConfig.icon,
+    timestamp: now,
+    effects,
+    status: 'pending',
+  };
+}
+
+// Генерация эффектов для события
+function generateEventEffects(eventType: import('../core/gameTypes').RandomEventType): RandomEvent['effects'] {
+  const config = EVENT_EFFECTS[eventType] as any;
+  
+  switch (eventType) {
+    case 'meteor_shower': {
+      const oreGain = D(Math.floor(Math.random() * (config.oreGain.max - config.oreGain.min + 1) + config.oreGain.min));
+      const carbonGain = D(Math.floor(Math.random() * (config.carbonGain.max - config.carbonGain.min + 1) + config.carbonGain.min));
+      return {
+        resourceGain: {
+          ore: oreGain,
+          carbon: carbonGain,
+        },
+        buildingDamage: {
+          damagePercent: config.damagePercent,
+          affectedBuildings: [],
+        },
+      };
+    }
+    
+    case 'scientific_breakthrough': {
+      const baseGain = Math.floor(Math.random() * (config.baserpGain.max - config.baserpGain.min + 1) + config.baserpGain.min);
+      return {
+        researchPointsGain: D(baseGain),
+      };
+    }
+    
+    case 'pirate_raid': {
+      // Эффекты будут обработаны отдельно в tick()
+      return {};
+    }
+    
+    case 'cosmic_anomaly': {
+      // Случайный эффект
+      const totalWeight = config.effects.reduce((sum: number, e: { weight: number }) => sum + e.weight, 0);
+      let random = Math.random() * totalWeight;
+      let selectedEffect = config.effects[0].type;
+      
+      for (const effect of config.effects) {
+        random -= effect.weight;
+        if (random <= 0) {
+          selectedEffect = effect.type;
+          break;
+        }
+      }
+      
+      switch (selectedEffect) {
+        case 'resource_bonus':
+          return {
+            resourceGain: {
+              ore: D(100),
+              copper: D(80),
+              steel: D(60),
+            },
+          };
+        case 'resource_loss':
+          return {
+            resourceLoss: {
+              ore: D(50),
+              copper: D(40),
+            },
+          };
+        case 'production_boost':
+          return {
+            productionMultiplier: {
+              duration: 60000,
+              multiplier: 1.5,
+            },
+          };
+        case 'rp_bonus':
+          return {
+            researchPointsGain: D(200),
+          };
+        default:
+          return {};
+      }
+    }
+    
+    case 'chain_reaction': {
+      return {
+        buildingDamage: {
+          damagePercent: config.damagePercent,
+          affectedBuildings: [],
+        },
+      };
+    }
+    
+    case 'synergy_discovery': {
+      return {
+        unlockRandomTechnology: true,
+      };
+    }
+    
+    case 'power_surge': {
+      return {
+        productionMultiplier: {
+          duration: config.duration,
+          multiplier: config.productionMultiplier,
+        },
+      };
+    }
+    
+    case 'power_outage': {
+      const energyLoss = D(Math.floor(Math.random() * (config.energyLoss.max - config.energyLoss.min + 1) + config.energyLoss.min));
+      return {
+        productionMultiplier: {
+          duration: config.duration,
+          multiplier: config.productionMultiplier,
+        },
+        energyLoss,
+      };
+    }
+    
+    case 'resource_cache': {
+      const resources: Partial<Record<ResourceType, Decimal>> = {};
+      const randomCount = Math.floor(Math.random() * 3) + 2; // 2-4 ресурса
+      const shuffled = [...config.resourceTypes].sort(() => Math.random() - 0.5);
+      
+      for (let i = 0; i < randomCount && i < shuffled.length; i++) {
+        const resType = shuffled[i] as ResourceType;
+        const amount = Math.floor(Math.random() * (config.amountMultiplier.max - config.amountMultiplier.min + 1) + config.amountMultiplier.min);
+        resources[resType] = D(amount);
+      }
+      
+      return {
+        resourceGain: resources,
+      };
+    }
+    
+    case 'solar_flare': {
+      const lossPercent = Math.random() * (config.resourceLossPercent.max - config.resourceLossPercent.min) + config.resourceLossPercent.min;
+      // Потери будут рассчитаны в applyEventEffects на основе текущих запасов
+      return {
+        resourceLoss: {
+          semiconductors: D(lossPercent), // Будет использоваться как процент
+        },
+      };
+    }
+    
+    default:
+      return {};
+  }
+}
+
+// Форматирование описания события
+function formatEventDescription(config: import('../core/constants/randomEvents').EventConfig, effects: RandomEvent['effects']): string {
+  let description = config.descriptionTemplate;
+  
+  // Заменяем плейсхолдеры на реальные значения
+  if (effects?.resourceGain) {
+    const resources = Object.entries(effects.resourceGain)
+      .map(([type, amount]) => `${amount?.toFixed(0)} ${type}`)
+      .join(', ');
+    description = description.replace('{resources}', resources);
+    description = description.replace('{oreGain}', (effects.resourceGain as any).ore?.toFixed(0) || '0');
+    description = description.replace('{carbonGain}', (effects.resourceGain as any).carbon?.toFixed(0) || '0');
+  }
+  
+  if (effects?.researchPointsGain) {
+    description = description.replace('{rpGain}', effects.researchPointsGain.toFixed(0));
+  }
+  
+  if (effects?.energyLoss) {
+    description = description.replace('{energyLoss}', effects.energyLoss.toFixed(0));
+  }
+  
+  if (effects?.productionMultiplier) {
+    const multiplierPercent = Math.round((effects.productionMultiplier.multiplier - 1) * 100);
+    description = description.replace('{multiplier}', multiplierPercent.toString());
+    description = description.replace('{duration}', (effects.productionMultiplier.duration / 1000).toString());
+  }
+  
+  return description;
+}
 
 export const calculateCost = (building: Building): Partial<Record<ResourceType, Decimal>> => {
   const cost: Record<string, Decimal> = {};

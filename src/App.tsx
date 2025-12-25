@@ -1,62 +1,239 @@
-import { useEffect } from 'react';
-import { useGameLoop } from './hooks/useGameLoop';
+import { useEffect, useState } from 'react';
+import { useOptimizedGameLoop } from './hooks/useOptimizedGameLoop';
 import { useGameStore } from './features/gameStore';
 import { ResourcePanel } from './components/game/ResourcePanel';
+import { CurrencyPanel } from './components/game/CurrencyPanel';
+import { EnergyBalancePanel } from './components/game/EnergyBalancePanel';
+import { PollutionPanel } from './components/game/PollutionPanel';
 import { FactoryGrid } from './components/game/FactoryGrid';
 import { SidePanelTabs } from './components/game/SidePanelTabs';
 import { ClickerZone } from './components/game/ClickerZone';
+import { EventNotificationToast } from './components/game/EventNotificationToast';
+import { Dashboard } from './components/game/Dashboard';
+import { Minimap } from './components/game/Minimap';
+import { HelpModal } from './components/game/HelpPanel';
+import { useAutosave } from './hooks/useAutosave';
+import { useGameHotkeys } from './hooks/useHotkeys';
+import { useDevice, useRecommendedSettings } from './hooks/useDevice';
+import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 function App() {
   const loadGame = useGameStore(state => state.loadGame);
   const buildings = useGameStore(state => state.buildings);
+  const settings = useGameStore(state => state.settings);
   
-  // Initialize game loop
-  useGameLoop();
+  // Определяем устройство
+  const device = useDevice();
+  const recommendedSettings = useRecommendedSettings();
+  
+  // Mobile menu state
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  
+  // Collapsed states for panels
+  const [collapsedStats, setCollapsedStats] = useState(false);
+  const [collapsedInfoPanels, setCollapsedInfoPanels] = useState(false);
+  
+  // Help modal state
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  
+  // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
+  const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
+  
+  // Initialize optimized game loop with target FPS
+  const { getFPS } = useOptimizedGameLoop(targetFPS);
+  
+  // FPS монитор (только в dev режиме)
+  const [showFPS, setShowFPS] = useState(false);
+  
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      // В dev режиме показываем FPS по нажатию F3
+      const handler = (e: KeyboardEvent) => {
+        if (e.key === 'F3') {
+          setShowFPS(prev => !prev);
+        }
+      };
+      window.addEventListener('keydown', handler);
+      return () => window.removeEventListener('keydown', handler);
+    }
+  }, []);
+  
+  // Хоткей F1 для открытия справки
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setShowHelpModal(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Autosave every 30 seconds
+  useAutosave(30, true);
+
+  // Initialize hotkeys (только для desktop)
+  if (device.isDesktop) {
+    useGameHotkeys();
+  }
 
   // Load save on mount
   useEffect(() => {
     loadGame();
   }, [loadGame]);
+  
+  // Применяем рекомендуемые настройки при первом запуске на мобильном
+  useEffect(() => {
+    if (device.isMobile && !settings) {
+      // Здесь можно применить recommendedSettings
+      console.log('Mobile device detected, recommended settings:', recommendedSettings);
+    }
+  }, [device.isMobile, settings, recommendedSettings]);
 
   // Показываем кликер только если нет ни одного генератора
   const showClicker = buildings.find(b => b.id === 'generator_mk1')?.count === 0;
 
   return (
     <div className="h-[100dvh] flex bg-cyber-black text-cyber-text overflow-hidden">
-      {/* Центральная область - игровое поле */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark">
-          <ResourcePanel />
+      {/* FPS Counter (F3 в dev режиме) */}
+      {showFPS && (
+        <div className="fixed top-2 left-2 z-50 bg-black/80 text-green-400 px-2 py-1 rounded text-xs font-mono">
+          FPS: {getFPS()}
         </div>
+      )}
+      
+      {/* Mobile Menu Button */}
+      {device.isMobile && (
+        <button
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          className="fixed top-2 right-2 z-50 bg-cyber-dark border border-cyber-green p-2 rounded"
+          aria-label="Menu"
+        >
+          {showMobileMenu ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      )}
+      
+      {/* Центральная область - игровое поле */}
+      <main className={`flex-1 flex flex-col overflow-hidden ${device.isMobile ? 'w-full' : ''}`}>
+        {/* Dashboard - компактный и сворачиваемый */}
+        {!device.isMobile && !collapsedStats && <Dashboard />}
+        
+        {/* Объединенная панель валют и ресурсов */}
+        <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark flex items-center justify-between">
+          <div className="flex-1">
+            <div className="flex items-center">
+              <CurrencyPanel />
+              <div className="w-px h-8 bg-cyber-gray mx-2" />
+              <ResourcePanel />
+            </div>
+          </div>
+          {!device.isMobile && (
+            <button
+              onClick={() => setCollapsedStats(!collapsedStats)}
+              className="px-2 py-1 hover:bg-cyber-gray/30 border-l border-cyber-gray transition-colors"
+              title={collapsedStats ? 'Показать статистику' : 'Скрыть статистику'}
+            >
+              {collapsedStats ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+            </button>
+          )}
+        </div>
+        
+        {/* Energy и Pollution - сворачиваемые */}
+        {!collapsedInfoPanels && (
+          <div className={`shrink-0 border-b border-cyber-gray bg-cyber-darker grid ${
+            device.isMobile ? 'grid-cols-1 gap-1 p-1' : 'grid-cols-2 gap-2 p-2'
+          }`}>
+            <EnergyBalancePanel />
+            {!device.isMobile && <PollutionPanel />}
+          </div>
+        )}
+        
+        {/* Кнопка сворачивания панелей Energy/Pollution */}
+        {!device.isMobile && (
+          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark">
+            <button
+              onClick={() => setCollapsedInfoPanels(!collapsedInfoPanels)}
+              className="w-full py-0.5 text-xs text-cyber-text-dim hover:text-cyber-green hover:bg-cyber-gray/30 transition-colors"
+            >
+              {collapsedInfoPanels ? '▼ Показать панели' : '▲ Скрыть панели'}
+            </button>
+          </div>
+        )}
         <section className="flex-1 overflow-hidden">
           {showClicker ? (
             <div className="h-full flex flex-col">
-              <div className="flex-1">
+              <div className="flex-1 relative">
                 <FactoryGrid />
+                {!device.isMobile && <Minimap />}
               </div>
-              <div className="shrink-0 h-[280px] border-t border-cyber-gray">
+              <div className={`shrink-0 border-t border-cyber-gray ${
+                device.isMobile ? 'h-[180px]' : 'h-[280px]'
+              }`}>
                 <ClickerZone />
               </div>
             </div>
           ) : (
-            <div className="h-full">
+            <div className="h-full relative">
               <FactoryGrid />
+              {!device.isMobile && <Minimap />}
             </div>
           )}
         </section>
       </main>
 
-      {/* Правая панель управления */}
-      <aside className="w-[420px] shrink-0 border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3">
-          <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
-          <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto">
-          <SidePanelTabs />
-        </div>
-      </aside>
+      {/* Правая панель управления - на мобильных показывается как модальное окно */}
+      {device.isMobile ? (
+        // Mobile: Slide-in menu
+        <>
+          {showMobileMenu && (
+            <div 
+              className="fixed inset-0 bg-black/70 z-40"
+              onClick={() => setShowMobileMenu(false)}
+            />
+          )}
+          <aside className={`fixed top-0 right-0 bottom-0 w-[85vw] max-w-[400px] z-40 
+            border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden
+            transition-transform duration-300 ${
+              showMobileMenu ? 'translate-x-0' : 'translate-x-full'
+            }`}>
+            <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
+              <div>
+                <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
+                <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
+              </div>
+              <button
+                onClick={() => setShowMobileMenu(false)}
+                className="p-1 hover:bg-cyber-gray rounded"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              <SidePanelTabs />
+            </div>
+          </aside>
+        </>
+      ) : (
+        // Desktop/Tablet: Fixed sidebar
+        <aside className="w-[420px] shrink-0 border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden">
+          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3">
+            <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
+            <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            <SidePanelTabs />
+          </div>
+        </aside>
+      )}
+      
+      {/* Event notification toasts */}
+      <EventNotificationToast />
+      
+      {/* Help Modal - открывается по F1 */}
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
     </div>
   );
 }

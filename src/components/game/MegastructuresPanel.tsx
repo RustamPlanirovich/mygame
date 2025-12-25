@@ -1,0 +1,278 @@
+
+import { useGameStore } from '../../features/gameStore';
+import { MEGASTRUCTURES, canBuildMegastructure } from '../../core/constants/megastructures';
+import { GAME_ENDINGS, checkEndingRequirements } from '../../core/constants/megastructures';
+import type { MegastructureId, EndingId } from '../../core/gameTypes';
+import { formatNumber } from '../../core/math/format';
+import Decimal from 'break_eternity.js';
+
+export function MegastructuresPanel() {
+  const { 
+    megastructures, 
+    currency, 
+    resources, 
+    research,
+    startMegastructure,
+    toggleMegastructure,
+    galaxies,
+  } = useGameStore();
+
+  const renderMegastructure = (id: MegastructureId) => {
+    const megastructure = MEGASTRUCTURES[id];
+    const builtInfo = megastructures.built[id];
+    const inProgress = megastructures.constructionQueue.find(c => c.megastructureId === id);
+    
+    const check = canBuildMegastructure(id, {
+      credits: currency.credits,
+      researchPoints: currency.researchPoints,
+      influence: currency.influence,
+      resources,
+      technologies: research.technologies,
+      megastructures,
+    });
+
+    const isBuilt = !!builtInfo;
+    const isActive = builtInfo?.active || false;
+
+    return (
+      <div 
+        key={id}
+        className={`border-2 rounded-lg p-4 ${
+          isBuilt 
+            ? 'border-green-500 bg-green-900/20' 
+            : inProgress 
+            ? 'border-yellow-500 bg-yellow-900/20'
+            : check.canBuild
+            ? 'border-blue-500 bg-blue-900/20'
+            : 'border-gray-600 bg-gray-800/50 opacity-60'
+        }`}
+      >
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <span>{megastructure.icon}</span>
+              <span>{megastructure.name}</span>
+            </h3>
+            <p className="text-sm text-gray-300 mt-1">{megastructure.description}</p>
+          </div>
+          {isBuilt && (
+            <button
+              onClick={() => toggleMegastructure(id, !isActive)}
+              className={`px-3 py-1 rounded text-sm font-medium ${
+                isActive 
+                  ? 'bg-green-600 hover:bg-green-700 text-white' 
+                  : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
+              }`}
+            >
+              {isActive ? '✓ Активна' : '○ Неактивна'}
+            </button>
+          )}
+        </div>
+
+        {/* Прогресс строительства */}
+        {inProgress && (
+          <div className="mt-3">
+            <div className="flex justify-between text-sm text-yellow-300 mb-1">
+              <span>Строительство...</span>
+              <span>{inProgress.progress.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-3">
+              <div 
+                className="bg-gradient-to-r from-yellow-500 to-yellow-600 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${inProgress.progress}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Осталось: {((megastructure.buildTime * (100 - inProgress.progress) / 100) / 60).toFixed(1)} минут
+            </p>
+          </div>
+        )}
+
+        {/* Эффекты */}
+        <div className="mt-3 space-y-1">
+          <p className="text-xs font-semibold text-gray-300 uppercase">Эффекты:</p>
+          {megastructure.effects.energyProduction && (
+            <p className="text-sm text-green-400">
+              ⚡ +{formatNumber(megastructure.effects.energyProduction)} энергии/сек
+            </p>
+          )}
+          {megastructure.effects.productionBonus && (
+            <p className="text-sm text-blue-400">
+              📦 +{((megastructure.effects.productionBonus - 1) * 100).toFixed(0)}% к производству
+            </p>
+          )}
+          {megastructure.effects.researchBonus && (
+            <p className="text-sm text-purple-400">
+              🔬 +{((megastructure.effects.researchBonus - 1) * 100).toFixed(0)}% к исследованиям
+            </p>
+          )}
+          {megastructure.effects.influenceBonus && (
+            <p className="text-sm text-yellow-400">
+              👑 +{megastructure.effects.influenceBonus} влияния/сек
+            </p>
+          )}
+          {megastructure.effects.platformCapacity && (
+            <p className="text-sm text-cyan-400">
+              🏭 +{megastructure.effects.platformCapacity} слотов платформ
+            </p>
+          )}
+          {megastructure.effects.special && (
+            <p className="text-sm text-orange-400 italic">
+              ✨ {megastructure.effects.special}
+            </p>
+          )}
+        </div>
+
+        {/* Стоимость */}
+        {!isBuilt && !inProgress && (
+          <div className="mt-3 pt-3 border-t border-gray-600">
+            <p className="text-xs font-semibold text-gray-300 uppercase mb-2">Требования:</p>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className={currency.credits.gte(megastructure.buildCost.credits) ? 'text-green-400' : 'text-red-400'}>
+                💰 {formatNumber(megastructure.buildCost.credits)} кредитов
+              </div>
+              <div className={currency.researchPoints.gte(megastructure.buildCost.researchPoints) ? 'text-green-400' : 'text-red-400'}>
+                🔬 {formatNumber(megastructure.buildCost.researchPoints)} RP
+              </div>
+              <div className={currency.influence.gte(megastructure.buildCost.influence) ? 'text-green-400' : 'text-red-400'}>
+                👑 {formatNumber(megastructure.buildCost.influence)} влияния
+              </div>
+              {Object.entries(megastructure.buildCost.resources).map(([resType, amount]) => {
+                const available = resources[resType as keyof typeof resources]?.amount || new Decimal(0);
+                const sufficient = available.gte(amount as Decimal);
+                return (
+                  <div key={resType} className={sufficient ? 'text-green-400' : 'text-red-400'}>
+                    {formatNumber(amount as Decimal)} {resType}
+                  </div>
+                );
+              })}
+            </div>
+            
+            {!research.technologies[megastructure.requiredTechnology] && (
+              <p className="text-xs text-red-400 mt-2">
+                🔒 Требуется технология: {megastructure.requiredTechnology}
+              </p>
+            )}
+
+            {check.canBuild ? (
+              <button
+                onClick={() => startMegastructure(id)}
+                className="w-full mt-3 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-lg transition-all"
+              >
+                🚀 Начать строительство
+              </button>
+            ) : (
+              <button
+                disabled
+                className="w-full mt-3 px-4 py-2 bg-gray-700 text-gray-500 font-bold rounded-lg cursor-not-allowed"
+              >
+                Недостаточно ресурсов
+              </button>
+            )}
+          </div>
+        )}
+
+        {isBuilt && (
+          <div className="mt-3 pt-3 border-t border-green-600">
+            <p className="text-sm text-green-400 font-semibold">
+              ✓ Построена {new Date(builtInfo.completedAt).toLocaleDateString()}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderEndingProgress = (id: EndingId) => {
+    const ending = GAME_ENDINGS[id];
+    const progress = checkEndingRequirements(id, {
+      galaxies: [], // Simplified
+      platforms: galaxies.platforms,
+      ships: useGameStore.getState().fleet.ships,
+      megastructures,
+      contracts: 0, // TODO: track completed contracts
+      technologies: research.technologies,
+      activePolicies: useGameStore.getState().politics.activePolicies,
+    });
+
+    return (
+      <div 
+        key={id}
+        className={`border-2 rounded-lg p-4 ${
+          progress.met 
+            ? 'border-yellow-500 bg-yellow-900/20' 
+            : 'border-gray-600 bg-gray-800/50'
+        }`}
+      >
+        <h3 className="text-lg font-bold text-white mb-2">{ending.name}</h3>
+        <p className="text-sm text-gray-300 mb-3">{ending.description}</p>
+        
+        <div className="mb-3">
+          <div className="flex justify-between text-sm text-gray-300 mb-1">
+            <span>Прогресс</span>
+            <span>{progress.progress.toFixed(0)}%</span>
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div 
+              className={`h-2 rounded-full transition-all duration-300 ${
+                progress.met 
+                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500' 
+                  : 'bg-gradient-to-r from-blue-500 to-purple-500'
+              }`}
+              style={{ width: `${progress.progress}%` }}
+            />
+          </div>
+        </div>
+
+        {progress.missingRequirements.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-gray-300 uppercase">Требования:</p>
+            {progress.missingRequirements.map((req, idx) => (
+              <p key={idx} className="text-sm text-red-400">• {req}</p>
+            ))}
+          </div>
+        )}
+
+        {progress.met && (
+          <button
+            onClick={() => useGameStore.getState().achieveEnding(id)}
+            className="w-full mt-3 px-4 py-2 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white font-bold rounded-lg transition-all animate-pulse"
+          >
+            🎉 ДОСТИЧЬ КОНЦОВКИ
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold text-white mb-2">🏗️ Мегаструктуры</h2>
+        <p className="text-gray-400">
+          Величайшие сооружения галактики. Каждая мегаструктура дает уникальные бонусы и приближает вас к концовке игры.
+        </p>
+      </div>
+
+      {/* Мегаструктуры */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {(Object.keys(MEGASTRUCTURES) as MegastructureId[]).map(renderMegastructure)}
+      </div>
+
+      {/* Разделитель */}
+      <div className="border-t border-gray-700 my-6" />
+
+      {/* Концовки */}
+      <div>
+        <h2 className="text-3xl font-bold text-white mb-2">🎯 Концовки Игры</h2>
+        <p className="text-gray-400 mb-4">
+          Достигните одной из концовок, чтобы завершить игру и получить награды для престижа.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {(Object.keys(GAME_ENDINGS) as EndingId[]).map(renderEndingProgress)}
+        </div>
+      </div>
+    </div>
+  );
+}

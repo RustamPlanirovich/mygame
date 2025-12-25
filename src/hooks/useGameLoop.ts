@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useGameStore } from '../features/gameStore';
+import { checkAchievements } from '../utils/achievementsHelpers';
 
 export const useGameLoop = () => {
   const tick = useGameStore(state => state.tick);
@@ -7,6 +8,7 @@ export const useGameLoop = () => {
   const requestRef = useRef<number>();
   const previousTimeRef = useRef<number>();
   const saveTimeRef = useRef<number>(0);
+  const achievementCheckRef = useRef<number>(0);
 
   const animate = (time: number) => {
     if (previousTimeRef.current !== undefined) {
@@ -22,6 +24,14 @@ export const useGameLoop = () => {
       if (saveTimeRef.current >= 30) {
         void saveGame();
         saveTimeRef.current = 0;
+      }
+
+      // Check achievements every 2 seconds
+      achievementCheckRef.current += cappedDelta;
+      if (achievementCheckRef.current >= 2) {
+        const state = useGameStore.getState();
+        checkAchievements(state);
+        achievementCheckRef.current = 0;
       }
     }
     previousTimeRef.current = time;
