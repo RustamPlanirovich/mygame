@@ -2,8 +2,7 @@ import { useGameStore } from '../../features/gameStore';
 import { useMemo, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
-const GRID_SIZE = 20;
-const CELL_SIZE = 4; // размер клетки на мини-карте
+const MINIMAP_SIZE = 80; // фиксированный размер мини-карты в пикселях
 
 export const Minimap = () => {
   const grid = useGameStore(state => state.grid);
@@ -46,22 +45,32 @@ export const Minimap = () => {
   // Генерируем клетки мини-карты
   const cells = useMemo(() => {
     const result = [];
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
+    const maxDimension = Math.max(grid.width, grid.height);
+    const cellSize = MINIMAP_SIZE / maxDimension;
+    
+    for (let y = 0; y < grid.height; y++) {
+      for (let x = 0; x < grid.width; x++) {
         const key = `${x},${y}`;
         const buildingId = grid.tiles[key];
         
         if (buildingId) {
           const color = getBuildingColor(buildingId);
-          result.push({ x, y, color, key });
+          result.push({ 
+            x: x * cellSize, 
+            y: y * cellSize, 
+            size: cellSize,
+            color, 
+            key,
+            gridX: x,
+            gridY: y
+          });
         }
       }
     }
     return result;
-  }, [grid.tiles]);
+  }, [grid.tiles, grid.width, grid.height]);
 
-  const size = isExpanded ? CELL_SIZE * 2 : CELL_SIZE;
-  const mapSize = GRID_SIZE * size;
+  const mapSize = isExpanded ? MINIMAP_SIZE * 2 : MINIMAP_SIZE;
 
   return (
     <div className="absolute bottom-4 right-4 z-10 animate-scale-in">
@@ -91,47 +100,60 @@ export const Minimap = () => {
             className="absolute inset-0"
           >
             {/* Вертикальные линии */}
-            {Array.from({ length: GRID_SIZE + 1 }).map((_, i) => (
-              <line
-                key={`v-${i}`}
-                x1={i * size}
-                y1={0}
-                x2={i * size}
-                y2={mapSize}
-                stroke="rgba(100, 100, 100, 0.2)"
-                strokeWidth={0.5}
-              />
-            ))}
+            {Array.from({ length: grid.width + 1 }).map((_, i) => {
+              const maxDim = Math.max(grid.width, grid.height);
+              const cellSize = mapSize / maxDim;
+              return (
+                <line
+                  key={`v-${i}`}
+                  x1={i * cellSize}
+                  y1={0}
+                  x2={i * cellSize}
+                  y2={mapSize}
+                  stroke="rgba(100, 100, 100, 0.2)"
+                  strokeWidth={0.5}
+                />
+              );
+            })}
             {/* Горизонтальные линии */}
-            {Array.from({ length: GRID_SIZE + 1 }).map((_, i) => (
-              <line
-                key={`h-${i}`}
-                x1={0}
-                y1={i * size}
-                x2={mapSize}
-                y2={i * size}
-                stroke="rgba(100, 100, 100, 0.2)"
-                strokeWidth={0.5}
-              />
-            ))}
+            {Array.from({ length: grid.height + 1 }).map((_, i) => {
+              const maxDim = Math.max(grid.width, grid.height);
+              const cellSize = mapSize / maxDim;
+              return (
+                <line
+                  key={`h-${i}`}
+                  x1={0}
+                  y1={i * cellSize}
+                  x2={mapSize}
+                  y2={i * cellSize}
+                  stroke="rgba(100, 100, 100, 0.2)"
+                  strokeWidth={0.5}
+                />
+              );
+            })}
           </svg>
 
           {/* Здания */}
-          {cells.map(cell => (
-            <div
-              key={cell.key}
-              className="absolute transition-all duration-200 hover:scale-110"
-              style={{
-                left: `${cell.x * size}px`,
-                top: `${cell.y * size}px`,
-                width: `${size}px`,
-                height: `${size}px`,
-                backgroundColor: cell.color,
-                opacity: 0.8,
-              }}
-              title={`Здание на (${cell.x}, ${cell.y})`}
-            />
-          ))}
+          {cells.map(cell => {
+            const scaledSize = isExpanded ? cell.size * 2 : cell.size;
+            const scaledX = isExpanded ? cell.x * 2 : cell.x;
+            const scaledY = isExpanded ? cell.y * 2 : cell.y;
+            return (
+              <div
+                key={cell.key}
+                className="absolute transition-all duration-200 hover:scale-110"
+                style={{
+                  left: `${scaledX}px`,
+                  top: `${scaledY}px`,
+                  width: `${scaledSize}px`,
+                  height: `${scaledSize}px`,
+                  backgroundColor: cell.color,
+                  opacity: 0.8,
+                }}
+                title={`Здание на (${cell.gridX}, ${cell.gridY})`}
+              />
+            );
+          })}
         </div>
 
         {/* Легенда */}
@@ -167,7 +189,7 @@ export const Minimap = () => {
         )}
 
         <div className="mt-2 pt-2 border-t border-cyber-gray/50 text-[10px] text-cyber-text-dim text-center">
-          Всего зданий: {cells.length}/{GRID_SIZE * GRID_SIZE}
+          Всего зданий: {cells.length}/{grid.width * grid.height}
         </div>
       </div>
     </div>

@@ -31,8 +31,18 @@ export function EventNotificationToast() {
         timestamp: event.timestamp,
       }));
 
-      setNotifications(prev => [...prev, ...newNotifications]);
-      setShownEvents(prev => new Set([...prev, ...newEvents.map(e => e.id)]));
+      setNotifications(prev => {
+        // Проверяем, что уведомления еще не добавлены
+        const existingIds = new Set(prev.map(n => n.id));
+        const uniqueNotifications = newNotifications.filter(n => !existingIds.has(n.id));
+        return [...prev, ...uniqueNotifications];
+      });
+      
+      setShownEvents(prev => {
+        const updated = new Set(prev);
+        newEvents.forEach(e => updated.add(e.id));
+        return updated;
+      });
 
       // Автоматически удаляем уведомление через 10 секунд
       newNotifications.forEach(notif => {
@@ -41,7 +51,8 @@ export function EventNotificationToast() {
         }, 10000);
       });
     }
-  }, [activeEvents, shownEvents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEvents]); // Удалили shownEvents из зависимостей
 
   const dismissNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));

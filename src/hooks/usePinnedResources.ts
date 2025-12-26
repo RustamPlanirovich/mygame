@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ResourceType } from '../core/gameTypes';
-
-const LS_KEY = 'ygg_pinned_resources_v1';
+import { loadPinnedResourcesFromServer, savePinnedResourcesToServer } from '../utils/settingsApi';
 
 const DEFAULT_PINS: ResourceType[] = ['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'];
 
@@ -22,22 +21,20 @@ export function usePinnedResources() {
   const [pins, setPins] = useState<ResourceType[]>(DEFAULT_PINS);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return;
-      setPins(normalizePins(JSON.parse(raw)));
-    } catch {
-      // ignore
-    }
+    // Загружаем pinned resources с сервера при монтировании
+    loadPinnedResourcesFromServer().then((loadedPins) => {
+      setPins(normalizePins(loadedPins));
+    }).catch((err) => {
+      console.error('Ошибка загрузки pinned resources:', err);
+    });
   }, []);
 
   const persist = useCallback((next: ResourceType[]) => {
     setPins(next);
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
+    // Сохраняем на сервер (асинхронно)
+    savePinnedResourcesToServer(next).catch((err) => {
+      console.error('Ошибка сохранения pinned resources:', err);
+    });
   }, []);
 
   const togglePin = useCallback(

@@ -34,6 +34,7 @@ import type {
   EndingId,
 } from '../core/gameTypes';
 import { D } from '../core/math/format.ts';
+import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
 import {
   DEMON_DEFS,
   UPGRADE_DEFS,
@@ -5029,21 +5030,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     };
 
     try {
-      const user = localStorage.getItem('user');
-      if (!user) {
-        console.warn('No user found, skipping save');
+      if (!isAuthenticated()) {
+        console.warn('No authenticated user found, skipping save');
         return;
       }
       
-      const userData = JSON.parse(user);
-      const currentSaveId = localStorage.getItem('currentSaveId');
+      const currentSaveId = await loadCurrentSaveIdFromServer();
       
       await fetch('http://127.0.0.1:5174/api/saves', {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-user-id': userData.id.toString(),
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           saveType: 'auto',
           data: save,
@@ -5175,17 +5171,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     };
 
     try {
-      const user = localStorage.getItem('user');
-      if (!user) {
+      if (!isAuthenticated()) {
         throw new Error('NO_USER');
       }
       
-      const userData = JSON.parse(user);
       const response = await fetch('http://127.0.0.1:5174/api/saves', {
         method: 'PUT',
         headers: { 
-          'Content-Type': 'application/json',
-          'x-user-id': userData.id.toString(),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           name: saveName,
@@ -5200,7 +5193,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Обновляем текущее активное сохранение
-      localStorage.setItem('currentSaveId', result.save.id);
+      await saveCurrentSaveIdToServer(result.save.id);
       return { ok: true, save: result.save };
     } catch (e) {
       console.error('Manual save failed', e);
@@ -5211,14 +5204,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Получить список всех сохранений
   getSavesList: async () => {
     try {
-      const user = localStorage.getItem('user');
-      if (!user) return { ok: false, error: 'NO_USER' };
+      if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
       
-      const userData = JSON.parse(user);
       const response = await fetch('http://127.0.0.1:5174/api/saves', {
-        headers: { 
-          'x-user-id': userData.id.toString(),
-        },
+        headers: getAuthHeaders(),
       });
 
       const result = await response.json();
@@ -5232,14 +5221,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Загрузить конкретное сохранение
   loadGameFromSave: async (saveId: number) => {
     try {
-      const user = localStorage.getItem('user');
-      if (!user) return { ok: false, error: 'NO_USER' };
+      if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
       
-      const userData = JSON.parse(user);
       const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
-        headers: { 
-          'x-user-id': userData.id.toString(),
-        },
+        headers: getAuthHeaders(),
       });
 
       const result = await response.json();
@@ -5248,7 +5233,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Сохраняем ID текущего активного сохранения
-      localStorage.setItem('currentSaveId', saveId.toString());
+      await saveCurrentSaveIdToServer(saveId);
 
       return { ok: true };
     } catch (e) {
@@ -5260,15 +5245,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Удалить сохранение
   deleteSave: async (saveId: number) => {
     try {
-      const user = localStorage.getItem('user');
-      if (!user) return { ok: false, error: 'NO_USER' };
+      if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
       
-      const userData = JSON.parse(user);
       const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
         method: 'DELETE',
-        headers: { 
-          'x-user-id': userData.id.toString(),
-        },
+        headers: getAuthHeaders(),
       });
 
       return await response.json();
@@ -5281,18 +5262,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   loadGame: async () => {
     let save: any;
     try {
-      const user = localStorage.getItem('user');
-      if (!user) {
+      if (!isAuthenticated()) {
         console.warn('No user found, skipping load');
         return;
       }
       
-      const userData = JSON.parse(user);
       // Пытаемся загрузить последнее ручное сохранение
       const res = await fetch('http://127.0.0.1:5174/api/saves/latest/manual', {
-        headers: {
-          'x-user-id': userData.id.toString(),
-        },
+        headers: getAuthHeaders(),
       });
       
       if (!res.ok) {
@@ -5309,7 +5286,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       save = payload.save.data;
       // Сохраняем ID текущего активного сохранения
-      localStorage.setItem('currentSaveId', payload.save.id);
+      await saveCurrentSaveIdToServer(payload.save.id);
     } catch (e) {
       console.warn('Load failed', e);
       return;
@@ -8746,6 +8723,9 @@ function applyEventEffects(state: GameState, event: RandomEvent): GameState {
   return newState;
 }
 
+// Счетчик для уникальности ID событий
+let eventIdCounter = 0;
+
 // Генератор случайных событий
 function generateRandomEvent(): RandomEvent {
   const now = Date.now();
@@ -8763,7 +8743,8 @@ function generateRandomEvent(): RandomEvent {
     }
   }
   
-  const eventId = `event_${now}_${Math.random().toString(36).substr(2, 9)}`;
+  // Используем счетчик для гарантии уникальности
+  const eventId = `event_${now}_${(eventIdCounter++).toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
   
   // Генерируем эффекты на основе типа события
   const effects = generateEventEffects(selectedConfig.type);

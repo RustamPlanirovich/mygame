@@ -15,14 +15,22 @@ import { Minimap } from './components/game/Minimap';
 import { HelpModal } from './components/game/HelpPanel';
 import { AuthForm } from './components/auth/AuthForm';
 import { SaveManager } from './components/game/SaveManager';
+import { ProfilePanel } from './components/game/ProfilePanel';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
-import { Menu, X, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
+import { isAuthenticated, getCurrentSession } from './utils/settingsApi';
+import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 function App() {
   const [user, setUser] = useState<{ id: number; email: string } | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
+
+  // Очищаем устаревшие данные из localStorage при первом запуске
+  useEffect(() => {
+    cleanupLegacyLocalStorage();
+  }, []);
 
   const loadGame = useGameStore(state => state.loadGame);
   const checkAndUpdateDailyLogin = useGameStore(state => state.checkAndUpdateDailyLogin);
@@ -45,6 +53,9 @@ function App() {
   
   // Save manager state
   const [showSaveManager, setShowSaveManager] = useState(false);
+  
+  // Profile modal state
+  const [showProfile, setShowProfile] = useState(false);
   
   // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
   const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
@@ -90,16 +101,25 @@ function App() {
 
   // Проверяем авторизацию при загрузке
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-      } catch (e) {
-        localStorage.removeItem('user');
+    const checkAuth = async () => {
+      if (isAuthenticated()) {
+        try {
+          const session = await getCurrentSession();
+          if (session.ok && session.user) {
+            setUser({ id: session.user.id, email: session.user.email });
+          } else {
+            // Токен недействителен, он уже был удален в getCurrentSession
+            setUser(null);
+          }
+        } catch (e) {
+          console.error('Ошибка проверки авторизации:', e);
+          setUser(null);
+        }
       }
-    }
-    setIsAuthChecked(true);
+      setIsAuthChecked(true);
+    };
+    
+    checkAuth();
   }, []);
 
   // Load save on mount (только после успешной авторизации)
@@ -123,12 +143,6 @@ function App() {
   // Показываем кликер только если нет ни одного генератора
   const showClicker = buildings.find(b => b.id === 'generator_mk1')?.count === 0;
 
-  // Обработчик выхода
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    setUser(null);
-  };
-
   // Показываем форму авторизации, если не проверили авторизацию или пользователь не залогинен
   if (!isAuthChecked) {
     return (
@@ -144,25 +158,6 @@ function App() {
 
   return (
     <div className="h-[100dvh] flex bg-cyber-black text-cyber-text overflow-hidden">
-      {/* User info */}
-      <div className="fixed top-2 left-2 z-40 bg-black/80 text-cyan-400 px-3 py-1 rounded text-sm flex items-center gap-3">
-        <span>{user.email}</span>
-        <button
-          onClick={() => setShowSaveManager(true)}
-          className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-          title="Управление сохранениями"
-        >
-          <Save className="w-4 h-4" />
-          Сохранения
-        </button>
-        <button
-          onClick={handleLogout}
-          className="text-red-400 hover:text-red-300 text-xs"
-        >
-          Выйти
-        </button>
-      </div>
-
       {/* FPS Counter (F3 в dev режиме) */}
       {showFPS && (
         <div className="fixed top-2 left-80 z-50 bg-black/80 text-green-400 px-2 py-1 rounded text-xs font-mono">
@@ -184,7 +179,7 @@ function App() {
       {/* Центральная область - игровое поле */}
       <main className={`flex-1 flex flex-col overflow-hidden ${device.isMobile ? 'w-full' : ''}`}>
         {/* Dashboard - компактный и сворачиваемый */}
-        {!device.isMobile && !collapsedStats && <Dashboard />}
+        {!device.isMobile && !collapsedStats && <Dashboard onOpenProfile={() => setShowProfile(true)} />}
         
         {/* Объединенная панель валют и ресурсов */}
         <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark flex items-center justify-between">
@@ -307,6 +302,36 @@ function App() {
       
       {/* Save Manager */}
       <SaveManager isOpen={showSaveManager} onClose={() => setShowSaveManager(false)} />
+      
+      {/* Profile Modal */}
+      {showProfile && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/70 z-50"
+            onClick={() => setShowProfile(false)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl max-h-[90vh] bg-cyber-darker border border-cyber-green rounded-lg overflow-hidden flex flex-col">
+            <div className="shrink-0 bg-cyber-dark border-b border-cyber-gray p-4 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-cyber-green">Профиль</h2>
+              <button
+                onClick={() => setShowProfile(false)}
+                className="text-cyber-text-dim hover:text-cyber-green transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ProfilePanel 
+                onShowSaveManager={() => {
+                  setShowProfile(false);
+                  setShowSaveManager(true);
+                }} 
+                onClose={() => setShowProfile(false)}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

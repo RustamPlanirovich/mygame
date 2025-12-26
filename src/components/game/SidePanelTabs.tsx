@@ -22,8 +22,7 @@ import AchievementsPanel from './AchievementsPanel';
 import { MegastructuresPanel } from './MegastructuresPanel';
 import { QuestsPanel } from './QuestsPanel';
 import { HelpPanel } from './HelpPanel';
-import { SettingsPanel } from './SettingsPanel';
-import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Settings as SettingsIcon, Gift, CalendarDays, Network } from 'lucide-react';
+import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Gift, CalendarDays, Network } from 'lucide-react';
 import type { DepositType } from '../../core/gameTypes';
 import { STARTER_QUESTS } from '../../core/constants/quests';
 
@@ -49,8 +48,7 @@ type TabId =
   | 'achievements'
   | 'megastructures'
   | 'quests'
-  | 'help'
-  | 'settings';
+  | 'help';
 
 export function SidePanelTabs() {
   const grid = useGameStore((s) => s.grid);
@@ -84,7 +82,6 @@ export function SidePanelTabs() {
         { id: 'achievements' as const, label: 'Достижения', icon: Trophy, Node: <AchievementsPanel /> },
         { id: 'megastructures' as const, label: 'Мегаструктуры', icon: Building2, Node: <MegastructuresPanel /> },
         { id: 'help' as const, label: 'Справка', icon: BookOpen, Node: <HelpPanel /> },
-        { id: 'settings' as const, label: 'Настройки', icon: SettingsIcon, Node: <SettingsPanel /> },
         { id: 'demons' as const, label: 'Демоны', icon: Ghost, Node: <DemonsPanel /> },
         { id: 'prestige' as const, label: 'Престиж', icon: Sparkles, Node: <PrestigePanel /> },
         { id: 'artifacts' as const, label: 'Артефакты', icon: Gift, Node: <ArtifactsPanel /> },

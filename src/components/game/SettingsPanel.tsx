@@ -1,15 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, Download, Upload, RefreshCw, Trash2, Settings as SettingsIcon } from 'lucide-react';
 import { DEFAULT_SETTINGS } from '../../core/gameTypes.settings';
 import type { GameSettings } from '../../core/gameTypes.settings';
 import { useGameStore } from '../../features/gameStore';
 import { SignalStats } from './SignalOverlay';
+import { loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
 
 export const SettingsPanel: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<'graphics' | 'gameplay' | 'ui' | 'hotkeys' | 'saves'>('gameplay');
+  const [isLoading, setIsLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string>('');
   const saveGame = useGameStore(state => state.saveGame);
   const loadGame = useGameStore(state => state.loadGame);
+
+  // Загружаем настройки при монтировании компонента
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    setIsLoading(true);
+    try {
+      const loadedSettings = await loadSettingsFromServer();
+      setSettings(loadedSettings);
+    } catch (err) {
+      console.error('Ошибка загрузки настроек:', err);
+      setSaveStatus('Ошибка загрузки настроек');
+      setTimeout(() => setSaveStatus(''), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSettingChange = <T extends keyof GameSettings>(
     category: T,
@@ -25,15 +47,49 @@ export const SettingsPanel: React.FC = () => {
     }));
   };
 
-  const handleSave = () => {
-    localStorage.setItem('gameSettings', JSON.stringify(settings));
-    alert('Настройки сохранены!');
+  const handleSave = async () => {
+    setIsLoading(true);
+    setSaveStatus('Сохранение...');
+    
+    try {
+      const result = await saveSettingsToServer(settings);
+      
+      if (result.ok) {
+        setSaveStatus('✓ Настройки сохранены!');
+      } else {
+        setSaveStatus('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+      }
+    } catch (err) {
+      console.error('Ошибка сохранения настроек:', err);
+      setSaveStatus('Ошибка подключения к серверу');
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setSaveStatus(''), 3000);
+    }
   };
 
-  const handleReset = () => {
-    if (confirm('Сбросить все настройки к значениям по умолчанию?')) {
-      setSettings(DEFAULT_SETTINGS);
-      localStorage.removeItem('gameSettings');
+  const handleReset = async () => {
+    if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
+    
+    setSettings(DEFAULT_SETTINGS);
+    
+    setIsLoading(true);
+    setSaveStatus('Сброс...');
+    
+    try {
+      const result = await saveSettingsToServer(DEFAULT_SETTINGS);
+      
+      if (result.ok) {
+        setSaveStatus('✓ Настройки сброшены!');
+      } else {
+        setSaveStatus('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+      }
+    } catch (err) {
+      console.error('Ошибка сброса настроек:', err);
+      setSaveStatus('Ошибка подключения к серверу');
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setSaveStatus(''), 3000);
     }
   };
 
@@ -449,21 +505,36 @@ export const SettingsPanel: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 p-4 border-t border-cyber-gray bg-cyber-dark flex gap-2">
-        <button
-          onClick={handleSave}
-          className="cyber-button flex-1 py-2 text-sm flex items-center justify-center gap-2"
-        >
-          <Save size={16} />
-          Сохранить настройки
-        </button>
-        <button
-          onClick={handleReset}
-          className="cyber-button py-2 px-4 text-sm flex items-center justify-center gap-2 bg-transparent border-cyber-red text-cyber-red hover:bg-cyber-red"
-        >
-          <RefreshCw size={16} />
-          Сбросить
-        </button>
+      <div className="shrink-0 p-4 border-t border-cyber-gray bg-cyber-dark">
+        {saveStatus && (
+          <div className={`mb-2 text-xs text-center py-1 rounded ${
+            saveStatus.includes('✓') 
+              ? 'text-cyber-green bg-cyber-green/10' 
+              : saveStatus.includes('Ошибка') 
+                ? 'text-cyber-red bg-cyber-red/10'
+                : 'text-cyber-text'
+          }`}>
+            {saveStatus}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={isLoading}
+            className="cyber-button flex-1 py-2 text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} />
+            {isLoading ? 'Сохранение...' : 'Сохранить настройки'}
+          </button>
+          <button
+            onClick={handleReset}
+            disabled={isLoading}
+            className="cyber-button py-2 px-4 text-sm flex items-center justify-center gap-2 bg-transparent border-cyber-red text-cyber-red hover:bg-cyber-red disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw size={16} />
+            Сбросить
+          </button>
+        </div>
       </div>
     </div>
   );

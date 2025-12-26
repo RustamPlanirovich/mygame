@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { setAuthToken, loadSettingsFromServer, loadPinnedResourcesFromServer } from '../../utils/settingsApi';
 
 interface AuthFormProps {
   onSuccess: (user: { id: number; email: string }) => void;
@@ -37,8 +38,27 @@ export const AuthForm = ({ onSuccess }: AuthFormProps) => {
         return;
       }
 
-      // Сохраняем данные пользователя
-      localStorage.setItem('user', JSON.stringify(data.user));
+      // Сохраняем токен авторизации
+      setAuthToken(data.token);
+      console.log('Токен сохранен, истекает:', data.expiresAt);
+      
+      // Загружаем настройки и preferences пользователя с сервера
+      if (mode === 'login') {
+        try {
+          // Загружаем настройки (они будут автоматически использоваться из БД)
+          const settings = await loadSettingsFromServer();
+          console.log('Настройки пользователя загружены из БД:', settings);
+          
+          // Загружаем pinned resources (они будут автоматически использоваться из БД)
+          const pinnedResources = await loadPinnedResourcesFromServer();
+          console.log('Pinned resources загружены из БД:', pinnedResources);
+          
+          // currentSaveId загружается автоматически при загрузке игры
+        } catch (err) {
+          console.warn('Не удалось загрузить настройки пользователя:', err);
+        }
+      }
+      
       onSuccess(data.user);
     } catch (err) {
       setError('Ошибка подключения к серверу');

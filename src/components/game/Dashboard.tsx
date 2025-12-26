@@ -2,8 +2,13 @@ import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
 import { TECHNOLOGIES } from '../../core/constants/technologies';
 import { ACHIEVEMENTS } from '../../core/constants/achievements';
+import { UserCircle } from 'lucide-react';
 
-export const Dashboard = () => {
+interface DashboardProps {
+  onOpenProfile: () => void;
+}
+
+export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const buildings = useGameStore(state => state.buildings);
   const grid = useGameStore(state => state.grid);
   const research = useGameStore(state => state.research);
@@ -139,9 +144,18 @@ export const Dashboard = () => {
           ))}
         </div>
         
-        {/* Подсказка о справке */}
-        <div className="shrink-0 text-[10px] text-cyber-text-dim px-2 py-1 bg-cyber-dark/30 rounded border border-cyber-gray/20">
-          Нажмите <kbd className="px-1 py-0.5 bg-cyber-gray/50 text-cyber-green rounded text-[9px] font-mono">F1</kbd> для справки
+        {/* Подсказка о справке и кнопка профиля */}
+        <div className="shrink-0 flex items-center gap-2">
+          <div className="text-[10px] text-cyber-text-dim px-2 py-1 bg-cyber-dark/30 rounded border border-cyber-gray/20">
+            Нажмите <kbd className="px-1 py-0.5 bg-cyber-gray/50 text-cyber-green rounded text-[9px] font-mono">F1</kbd> для справки
+          </div>
+          <button
+            onClick={onOpenProfile}
+            className="p-1.5 bg-cyber-dark/30 hover:bg-cyan-500/20 rounded border border-cyber-gray/20 hover:border-cyan-500/50 transition-colors"
+            title="Профиль"
+          >
+            <UserCircle className="w-4 h-4 text-cyan-400" />
+          </button>
         </div>
       </div>
     </div>
