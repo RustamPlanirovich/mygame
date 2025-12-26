@@ -11,6 +11,7 @@ export const Dashboard = () => {
   const galaxies = useGameStore(state => state.galaxies);
   const combat = useGameStore(state => state.combat);
   const achievementsData = useGameStore(state => state.achievements);
+  const artifacts = useGameStore(state => state.artifacts);
 
   // Подсчет статистики
   const totalBuildings = buildings.reduce((sum, b) => sum + b.count, 0);
@@ -90,6 +91,13 @@ export const Dashboard = () => {
       icon: '🌌',
       color: 'text-indigo-400',
       show: unlockedGalaxies > 0,
+    },
+    {
+      label: 'Артефактов',
+      value: `${artifacts.equipped.length}/${artifacts.discovered.length}`,
+      icon: '✨',
+      color: 'text-purple-400',
+      show: artifacts.discovered.length > 0,
     },
   ].filter(s => s.show);
 

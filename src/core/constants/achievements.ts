@@ -716,6 +716,392 @@ export const ACHIEVEMENTS: Achievement[] = [
       credits: new Decimal(10000),
     },
   },
+  
+  // ==================== REPEATABLE RESEARCH (Повторяемые Исследования) ====================
+  {
+    id: 'first_repeatable',
+    name: 'Первые Шаги Бесконечности',
+    description: 'Купите первый уровень любого повторяемого исследования',
+    category: 'research',
+    icon: '🔬',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        const totalLevels = Object.values(state.repeatableResearch.researches || {}).reduce(
+          (sum, level) => sum + level,
+          0
+        );
+        return totalLevels >= 1;
+      },
+    },
+    reward: {
+      credits: new Decimal(100000),
+    },
+  },
+  {
+    id: 'repeatable_level_25',
+    name: 'Продвинутый Исследователь',
+    description: 'Достигните 25 уровня в любом повторяемом исследовании',
+    category: 'research',
+    icon: '📚',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        return Object.values(state.repeatableResearch.researches || {}).some(level => level >= 25);
+      },
+    },
+    reward: {
+      researchPoints: new Decimal(1000),
+    },
+  },
+  {
+    id: 'repeatable_level_50',
+    name: 'Мастер Исследований',
+    description: 'Достигните 50 уровня в любом повторяемом исследовании',
+    category: 'research',
+    icon: '🎓',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        return Object.values(state.repeatableResearch.researches || {}).some(level => level >= 50);
+      },
+    },
+    reward: {
+      researchPoints: new Decimal(5000),
+    },
+  },
+  {
+    id: 'century_researcher',
+    name: 'Исследователь Века',
+    description: 'Достигните 100 уровня в любом повторяемом исследовании',
+    category: 'research',
+    icon: '💯',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        return Object.values(state.repeatableResearch.researches || {}).some(level => level >= 100);
+      },
+    },
+    reward: {
+      researchPoints: new Decimal(10000),
+    },
+  },
+  {
+    id: 'research_addict',
+    name: 'Фанат Исследований',
+    description: 'Достигните 50+ уровня во ВСЕХ повторяемых исследованиях',
+    category: 'research',
+    icon: '🧠',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        const researches = Object.values(state.repeatableResearch.researches || {});
+        return researches.length === 6 && researches.every(level => level >= 50);
+      },
+    },
+    reward: {
+      credits: new Decimal(1000000),
+      researchPoints: new Decimal(20000),
+    },
+  },
+  {
+    id: 'infinite_mind_500',
+    name: 'Бесконечный Разум',
+    description: 'Суммарно 500+ уровней повторяемых исследований',
+    category: 'research',
+    icon: '♾️',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        const totalLevels = Object.values(state.repeatableResearch.researches || {}).reduce(
+          (sum, level) => sum + level,
+          0
+        );
+        return totalLevels >= 500;
+      },
+    },
+    reward: {
+      credits: new Decimal(5000000),
+    },
+  },
+  {
+    id: 'infinite_mind_1000',
+    name: 'Трансцендентальный Разум',
+    description: 'Суммарно 1000+ уровней повторяемых исследований',
+    category: 'research',
+    icon: '✨',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        if (!state.repeatableResearch) return false;
+        const totalLevels = Object.values(state.repeatableResearch.researches || {}).reduce(
+          (sum, level) => sum + level,
+          0
+        );
+        return totalLevels >= 1000;
+      },
+    },
+    reward: {
+      credits: new Decimal(10000000),
+      researchPoints: new Decimal(100000),
+    },
+  },
+
+  // ========================================
+  // PHASE 4: BUILDING EVOLUTION ACHIEVEMENTS
+  // ========================================
+  {
+    id: 'first_evolution',
+    name: 'Первая Эволюция',
+    description: 'Эволюционировать здание впервые',
+    category: 'buildings',
+    icon: '🧬',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+        return Object.values(tileEvolutionLevels).some(level => level > 0);
+      },
+    },
+    reward: {
+      credits: new Decimal(50000),
+    },
+  },
+  {
+    id: 'evolution_master',
+    name: 'Мастер Эволюции',
+    description: 'Эволюционировать 10 зданий',
+    category: 'buildings',
+    icon: '🌟',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+        const evolvedCount = Object.values(tileEvolutionLevels).filter(level => level > 0).length;
+        return evolvedCount >= 10;
+      },
+    },
+    reward: {
+      credits: new Decimal(250000),
+    },
+  },
+  {
+    id: 'ultimate_evolution',
+    name: 'Окончательная Форма',
+    description: 'Достичь максимальной эволюции (уровень 3) хотя бы у одного здания',
+    category: 'buildings',
+    icon: '⭐',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+        return Object.values(tileEvolutionLevels).some(level => level >= 3);
+      },
+    },
+    reward: {
+      credits: new Decimal(500000),
+      researchPoints: new Decimal(10000),
+    },
+  },
+  {
+    id: 'evolution_city',
+    name: 'Эволюционный Город',
+    description: '25 зданий достигли максимальной эволюции',
+    category: 'buildings',
+    icon: '✨',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+        const maxEvolutionCount = Object.values(tileEvolutionLevels).filter(level => level >= 3).length;
+        return maxEvolutionCount >= 25;
+      },
+    },
+    reward: {
+      credits: new Decimal(2000000),
+      researchPoints: new Decimal(50000),
+    },
+  },
+  {
+    id: 'evolution_metropolis',
+    name: 'Эволюционный Мегаполис',
+    description: '50 зданий достигли максимальной эволюции',
+    category: 'buildings',
+    icon: '🌠',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+        const maxEvolutionCount = Object.values(tileEvolutionLevels).filter(level => level >= 3).length;
+        return maxEvolutionCount >= 50;
+      },
+    },
+    reward: {
+      credits: new Decimal(5000000),
+      researchPoints: new Decimal(100000),
+    },
+  },
+
+  // ==================== PROCEDURAL GALAXIES (Процедурные галактики) ====================
+  {
+    id: 'first_procedural',
+    name: 'Первооткрыватель',
+    description: 'Сгенерируйте первую процедурную галактику',
+    category: 'exploration',
+    icon: '🌠',
+    requirement: {
+      type: 'custom',
+      check: (state) => state.proceduralGalaxies.galaxies.length >= 1,
+    },
+    reward: {
+      credits: new Decimal(1000000),
+      influence: new Decimal(5000),
+    },
+  },
+  {
+    id: 'galaxy_explorer',
+    name: 'Исследователь галактик',
+    description: 'Исследуйте 5 процедурных галактик',
+    category: 'exploration',
+    icon: '🔭',
+    requirement: {
+      type: 'custom',
+      check: (state) => state.proceduralGalaxies.totalDiscovered >= 5,
+    },
+    reward: {
+      credits: new Decimal(5000000),
+      researchPoints: new Decimal(25000),
+    },
+  },
+  {
+    id: 'galaxy_master',
+    name: 'Мастер галактик',
+    description: 'Исследуйте 10 процедурных галактик',
+    category: 'exploration',
+    icon: '🌌',
+    requirement: {
+      type: 'custom',
+      check: (state) => state.proceduralGalaxies.totalDiscovered >= 10,
+    },
+    reward: {
+      credits: new Decimal(10000000),
+      researchPoints: new Decimal(50000),
+    },
+  },
+  {
+    id: 'black_hole_survivor',
+    name: 'Покоритель черных дыр',
+    description: 'Исследуйте галактику с черной дырой',
+    category: 'exploration',
+    icon: '🌀',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        return state.proceduralGalaxies.galaxies.some(
+          g => g.discovered && g.generated.specialFeature === 'black_hole'
+        );
+      },
+    },
+    reward: {
+      credits: new Decimal(2000000),
+      researchPoints: new Decimal(10000),
+    },
+  },
+  {
+    id: 'nebula_dancer',
+    name: 'Танцор туманностей',
+    description: 'Исследуйте галактику с туманностью',
+    category: 'exploration',
+    icon: '☁️',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        return state.proceduralGalaxies.galaxies.some(
+          g => g.discovered && g.generated.specialFeature === 'nebula'
+        );
+      },
+    },
+    reward: {
+      credits: new Decimal(1500000),
+      researchPoints: new Decimal(7500),
+    },
+  },
+  {
+    id: 'quasar_seeker',
+    name: 'Охотник за квазарами',
+    description: 'Исследуйте галактику с квазаром',
+    category: 'exploration',
+    icon: '💫',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        return state.proceduralGalaxies.galaxies.some(
+          g => g.discovered && g.generated.specialFeature === 'quasar'
+        );
+      },
+    },
+    reward: {
+      credits: new Decimal(1500000),
+      researchPoints: new Decimal(7500),
+    },
+  },
+  {
+    id: 'ancient_ruins',
+    name: 'Археолог Вселенной',
+    description: 'Исследуйте галактику с древними руинами',
+    category: 'exploration',
+    icon: '🏛️',
+    requirement: {
+      type: 'custom',
+      check: (state) => {
+        return state.proceduralGalaxies.galaxies.some(
+          g => g.discovered && g.generated.specialFeature === 'ruins'
+        );
+      },
+    },
+    reward: {
+      credits: new Decimal(2500000),
+      researchPoints: new Decimal(15000),
+    },
+  },
+  {
+    id: 'deep_space_veteran',
+    name: 'Ветеран дальнего космоса',
+    description: 'Исследуйте 25 процедурных галактик',
+    category: 'exploration',
+    icon: '🚀',
+    requirement: {
+      type: 'custom',
+      check: (state) => state.proceduralGalaxies.totalDiscovered >= 25,
+    },
+    reward: {
+      credits: new Decimal(50000000),
+      researchPoints: new Decimal(100000),
+    },
+    hidden: true,
+  },
+  {
+    id: 'infinity_explorer',
+    name: 'Исследователь Бесконечности',
+    description: 'Исследуйте 50 процедурных галактик',
+    category: 'exploration',
+    icon: '♾️',
+    requirement: {
+      type: 'custom',
+      check: (state) => state.proceduralGalaxies.totalDiscovered >= 50,
+    },
+    reward: {
+      credits: new Decimal(100000000),
+      researchPoints: new Decimal(250000),
+    },
+    hidden: true,
+  },
 ];
 
 // Helper function to get achievement by ID

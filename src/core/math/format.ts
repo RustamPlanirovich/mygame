@@ -1,21 +1,28 @@
 import Decimal from 'break_eternity.js';
+import { 
+  formatBigNumber as formatBigNumberUtil,
+  formatExact,
+  formatPercent,
+  formatMultiplier,
+  formatRate,
+  formatTime,
+  D as DecimalHelper
+} from '../../utils/bigNumber';
 
+// Re-export D helper для создания Decimal
+export const D = DecimalHelper;
+
+// Основная функция форматирования для UI
 export const formatNumber = (num: any): string => {
-  const n = new Decimal(num);
-  
-  if (n.lt(1000)) {
-    return n.toFixed(1);
-  }
-  
-  const exponent = n.e;
-  const mantissa = n.mantissa;
-  
-  if (exponent < 6) return n.toFixed(0);
-  if (exponent < 9) return n.div(1e6).toFixed(2) + "M";
-  if (exponent < 12) return n.div(1e9).toFixed(2) + "B";
-  if (exponent < 15) return n.div(1e12).toFixed(2) + "T";
-  
-  return `${mantissa.toFixed(2)}e${exponent}`;
+  // Используем улучшенную функцию форматирования из bigNumber.ts
+  return formatBigNumberUtil(num, 2);
 };
 
-export const D = (n: number | string | any) => new Decimal(n);
+// Дополнительные функции форматирования
+export { 
+  formatExact,      // Точное значение с запятыми (для tooltip)
+  formatPercent,    // Формат процентов (50.5%)
+  formatMultiplier, // Формат множителей (x2.5, x100K)
+  formatRate,       // Формат производства (/с)
+  formatTime        // Формат времени (2h 15m, 45s)
+};

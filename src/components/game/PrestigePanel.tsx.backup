@@ -149,57 +149,28 @@ export function PrestigePanel() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Вкладки */}
-      <div className="flex gap-2 border-b border-gray-700">
-        <button
-          onClick={() => setActiveTab('prestige')}
-          className={`px-6 py-3 font-bold transition-all ${
-            activeTab === 'prestige'
-              ? 'border-b-2 border-cyan-400 text-cyan-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <RotateCcw size={20} className="inline mr-2" />
-          Престиж
-        </button>
-        <button
-          onClick={() => setActiveTab('ascension')}
-          className={`px-6 py-3 font-bold transition-all ${
-            activeTab === 'ascension'
-              ? 'border-b-2 border-purple-400 text-purple-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Star size={20} className="inline mr-2" />
-          Вознесение
-        </button>
-      </div>
-
-      {/* Контент вкладки Престиж */}
-      {activeTab === 'prestige' && (
-        <>
-          {/* Заголовок и статистика */}
-          <div className="cyber-panel p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-3xl font-bold text-white flex items-center gap-2">
-                <RotateCcw className="text-cyan-400" size={32} />
-                <span>Престиж</span>
-              </h2>
-              
-              {prestige.upgrades['quantum_fast_mode'] && (
-                <button
-                  onClick={toggleFastMode}
-                  className={`px-4 py-2 rounded font-bold transition-all ${
-                    prestige.fastModeEnabled
-                      ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
-                      : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
-                  }`}
-                >
-                  <Zap size={18} className="inline mr-1" />
-                  {prestige.fastModeEnabled ? 'Fast Mode: ON' : 'Fast Mode: OFF'}
-                </button>
-              )}
-            </div>
+      {/* Заголовок и статистика */}
+      <div className="cyber-panel p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-3xl font-bold text-white flex items-center gap-2">
+            <RotateCcw className="text-cyan-400" size={32} />
+            <span>Престиж</span>
+          </h2>
+          
+          {prestige.upgrades['quantum_fast_mode'] && (
+            <button
+              onClick={toggleFastMode}
+              className={`px-4 py-2 rounded font-bold transition-all ${
+                prestige.fastModeEnabled
+                  ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                  : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
+              }`}
+            >
+              <Zap size={18} className="inline mr-1" />
+              {prestige.fastModeEnabled ? 'Fast Mode: ON' : 'Fast Mode: OFF'}
+            </button>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div className="text-center">
@@ -302,115 +273,6 @@ export function PrestigePanel() {
           {upgradesByTier[4].map(renderUpgrade)}
         </div>
       </div>
-        </>
-      )}
-
-      {/* Контент вкладки Ascension */}
-      {activeTab === 'ascension' && (
-        <div className="space-y-6">
-          {/* Заголовок */}
-          <div className="cyber-panel p-4">
-            <h2 className="text-3xl font-bold text-white flex items-center gap-2 mb-4">
-              <Star className="text-purple-400" size={32} />
-              <span>Вознесение</span>
-            </h2>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div className="text-center">
-                <p className="text-sm text-gray-400">Ascension Points</p>
-                <p className="text-2xl font-bold text-purple-400">{ascension.ascensionPoints}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-400">Всего AP</p>
-                <p className="text-2xl font-bold text-pink-400">{ascension.lifetimeAscensionPoints}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-400">Вознесений</p>
-                <p className="text-2xl font-bold text-cyan-400">{ascension.ascensionCount}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-400">Престижей</p>
-                <p className="text-2xl font-bold text-blue-400">{prestige.prestigeCount}</p>
-              </div>
-            </div>
-
-            {/* Текущие множители */}
-            <div className="border-t border-gray-700 pt-4">
-              <h3 className="text-lg font-bold text-white mb-2">Бонусы Вознесения:</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                <div className="text-cyan-400">
-                  🌀 QP Gain: x{ascension.multipliers.qpGain.toFixed(2)}
-                </div>
-                <div className="text-green-400">
-                  📦 Производство: x{ascension.multipliers.globalProduction.toFixed(2)}
-                </div>
-                <div className="text-purple-400">
-                  🔬 Исследования: x{ascension.multipliers.researchSpeed.toFixed(2)}
-                </div>
-                <div className="text-yellow-400">
-                  💰 Стартовые кредиты: +{formatNumber(ascension.multipliers.startingCredits)}
-                </div>
-              </div>
-            </div>
-
-            {/* Разблокировки */}
-            <div className="mt-4 border-t border-gray-700 pt-4">
-              <h3 className="text-lg font-bold text-white mb-2">Разблокированные Системы:</h3>
-              <div className="space-y-2 text-sm">
-                <div className={ascension.unlocks.infiniteResearch ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.infiniteResearch ? '✓' : '✗'} Бесконечные Исследования (1+ вознесение)
-                </div>
-                <div className={ascension.unlocks.buildingEvolution ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.buildingEvolution ? '✓' : '✗'} Эволюция Зданий (2+ вознесений)
-                </div>
-                <div className={ascension.unlocks.proceduralGalaxies ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.proceduralGalaxies ? '✓' : '✗'} Процедурные Галактики (3+ вознесений)
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Требования */}
-          <div className="cyber-panel p-4">
-            <h3 className="text-xl font-bold text-white mb-3">Требования для Вознесения:</h3>
-            <div className="space-y-2 text-sm">
-              <div className={prestige.prestigeCount >= 10 ? 'text-green-400' : 'text-red-400'}>
-                {prestige.prestigeCount >= 10 ? '✓' : '✗'} 10+ Престижей ({prestige.prestigeCount}/10)
-              </div>
-              <div className={prestige.lifetimeQuantumPoints >= 1000000 ? 'text-green-400' : 'text-red-400'}>
-                {prestige.lifetimeQuantumPoints >= 1000000 ? '✓' : '✗'} 1M+ Lifetime QP ({formatNumber(prestige.lifetimeQuantumPoints)}/1M)
-              </div>
-              <div className="text-gray-400">
-                ✓ Все мегаструктуры построены (проверка в игре)
-              </div>
-            </div>
-          </div>
-
-          {/* Кнопка Вознесения */}
-          <div className="cyber-panel p-4 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
-            <p className="text-white text-center mb-2">
-              При вознесении вы получите: <span className="font-bold text-purple-400">{ascensionGain} Ascension Points</span>
-            </p>
-            <p className="text-sm text-red-400 text-center mb-3 font-bold">
-              ⚠️ ПОЛНЫЙ СБРОС! Все престиж-улучшения и прогресс будут потеряны!
-            </p>
-            <p className="text-sm text-gray-400 text-center mb-3">
-              Вы сохраните только Ascension Points и бонусы вознесения
-            </p>
-            <button
-              onClick={performAscension}
-              disabled={!canAscend}
-              className={`w-full px-6 py-3 rounded-lg font-bold text-lg transition-all ${
-                canAscend
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white animate-pulse'
-                  : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              🌟 ВОЗНЕСЕНИЕ 🌟
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

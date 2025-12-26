@@ -3,6 +3,7 @@ import { Save, Download, Upload, RefreshCw, Trash2, Settings as SettingsIcon } f
 import { DEFAULT_SETTINGS } from '../../core/gameTypes.settings';
 import type { GameSettings } from '../../core/gameTypes.settings';
 import { useGameStore } from '../../features/gameStore';
+import { SignalStats } from './SignalOverlay';
 
 export const SettingsPanel: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
@@ -210,6 +211,9 @@ export const SettingsPanel: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Signal Interception Stats */}
+            <SignalStats />
           </div>
         )}
 

@@ -1,17 +1,20 @@
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
-import { Clock, Gift, Award } from 'lucide-react';
+import { Clock, Gift, Award, TrendingUp, AlertTriangle, CheckCircle, XCircle, Zap } from 'lucide-react';
 import type { ResourceType } from '../../core/gameTypes';
+import { 
+  analyzeContract, 
+  formatTimeRemaining, 
+  getStatusIcon, 
+  getStatusColor 
+} from '../../utils/contractHelpers';
+import { useMemo } from 'react';
+import Decimal from 'break_eternity.js';
 
 export function ContractsPanel() {
-  const contracts = useGameStore((s) => s.market.contracts ?? []);
-  const completeContract = useGameStore((s) => s.completeContract);
-  const buffers = useGameStore((s) => s.grid.buffers);
-
-  const getBuf = (key: string, type: ResourceType) => {
-    const val = buffers[key]?.[type];
-    return val ? (typeof val === 'string' ? parseFloat(val) : val) : 0;
-  };
+  const state = useGameStore();
+  const contracts = state.market.contracts ?? [];
+  const completeContract = state.completeContract;
 
   const canComplete = (contractId: string) => {
     const contract = contracts.find(c => c.id === contractId);
@@ -19,8 +22,8 @@ export function ContractsPanel() {
     
     for (const [resType, amount] of Object.entries(contract.requirements)) {
       const rType = resType as ResourceType;
-      const have = getBuf('base', rType);
-      if (have < Number(amount.toString())) return false;
+      const have = state.grid.buffers.base?.[rType] || new Decimal(0);
+      if (have.lt(amount)) return false;
     }
     return true;
   };
@@ -35,13 +38,6 @@ export function ContractsPanel() {
     }
   };
 
-  const getTimeLeft = (expiresAt: number) => {
-    const ms = Math.max(0, expiresAt - Date.now());
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    return minutes > 0 ? `${minutes}м ${seconds % 60}с` : `${seconds}с`;
-  };
-
   if (contracts.length === 0) {
     return (
       <div className="p-4 text-center text-cyber-text-dim">
@@ -53,7 +49,7 @@ export function ContractsPanel() {
   }
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-4 space-y-4">
       <div className="flex items-center gap-2 mb-3">
         <Gift className="w-5 h-5 text-cyber-green" />
         <h3 className="text-lg font-semibold text-cyber-green">Контракты</h3>
@@ -63,7 +59,11 @@ export function ContractsPanel() {
       {contracts.map((contract) => {
         const affordable = canComplete(contract.id);
         const tierColor = getTierColor(contract.tier);
-        const timeLeft = getTimeLeft(contract.expiresAt);
+        const timeLeftMs = Math.max(0, contract.expiresAt - Date.now());
+        const timeLeftSec = timeLeftMs / 1000;
+        
+        // Вычисляем анализ контракта
+        const analysis = useMemo(() => analyzeContract(contract, state), [contract, state]);
 
         return (
           <div
@@ -72,39 +72,86 @@ export function ContractsPanel() {
           >
             {/* Header */}
             <div className="flex items-start justify-between mb-2">
-              <div>
+              <div className="flex-1">
                 <h4 className="font-semibold text-white text-sm">{contract.title}</h4>
                 <p className="text-xs text-cyber-text-dim">{contract.description}</p>
               </div>
-              <div className="flex items-center gap-1 text-xs text-cyber-text-dim">
-                <Clock className="w-3 h-3" />
-                <span>{timeLeft}</span>
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1 text-xs text-cyber-text-dim">
+                  <Clock className="w-3 h-3" />
+                  <span>{formatTimeRemaining(timeLeftSec)}</span>
+                </div>
+                {contract.speedBonus && analysis.speedBonus && (
+                  <div className="flex items-center gap-1 text-xs text-yellow-400">
+                    <Zap className="w-3 h-3" />
+                    <span>Бонус</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Requirements */}
-            <div className="mb-2">
-              <div className="text-xs text-cyber-text-dim mb-1">Требования:</div>
-              <div className="grid grid-cols-2 gap-1 text-xs">
-                {Object.entries(contract.requirements).map(([resType, amount]) => {
-                  const rType = resType as ResourceType;
-                  const have = getBuf('base', rType);
-                  const need = Number(amount.toString());
-                  const hasEnough = have >= need;
+            {/* Analysis Panel */}
+            <div className="mb-3 p-2 bg-cyber-bg-dark/50 rounded border border-cyber-border">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-lg ${getStatusColor(analysis.overallStatus)}`}>
+                  {getStatusIcon(analysis.overallStatus)}
+                </span>
+                <span className={`text-xs font-semibold ${getStatusColor(analysis.overallStatus)}`}>
+                  {analysis.overallStatus === 'ready' && 'ГОТОВО К СДАЧЕ'}
+                  {analysis.overallStatus === 'on_track' && 'ВСЁ ПО ПЛАНУ'}
+                  {analysis.overallStatus === 'at_risk' && 'НУЖНО УСКОРИТЬСЯ'}
+                  {analysis.overallStatus === 'will_fail' && 'НЕ УСПЕЕТЕ!'}
+                </span>
+              </div>
+
+              {/* Resource Analysis Table */}
+              <div className="text-xs space-y-1">
+                {analysis.perResource.map((res) => {
+                  const progress = res.needed.gt(0) 
+                    ? res.current.div(res.needed).times(100).toNumber() 
+                    : 100;
+                  const progressClamped = Math.min(100, Math.max(0, progress));
 
                   return (
-                    <div
-                      key={resType}
-                      className={`flex justify-between ${hasEnough ? 'text-green-400' : 'text-red-400'}`}
-                    >
-                      <span>{rType}:</span>
-                      <span className="font-mono">
-                        {formatNumber(have)} / {formatNumber(need)}
-                      </span>
+                    <div key={res.resource} className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-cyber-text-dim">{res.resource}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={res.willComplete ? 'text-green-400' : 'text-red-400'}>
+                            {formatNumber(res.current)} / {formatNumber(res.needed)}
+                          </span>
+                          {res.production.gt(0) && (
+                            <span className="text-xs text-cyber-text-dim">
+                              ({formatNumber(res.production)}/с)
+                            </span>
+                          )}
+                          {res.etaSeconds !== Infinity && res.etaSeconds > 0 && (
+                            <span className={`text-xs ${res.willComplete ? 'text-blue-400' : 'text-red-400'}`}>
+                              ETA: {formatTimeRemaining(res.etaSeconds)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="w-full h-1 bg-cyber-bg-dark rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all ${
+                            res.willComplete ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${progressClamped}%` }}
+                        />
+                      </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Suggestion */}
+              {analysis.suggestion && (
+                <div className="mt-2 text-xs text-cyber-text-dim italic border-t border-cyber-border pt-2">
+                  {analysis.suggestion}
+                </div>
+              )}
             </div>
 
             {/* Rewards */}
@@ -113,7 +160,7 @@ export function ContractsPanel() {
                 <Award className="w-3 h-3" />
                 Награды:
               </div>
-              <div className="flex gap-3 text-xs">
+              <div className="flex gap-3 text-xs flex-wrap">
                 {contract.rewards.credits && (
                   <span className="text-yellow-400">
                     💰 {formatNumber(contract.rewards.credits)}
@@ -127,6 +174,12 @@ export function ContractsPanel() {
                 {contract.rewards.influence && (
                   <span className="text-purple-400">
                     👑 {formatNumber(contract.rewards.influence)}
+                  </span>
+                )}
+                {analysis.speedBonus && contract.speedBonus?.credits && (
+                  <span className="text-yellow-300 flex items-center gap-1">
+                    <Zap className="w-3 h-3" />
+                    +{formatNumber(contract.speedBonus.credits)}
                   </span>
                 )}
               </div>

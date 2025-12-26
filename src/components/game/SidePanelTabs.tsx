@@ -6,6 +6,9 @@ import { MarketPanel } from './MarketPanel';
 import { ResearchPanel } from './ResearchPanel';
 import { DemonsPanel } from './DemonsPanel';
 import { PrestigePanel } from './PrestigePanel';
+import { ArtifactsPanel } from './ArtifactsPanel';
+import { DailyRewardsPanel } from './DailyRewardsPanel';
+import { ProductionChainVisualizer } from './ProductionChainVisualizer';
 import { ExpeditionPanel } from './ExpeditionPanel';
 import { BuildingList } from './BuildingList';
 import { DepositBuildPanel } from './DepositBuildPanel';
@@ -20,7 +23,7 @@ import { MegastructuresPanel } from './MegastructuresPanel';
 import { QuestsPanel } from './QuestsPanel';
 import { HelpPanel } from './HelpPanel';
 import { SettingsPanel } from './SettingsPanel';
-import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Settings as SettingsIcon } from 'lucide-react';
+import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Settings as SettingsIcon, Gift, CalendarDays, Network } from 'lucide-react';
 import type { DepositType } from '../../core/gameTypes';
 import { STARTER_QUESTS } from '../../core/constants/quests';
 
@@ -31,6 +34,9 @@ type TabId =
   | 'research'
   | 'demons'
   | 'prestige'
+  | 'artifacts'
+  | 'rewards'
+  | 'chains'
   | 'expedition'
   | 'building'
   | 'deposit'
@@ -81,6 +87,9 @@ export function SidePanelTabs() {
         { id: 'settings' as const, label: 'Настройки', icon: SettingsIcon, Node: <SettingsPanel /> },
         { id: 'demons' as const, label: 'Демоны', icon: Ghost, Node: <DemonsPanel /> },
         { id: 'prestige' as const, label: 'Престиж', icon: Sparkles, Node: <PrestigePanel /> },
+        { id: 'artifacts' as const, label: 'Артефакты', icon: Gift, Node: <ArtifactsPanel /> },
+        { id: 'rewards' as const, label: 'Награды', icon: CalendarDays, Node: <DailyRewardsPanel /> },
+        { id: 'chains' as const, label: 'Цепочки', icon: Network, Node: <ProductionChainVisualizer /> },
         { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Node: <ExpeditionPanel /> },
       ],
     [],

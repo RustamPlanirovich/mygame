@@ -88,6 +88,7 @@ import {
 import { updateAllProximityMultipliers } from '../utils/proximityHelpers';
 import { getProximityRulesForBuilding } from '../core/constants/proximityRules';
 import { TECHNOLOGIES, canResearchTechnology } from '../core/constants/technologies';
+import { getEvolutionMultiplier } from '../core/constants/buildingEvolutions';
 import { POLICIES, canActivatePolicy } from '../core/constants/policies';
 import { GALAXIES } from '../core/constants/galaxies';
 import { SHIP_DEFINITIONS, calculateShipStats, calculateShipUpgradeCost, generateShipName } from '../core/constants/ships';
@@ -98,6 +99,18 @@ import { EVENT_CONFIGS, EVENT_EFFECTS, BASE_EVENT_INTERVAL_MIN, BASE_EVENT_INTER
 import { getAchievementById } from '../core/constants/achievements';
 import { MEGASTRUCTURES, GAME_ENDINGS, canBuildMegastructure, getMegastructureRewards, checkEndingRequirements } from '../core/constants/megastructures';
 import { PRESTIGE_UPGRADES, calculateQuantumPoints, canBuyPrestigeUpgrade, getTotalPrestigeBonuses } from '../core/constants/prestige';
+import { 
+  canAscend, 
+  calculateAscensionPoints, 
+  calculateAscensionMultipliers,
+  getAscensionUnlocks
+} from '../core/constants/ascension';
+import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, getUpgradeCost, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
+import { getTotalRepeatableBonuses, isExoticResource, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
+import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredBoosts, isSignalExpired, getSignalRewardDescription, createBoostFromReward } from '../utils/signalHelpers';
+import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
+import { BUILDING_EVOLUTIONS, getNextEvolution } from '../core/constants/buildingEvolutions';
+import { generateGalaxy, getDiscoveryCost } from '../utils/galaxyGenerator';
 import type { PrestigeUpgradeId } from '../core/gameTypes';
 
 const MARKET_UPDATE_SECONDS = 30;
@@ -360,6 +373,107 @@ const INITIAL_PRESTIGE: import('../core/gameTypes').PrestigeState = {
     endingsAchieved: [],
   },
   fastModeEnabled: false,
+};
+
+// ============================================================================
+// Ascension System - Initial State (infinitely.md Phase 2)
+// ============================================================================
+const INITIAL_ASCENSION: import('../core/gameTypes').AscensionState = {
+  ascensionCount: 0,
+  ascensionPoints: 0,
+  lifetimeAscensionPoints: 0,
+  requirements: {
+    minPrestigeCount: 10,
+    minQuantumPoints: 1_000_000,
+    allMegastructures: true,
+  },
+  multipliers: {
+    qpGain: 1.0,
+    globalProduction: 1.0,
+    researchSpeed: 1.0,
+    startingCredits: 0,
+  },
+  unlocks: {
+    infiniteResearch: false,
+    buildingEvolution: false,
+    proceduralGalaxies: false,
+  },
+  stats: {
+    totalAscensionTime: 0,
+    fastestAscension: 0,
+    totalQuantumPointsEarned: 0,
+  },
+};
+
+// ============================================================================
+// Repeatable Research - Initial State (infinitely.md Phase 3)
+// ============================================================================
+const INITIAL_REPEATABLE_RESEARCH: import('../core/gameTypes').RepeatableResearchState = {
+  researches: {},
+  totalLevelsThisAscension: 0,
+  stats: {},
+  history: [],
+};
+
+// ============================================================================
+// Procedural Galaxies - Initial State (infinitely.md Phase 5)
+// ============================================================================
+const INITIAL_PROCEDURAL_GALAXIES: import('../core/gameTypes').ProceduralGalaxyState = {
+  galaxies: [],
+  currentSeed: Date.now(),
+  totalDiscovered: 0,
+};
+
+// ============================================================================
+// Artifacts - Initial State (infinitely.md Phase 6)
+// ============================================================================
+const INITIAL_ARTIFACTS: import('../core/gameTypes').ArtifactState = {
+  discovered: [],
+  equipped: [],
+  maxSlots: 2,
+  usedSlots: 0,
+  totalFound: 0,
+  totalUpgraded: 0,
+};
+
+// Retention - Initial State (infinitely.md - Retention Mechanics)
+// ============================================================================
+const INITIAL_RETENTION: import('../core/gameTypes').RetentionState = {
+  dailyLogin: {
+    currentStreak: 0,
+    longestStreak: 0,
+    lastLoginDate: '',
+    totalLogins: 0,
+    rewards: [], // Will be generated on first load
+    currentDay: 1,
+  },
+  timeBasedRewards: {
+    containers: [],
+    lastCollectionTime: Date.now(),
+    collectionInterval: 4 * 60 * 60 * 1000, // 4 hours
+    maxStoredContainers: 2,
+  },
+  stats: {
+    totalPlayTime: 0,
+    sessionsCount: 0,
+    currentSessionStart: Date.now(),
+    lifetimeResourcesProduced: {},
+    lifetimeResourcesSpent: {},
+    lifetimeCreditsEarned: D(0),
+    lifetimeCreditsSpent: D(0),
+  },
+};
+
+// Signal Interception - Initial State (infinitely.md - Active Play Bonuses)
+// ============================================================================
+const INITIAL_SIGNAL_INTERCEPTION: import('../core/gameTypes').SignalInterceptionState = {
+  activeSignal: null,
+  activeBoosts: [],
+  nextSignalAt: Date.now() + (3 * 60 * 1000), // Первый сигнал через 3 минуты
+  totalSignalsCaught: 0,
+  totalSignalsMissed: 0,
+  signalFrequency: 3.5, // Среднее между 2 и 5 минутами
+  signalsEnabled: true,
 };
 
 const pickMaxHpEnemyIndex = (enemies: Enemy[]) => {
@@ -1940,6 +2054,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   megastructures: INITIAL_MEGASTRUCTURES,
   endgame: INITIAL_ENDGAME,
   prestige: INITIAL_PRESTIGE,
+  ascension: INITIAL_ASCENSION,
+  repeatableResearch: INITIAL_REPEATABLE_RESEARCH,
+  proceduralGalaxies: INITIAL_PROCEDURAL_GALAXIES,
+  artifacts: INITIAL_ARTIFACTS,
+  retention: INITIAL_RETENTION,
+  signalInterception: INITIAL_SIGNAL_INTERCEPTION,
   lastTick: Date.now(),
   
   // Energy balance telemetry
@@ -2113,6 +2233,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileLevels = state.grid.tileLevels || {};
       const nextTileLevels = { ...tileLevels, [k]: 1 };
 
+      // Phase 4: Инициализируем эволюцию здания при постройке
+      const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+      const nextTileEvolutionLevels = { ...tileEvolutionLevels, [k]: 0 };
+
       return {
         resources: capped,
         buildings: newBuildings,
@@ -2121,6 +2245,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           buffers: nextBuffers,
           tiles: { ...state.grid.tiles, [k]: buildId },
           tileLevels: nextTileLevels,
+          tileEvolutionLevels: nextTileEvolutionLevels,
           selected: pos,
           selectedBuildId: null, // Сбрасываем режим строительства после установки
         },
@@ -2144,6 +2269,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileLevels = state.grid.tileLevels || {};
       const nextTileLevels = { ...tileLevels };
       delete nextTileLevels[k];
+
+      // Phase 4: Удаляем эволюцию здания при сносе
+      const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
+      const nextTileEvolutionLevels = { ...tileEvolutionLevels };
+      delete nextTileEvolutionLevels[k];
 
       const newBuildings = [...state.buildings];
       const b = newBuildings[buildingIndex];
@@ -2174,7 +2304,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // keep buffer record (so resources can remain, but it's ok). Optional cleanup later.
 
       return {
-        grid: { ...state.grid, tiles: nextTiles, tileLevels: nextTileLevels, buffers },
+        grid: { ...state.grid, tiles: nextTiles, tileLevels: nextTileLevels, tileEvolutionLevels: nextTileEvolutionLevels, buffers },
         buildings: newBuildings,
         resources: capped,
       };
@@ -2301,8 +2431,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
       const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
       
+      // Duration based on tier (in milliseconds)
+      const durations = { easy: 180000, medium: 240000, hard: 300000, epic: 420000 }; // 3, 4, 5, 7 minutes
+      const duration = durations[tier];
+      
+      const now = Date.now();
+      
       const contract: Contract = {
-        id: `contract_${Date.now()}_${Math.random()}`,
+        id: `contract_${now}_${Math.random()}`,
         title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
         description: `Доставьте необходимые ресурсы`,
         requirements,
@@ -2311,7 +2447,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           researchPoints: D(rpRewards[tier]),
           influence: D(influenceRewards[tier]),
         },
-        expiresAt: Date.now() + 120000, // 2 minutes
+        // Speed bonus (50% extra rewards if completed in less than half the time)
+        speedBonus: {
+          credits: D(creditRewards[tier] * 0.5),
+          researchPoints: D(rpRewards[tier] * 0.5),
+          influence: D(influenceRewards[tier] * 0.5),
+        },
+        acceptedAt: now, // Contract is accepted when generated
+        expiresAt: now + duration,
         tier,
       };
       
@@ -2347,12 +2490,43 @@ export const useGameStore = create<GameState>((set, get) => ({
         buffers = setBuf(buffers, 'base', rType, cur.sub(amount).max(D(0)));
       }
       
-      // Add rewards
-      const nextCurrency = {
+      // Check if player gets speed bonus (completed in less than half the time)
+      const now = Date.now();
+      const totalTime = contract.expiresAt - contract.acceptedAt;
+      const timeTaken = now - contract.acceptedAt;
+      const earnedSpeedBonus = timeTaken < totalTime * 0.5 && contract.speedBonus;
+      
+      // Add base rewards
+      let nextCurrency = {
         credits: state.currency.credits.add(contract.rewards.credits ?? D(0)),
         researchPoints: state.currency.researchPoints.add(contract.rewards.researchPoints ?? D(0)),
         influence: state.currency.influence.add(contract.rewards.influence ?? D(0)),
       };
+      
+      // Add speed bonus if earned
+      if (earnedSpeedBonus) {
+        nextCurrency = {
+          credits: nextCurrency.credits.add(contract.speedBonus.credits ?? D(0)),
+          researchPoints: nextCurrency.researchPoints.add(contract.speedBonus.researchPoints ?? D(0)),
+          influence: nextCurrency.influence.add(contract.speedBonus.influence ?? D(0)),
+        };
+        
+        // Add notification about speed bonus
+        const newLog = [...state.eventLog];
+        newLog.unshift({
+          time: now,
+          message: `🚀 Бонус за скорость! +${contract.speedBonus.credits?.toFixed(0)} кредитов`,
+        });
+        if (newLog.length > 100) newLog.pop();
+        
+        return {
+          resources: syncResourcesFromBase({ ...state.resources }, buffers),
+          grid: { ...state.grid, buffers },
+          currency: nextCurrency,
+          market: { ...state.market, contracts: contracts.filter(c => c.id !== contractId) },
+          eventLog: newLog,
+        };
+      }
       
       // Remove completed contract
       const nextContracts = contracts.filter(c => c.id !== contractId);
@@ -2913,6 +3087,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => {
       const now = Date.now();
 
+      // Calculate artifact bonuses
+      const artifactBonuses = calculateArtifactBonuses(
+        state.artifacts.discovered,
+        state.artifacts.equipped
+      );
+      
+      // Calculate repeatable research bonuses
+      const repeatableBonuses = getTotalRepeatableBonuses(state.repeatableResearch.researches);
+
       const waveActiveEconomy = state.combat.waveEndsAt > now;
       const smartTargeting = computeAegisSmartTargetingEnabled(state.aegis.levels);
       const interferenceMult = computeAegisInterferenceMultiplier(
@@ -2924,13 +3107,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       const levels = state.research.levels;
       const tradeMult = computeTradeMultiplier(levels);
       const capsMult = computeCapsMultiplier(levels, state.meta.qubits);
-      const combatMult = computeCombatMultiplier(levels, state.meta.qubits);
+      const combatMult = computeCombatMultiplier(levels, state.meta.qubits) * artifactBonuses.combatPower;
 
       // Update proximity multipliers for all buildings
       const buildingsWithProximity = updateAllProximityMultipliers(state.buildings, state.grid.tiles);
 
       // caps first
-      let newResources = recomputeCaps({ ...state.resources }, buildingsWithProximity, capsMult);
+      let newResources = recomputeCaps(
+        { ...state.resources }, 
+        buildingsWithProximity, 
+        capsMult.mul(artifactBonuses.energyCapacity)  // Apply artifact energy capacity bonus
+      );
 
       const baseKey = 'base';
 
@@ -2963,7 +3150,18 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const speedMult = computeSpeedMultiplier(levels, state.meta.qubits, demonsPaid.overclocker);
       const boostMult = computeNanoBoostMultiplier(state.nanoSwarm.allocation.boost ?? 0);
-      const dtFacilities = dt * speedMult * boostMult * interferenceMult;
+      
+      // Apply ascension multipliers
+      const ascensionProdMult = state.ascension.multipliers.globalProduction;
+      const ascensionResearchMult = state.ascension.multipliers.researchSpeed;
+      
+      // Apply repeatable research bonuses
+      const repeatableProdMult = repeatableBonuses.productionMultiplier;
+      const repeatableExoticMult = repeatableBonuses.exoticResourcesMultiplier;
+      
+      const dtFacilities = dt * speedMult * boostMult * interferenceMult * 
+        artifactBonuses.globalProduction * artifactBonuses.buildingEfficiency * 
+        ascensionProdMult * repeatableProdMult;
 
       const coldFusionMult = computeColdFusionEnergyMultiplier(state.productionMatrix.levels.cold_fusion ?? 0);
       const doubleChance = computeMolecularStabilityDoubleChance(state.productionMatrix.levels.molecular_stability ?? 0);
@@ -3119,6 +3317,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         });
       }
+      
+      // Apply Energy Optimization from repeatable research (reduces consumption)
+      totalEnergyConsumption = totalEnergyConsumption.mul(repeatableBonuses.energyEfficiency);
       
       // Calculate efficiency: if consumption > production, reduce efficiency
       let energyEfficiency = 1.0;
@@ -3351,6 +3552,13 @@ export const useGameStore = create<GameState>((set, get) => ({
               const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
               produced = produced.mul(buildingLevel);
               
+              // PHASE 4: Применяем множитель эволюции здания
+              const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
+              if (evolutionLevel > 0) {
+                const evolutionMultiplier = getEvolutionMultiplier(b.id, evolutionLevel);
+                produced = produced.mul(evolutionMultiplier);
+              }
+              
               // Apply energy efficiency reduction to non-energy production
               if (rType !== 'energy' && energyEfficiency < 1.0) {
                 produced = produced.mul(energyEfficiency);
@@ -3364,6 +3572,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               // Apply proximity multiplier (if building has proximity rules)
               if (b.proximityMultiplier && b.proximityMultiplier !== 1) {
                 produced = produced.mul(b.proximityMultiplier);
+              }
+              
+              // Apply repeatable research bonus for exotic resources
+              if (isExoticResource(rType)) {
+                produced = produced.mul(repeatableExoticMult);
               }
               
               // ФАЗА 8.3: Применяем логистический штраф за дальность
@@ -4025,7 +4238,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         .add(quantumLabRP.mul(quantumLabCount));
       
       if (totalRPPerSec.gt(0)) {
-        const rpGained = totalRPPerSec.mul(dt).mul(energyEfficiency); // Снижается при нехватке энергии
+        const rpGained = totalRPPerSec.mul(dt).mul(energyEfficiency)
+          .mul(artifactBonuses.researchSpeed)
+          .mul(ascensionResearchMult)
+          .mul(repeatableBonuses.researchSpeedMultiplier); // Apply repeatable research speed bonus
         nextCurrency = {
           ...nextCurrency,
           researchPoints: nextCurrency.researchPoints.add(rpGained),
@@ -4813,24 +5029,287 @@ export const useGameStore = create<GameState>((set, get) => ({
     };
 
     try {
-      await fetch('/api/save', {
+      const user = localStorage.getItem('user');
+      if (!user) {
+        console.warn('No user found, skipping save');
+        return;
+      }
+      
+      const userData = JSON.parse(user);
+      const currentSaveId = localStorage.getItem('currentSaveId');
+      
+      await fetch('http://127.0.0.1:5174/api/saves', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(save),
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': userData.id.toString(),
+        },
+        body: JSON.stringify({
+          saveType: 'auto',
+          data: save,
+          saveId: currentSaveId,
+        }),
       });
     } catch (e) {
       console.warn('Save failed', e);
     }
   },
 
+  // Создать ручное сохранение с именем
+  saveGameManual: async (saveName: string) => {
+    const state = get();
+    const save = {
+      resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
+      buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
+      currency: {
+        credits: state.currency.credits.toString(),
+        researchPoints: state.currency.researchPoints.toString(),
+        influence: state.currency.influence.toString(),
+      },
+      market: {
+        prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
+        event: state.market.event,
+        nextUpdateAt: state.market.nextUpdateAt,
+        history: state.market.history,
+      },
+      combat: {
+        baseHp: state.combat.baseHp.toString(),
+        baseMaxHp: state.combat.baseMaxHp.toString(),
+        shieldHp: state.combat.shieldHp.toString(),
+        shieldMaxHp: state.combat.shieldMaxHp.toString(),
+        nextWaveAt: state.combat.nextWaveAt,
+        waveEndsAt: state.combat.waveEndsAt,
+        nextSpawnAt: state.combat.nextSpawnAt,
+        enemies: state.combat.enemies.map((e) => ({
+          id: e.id,
+          type: e.type,
+          hp: e.hp.toString(),
+          maxHp: e.maxHp.toString(),
+          distance: e.distance,
+          speed: e.speed,
+        })),
+      },
+      research: state.research,
+      demons: {
+        active: state.demons.active,
+      },
+      meta: {
+        qubits: state.meta.qubits.toString(),
+        lifetimeEnergyProduced: state.meta.lifetimeEnergyProduced.toString(),
+        blueprints: state.meta.blueprints.toString(),
+      },
+      expedition: state.expedition,
+      nanoSwarm: state.nanoSwarm,
+      ship: state.ship,
+      starChart: state.starChart,
+      aegis: state.aegis,
+      productionMatrix: state.productionMatrix,
+      quantumNet: state.quantumNet,
+      politics: state.politics,
+      galaxies: {
+        currentGalaxyId: state.galaxies.currentGalaxyId,
+        unlockedGalaxies: state.galaxies.unlockedGalaxies,
+        platforms: state.galaxies.platforms,
+        autoTransportEnabled: state.galaxies.autoTransportEnabled,
+        fuelReserve: state.galaxies.fuelReserve.toString(),
+      },
+      pollution: {
+        wasteAmount: state.pollution.wasteAmount.toString(),
+        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
+        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
+        pollutionZones: state.pollution.pollutionZones,
+      },
+      intergalacticLogistics: {
+        caravans: state.intergalacticLogistics.caravans.map(c => ({
+          ...c,
+          cargo: Object.fromEntries(
+            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
+          ),
+          fuelCost: c.fuelCost.toString(),
+          fuelPaid: c.fuelPaid.toString(),
+          defense: c.defense.toString(),
+          underAttackBy: c.underAttackBy?.map(e => ({
+            ...e,
+            maxHp: e.maxHp.toString(),
+            hp: e.hp.toString(),
+            dps: e.dps.toString(),
+            armor: e.armor.toString(),
+          })),
+        })),
+        upgrades: state.intergalacticLogistics.upgrades,
+        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
+        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
+          ...r,
+          triggerAmount: r.triggerAmount.toString(),
+          sendAmount: r.sendAmount.toString(),
+        })),
+      },
+      randomEvents: {
+        activeEvents: state.randomEvents.activeEvents.map(e => ({
+          ...e,
+          effects: e.effects
+            ? {
+                ...e.effects,
+                resourceGain: e.effects.resourceGain
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                resourceLoss: e.effects.resourceLoss
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
+                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
+              }
+            : undefined,
+        })),
+        eventHistory: state.randomEvents.eventHistory,
+        nextEventAt: state.randomEvents.nextEventAt,
+        eventsEnabled: state.randomEvents.eventsEnabled,
+        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
+      },
+      grid: state.grid,
+      lastTick: state.lastTick,
+    };
+
+    try {
+      const user = localStorage.getItem('user');
+      if (!user) {
+        throw new Error('NO_USER');
+      }
+      
+      const userData = JSON.parse(user);
+      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': userData.id.toString(),
+        },
+        body: JSON.stringify({
+          name: saveName,
+          saveType: 'manual',
+          data: save,
+        }),
+      });
+
+      const result = await response.json();
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      // Обновляем текущее активное сохранение
+      localStorage.setItem('currentSaveId', result.save.id);
+      return { ok: true, save: result.save };
+    } catch (e) {
+      console.error('Manual save failed', e);
+      return { ok: false, error: String(e) };
+    }
+  },
+
+  // Получить список всех сохранений
+  getSavesList: async () => {
+    try {
+      const user = localStorage.getItem('user');
+      if (!user) return { ok: false, error: 'NO_USER' };
+      
+      const userData = JSON.parse(user);
+      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+        headers: { 
+          'x-user-id': userData.id.toString(),
+        },
+      });
+
+      const result = await response.json();
+      return result;
+    } catch (e) {
+      console.error('Failed to get saves list', e);
+      return { ok: false, error: String(e) };
+    }
+  },
+
+  // Загрузить конкретное сохранение
+  loadGameFromSave: async (saveId: number) => {
+    try {
+      const user = localStorage.getItem('user');
+      if (!user) return { ok: false, error: 'NO_USER' };
+      
+      const userData = JSON.parse(user);
+      const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
+        headers: { 
+          'x-user-id': userData.id.toString(),
+        },
+      });
+
+      const result = await response.json();
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+
+      // Сохраняем ID текущего активного сохранения
+      localStorage.setItem('currentSaveId', saveId.toString());
+
+      return { ok: true };
+    } catch (e) {
+      console.error('Failed to load save', e);
+      return { ok: false, error: String(e) };
+    }
+  },
+
+  // Удалить сохранение
+  deleteSave: async (saveId: number) => {
+    try {
+      const user = localStorage.getItem('user');
+      if (!user) return { ok: false, error: 'NO_USER' };
+      
+      const userData = JSON.parse(user);
+      const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
+        method: 'DELETE',
+        headers: { 
+          'x-user-id': userData.id.toString(),
+        },
+      });
+
+      return await response.json();
+    } catch (e) {
+      console.error('Failed to delete save', e);
+      return { ok: false, error: String(e) };
+    }
+  },
+
   loadGame: async () => {
     let save: any;
     try {
-      const res = await fetch('/api/save');
-      if (!res.ok) return;
+      const user = localStorage.getItem('user');
+      if (!user) {
+        console.warn('No user found, skipping load');
+        return;
+      }
+      
+      const userData = JSON.parse(user);
+      // Пытаемся загрузить последнее ручное сохранение
+      const res = await fetch('http://127.0.0.1:5174/api/saves/latest/manual', {
+        headers: {
+          'x-user-id': userData.id.toString(),
+        },
+      });
+      
+      if (!res.ok) {
+        // Если нет ручных сохранений - это нормально для нового пользователя
+        if (res.status === 404) {
+          console.log('No manual saves found, starting new game');
+          return;
+        }
+        return;
+      }
+      
       const payload = await res.json();
       if (!payload?.ok) return;
-      save = payload.data;
+      
+      save = payload.save.data;
+      // Сохраняем ID текущего активного сохранения
+      localStorage.setItem('currentSaveId', payload.save.id);
     } catch (e) {
       console.warn('Load failed', e);
       return;
@@ -6946,6 +7425,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   calculatePrestigeGain: () => {
     const state = get();
     
+    // Get artifact bonuses
+    const artifactBonuses = calculateArtifactBonuses(
+      state.artifacts.discovered,
+      state.artifacts.equipped
+    );
+    
+    // Get repeatable bonuses
+    const repeatableBonuses = getTotalRepeatableBonuses(state.repeatableResearch.researches);
+    
     // Подсчет построенных мегаструктур
     const megastructuresBuilt = Object.keys(state.megastructures.built).length;
     
@@ -6961,7 +7449,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       prestigeCount: state.prestige.prestigeCount,
     });
     
-    return quantumPoints;
+    // Apply artifact prestige gain bonus, ascension qpGain multiplier, and repeatable QP bonus
+    return Math.floor(quantumPoints * artifactBonuses.prestigeGain * 
+      state.ascension.multipliers.qpGain * repeatableBonuses.qpGainMultiplier);
   },
 
   // Выполнить престиж (сброс прогресса с сохранением улучшений)
@@ -7021,8 +7511,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         ...retainedResources, // Применяем сохраненные ресурсы
       };
 
-      // Применяем стартовые бонусы
-      const startingCredits = INITIAL_CURRENCY.credits.add(bonuses.startingCredits);
+      // Применяем стартовые бонусы (prestige + ascension)
+      const startingCredits = INITIAL_CURRENCY.credits
+        .add(bonuses.startingCredits)
+        .add(state.ascension.multipliers.startingCredits);
       const startingInfluence = INITIAL_CURRENCY.influence.add(bonuses.startingInfluence);
 
       // Разблокируем технологии Эры 1-3 если куплено улучшение
@@ -7151,6 +7643,1008 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
       };
     });
+  },
+
+  // ============================================================================
+  // Ascension System Methods (infinitely.md Phase 2)
+  // ============================================================================
+
+  // Проверить требования для Ascension
+  checkAscensionRequirements: () => {
+    const state = get();
+    const { requirements } = state.ascension;
+    
+    // Проверяем минимальное количество престижей
+    if (state.prestige.prestigeCount < requirements.minPrestigeCount) {
+      return false;
+    }
+    
+    // Проверяем минимальное количество QP
+    if (state.prestige.lifetimeQuantumPoints < requirements.minQuantumPoints) {
+      return false;
+    }
+    
+    // Проверяем все мегаструктуры
+    if (requirements.allMegastructures) {
+      // Получаем количество доступных мегаструктур и построенных
+      const totalMegastructures = Object.keys(MEGASTRUCTURES).length;
+      const builtMegastructures = Object.keys(state.megastructures.built).length;
+      
+      if (builtMegastructures < totalMegastructures) {
+        return false;
+      }
+    }
+    
+    return true;
+  },
+
+  // Рассчитать получаемые Ascension Points
+  calculateAscensionGain: () => {
+    const state = get();
+    const totalQP = state.prestige.lifetimeQuantumPoints;
+    
+    // Get artifact bonuses
+    const artifactBonuses = calculateArtifactBonuses(
+      state.artifacts.discovered,
+      state.artifacts.equipped
+    );
+    
+    // AP = floor(log10(totalQP)) × ascensionCount
+    // Минимум 1 AP за первое вознесение
+    const baseAP = Math.max(1, Math.floor(Math.log10(totalQP)));
+    const multiplier = state.ascension.ascensionCount + 1;
+    
+    // Apply artifact ascension points bonus
+    return Math.floor(baseAP * multiplier * artifactBonuses.ascensionPoints);
+  },
+
+  // Выполнить Ascension
+  performAscension: () => {
+    set((state) => {
+      // Проверяем требования
+      if (!get().checkAscensionRequirements()) {
+        return state;
+      }
+      
+      const apGain = get().calculateAscensionGain();
+      const now = Date.now();
+      
+      // Обновляем состояние Ascension
+      const newAscensionCount = state.ascension.ascensionCount + 1;
+      const newAscension: import('../core/gameTypes').AscensionState = {
+        ...state.ascension,
+        ascensionCount: newAscensionCount,
+        ascensionPoints: state.ascension.ascensionPoints + apGain,
+        lifetimeAscensionPoints: state.ascension.lifetimeAscensionPoints + apGain,
+        
+        // Обновляем множители (+50% QP gain, +10% production, +20% research per ascension)
+        multipliers: {
+          qpGain: 1 + (newAscensionCount * 0.5),
+          globalProduction: 1 + (newAscensionCount * 0.1),
+          researchSpeed: 1 + (newAscensionCount * 0.2),
+          startingCredits: newAscensionCount * 10000,
+        },
+        
+        // Разблокировки
+        unlocks: {
+          infiniteResearch: newAscensionCount >= 1,
+          buildingEvolution: newAscensionCount >= 2,
+          proceduralGalaxies: newAscensionCount >= 3,
+        },
+        
+        stats: {
+          totalAscensionTime: state.ascension.stats.totalAscensionTime + state.prestige.stats.totalPlaytime,
+          fastestAscension: state.ascension.stats.fastestAscension === 0 
+            ? state.prestige.stats.totalPlaytime
+            : Math.min(state.ascension.stats.fastestAscension, state.prestige.stats.totalPlaytime),
+          totalQuantumPointsEarned: state.ascension.stats.totalQuantumPointsEarned + state.prestige.lifetimeQuantumPoints,
+        },
+      };
+      
+      // Уведомление
+      const notifications: import('../core/gameTypes').Notification[] = [
+        {
+          id: `ascension_${now}`,
+          type: 'success' as const,
+          title: `🌟 ВОЗНЕСЕНИЕ!`,
+          message: `Вы вознеслись! Получено ${apGain} Ascension Points. Вознесение #${newAscensionCount}`,
+          timestamp: now,
+          read: false,
+        },
+      ];
+      
+      // Полный сброс к начальному состоянию, но сохраняем престиж и вознесение
+      return {
+        resources: syncResourcesFromBase(INITIAL_RESOURCES, DEFAULT_GRID.buffers),
+        buildings: BUILDINGS_WITH_PROXIMITY.map(b => ({ ...b, count: 0 })),
+        currency: INITIAL_CURRENCY,
+        market: INITIAL_MARKET,
+        combat: INITIAL_COMBAT,
+        grid: DEFAULT_GRID,
+        research: INITIAL_RESEARCH,
+        demons: INITIAL_DEMONS,
+        meta: INITIAL_META,
+        expedition: INITIAL_EXPEDITION,
+        nanoSwarm: INITIAL_NANO_SWARM,
+        ship: INITIAL_SHIP,
+        starChart: INITIAL_STAR_CHART,
+        aegis: INITIAL_AEGIS,
+        productionMatrix: INITIAL_PRODUCTION_MATRIX,
+        quantumNet: INITIAL_QUANTUM_NET,
+        politics: INITIAL_POLITICS,
+        galaxies: {
+          ...INITIAL_GALAXIES,
+          notifications,
+        },
+        fleet: INITIAL_FLEET,
+        pollution: INITIAL_POLLUTION,
+        intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
+        randomEvents: INITIAL_RANDOM_EVENTS,
+        achievements: INITIAL_ACHIEVEMENTS,
+        megastructures: INITIAL_MEGASTRUCTURES,
+        endgame: INITIAL_ENDGAME,
+        
+        // Сбрасываем престиж (но не Ascension!)
+        prestige: INITIAL_PRESTIGE,
+        
+        // Сохраняем Ascension
+        ascension: newAscension,
+        
+        // Сбрасываем повторяемые исследования, но сохраняем историю
+        repeatableResearch: {
+          researches: {},
+          totalLevelsThisAscension: 0,
+          stats: {},
+          history: [
+            ...state.repeatableResearch.history,
+            {
+              ascensionNumber: state.ascension.ascensionCount,
+              timestamp: now,
+              researches: { ...state.repeatableResearch.researches },
+              totalLevels: Object.values(state.repeatableResearch.researches).reduce((sum, level) => sum + level, 0),
+              stats: { ...state.repeatableResearch.stats },
+            },
+          ],
+        },
+        
+        // Сохраняем процедурные галактики
+        proceduralGalaxies: state.proceduralGalaxies,
+        
+        // Обновляем артефакты (увеличиваем слоты)
+        artifacts: (() => {
+          const newMaxSlots = calculateMaxSlots(newAscensionCount);
+          const currentUsed = calculateUsedSlots(state.artifacts.discovered, state.artifacts.equipped);
+          
+          return {
+            ...state.artifacts,
+            maxSlots: newMaxSlots,
+            usedSlots: currentUsed,
+          };
+        })(),
+        
+        lastTick: now,
+        energyProduction: D(0),
+        energyConsumption: D(0),
+        energyEfficiency: 1.0,
+      };
+    });
+  },
+
+  // ============================================================================
+  // Repeatable Research Methods (infinitely.md Phase 3)
+  // ============================================================================
+
+  researchRepeatable: (researchId: import('../core/gameTypes').RepeatableResearchId) => {
+    const state = get();
+    
+    // 1. Проверка разблокировки
+    if (!state.ascension.unlocks.infiniteResearch) {
+      console.warn('Repeatable research not unlocked yet');
+      return;
+    }
+    
+    // 2. Найти исследование
+    const research = REPEATABLE_RESEARCHES[researchId];
+    if (!research) {
+      console.error('Unknown repeatable research:', researchId);
+      return;
+    }
+    
+    // 3. Получить текущий уровень
+    const currentLevel = state.repeatableResearch.researches[researchId] || 0;
+    const maxLevel = getMaxLevelPerAscension(state.ascension.ascensionCount);
+    
+    // 4. Проверка максимального уровня
+    if (currentLevel >= maxLevel) {
+      console.log('Max level reached for', researchId);
+      return;
+    }
+    
+    // 5. Расчет стоимости
+    const cost = calculateRepeatableCost(research.baseCost, currentLevel);
+    
+    // 6. Проверка ресурсов
+    for (const [resourceId, amount] of Object.entries(cost)) {
+      if (resourceId === 'credits') {
+        if (state.currency.credits.lt(amount)) {
+          console.log('Not enough credits');
+          return;
+        }
+      } else if (resourceId === 'quantumPoints') {
+        if (state.prestige.availableQuantumPoints < amount) {
+          console.log('Not enough quantum points');
+          return;
+        }
+      } else {
+        const resource = state.resources[resourceId as import('../core/gameTypes').ResourceType];
+        const bufferAmount = getBuf(state.grid.buffers, 'base', resourceId as import('../core/gameTypes').ResourceType);
+        if (!resource || bufferAmount.lt(amount)) {
+          console.log('Not enough', resourceId);
+          return;
+        }
+      }
+    }
+    
+    // 7. Списание ресурсов
+    set((draft) => {
+      for (const [resourceId, amount] of Object.entries(cost)) {
+        if (resourceId === 'credits') {
+          draft.currency.credits = draft.currency.credits.sub(amount);
+        } else if (resourceId === 'quantumPoints') {
+          draft.prestige.availableQuantumPoints -= amount;
+        } else {
+          const resType = resourceId as import('../core/gameTypes').ResourceType;
+          const cur = getBuf(draft.grid.buffers, 'base', resType);
+          const next = cur.sub(amount).max(D(0));
+          draft.grid.buffers = setBuf(draft.grid.buffers, 'base', resType, next);
+          draft.resources[resType] = { ...draft.resources[resType], amount: next };
+        }
+      }
+      
+      // 8. Увеличение уровня
+      const newLevel = currentLevel + 1;
+      draft.repeatableResearch.researches[researchId] = newLevel;
+      draft.repeatableResearch.totalLevelsThisAscension += 1;
+      
+      // 9. Обновление статистики
+      const stats = draft.repeatableResearch.stats[researchId] || {
+        totalLevels: 0,
+        highestLevel: 0,
+        totalSpent: {},
+      };
+      
+      stats.totalLevels += 1;
+      stats.highestLevel = Math.max(stats.highestLevel, newLevel);
+      
+      for (const [resourceId, amount] of Object.entries(cost)) {
+        stats.totalSpent[resourceId] = (stats.totalSpent[resourceId] || 0) + amount;
+      }
+      
+      draft.repeatableResearch.stats[researchId] = stats;
+      
+      // 10. Уведомление
+      draft.addNotification({
+        type: 'success',
+        title: '🔬 Исследование завершено',
+        message: `${research.name} улучшено до уровня ${newLevel}!`,
+      });
+    });
+  },
+
+  // ============================================================================
+  // Building Evolution Methods (infinitely.md Phase 4)
+  // ============================================================================
+
+  evolveBuildingAt: (coord: GridCoord) => {
+    const state = get();
+    
+    // 1. Проверяем, разблокирована ли эволюция зданий
+    if (!state.ascension.unlocks.buildingEvolution) {
+      console.warn('Building evolution not unlocked yet');
+      return;
+    }
+    
+    const k = keyOf(coord);
+    const tile = state.grid.tiles[k];
+    
+    if (!tile || tile.type !== 'building') {
+      console.error('No building at this coordinate');
+      return;
+    }
+    
+    // 2. Найти здание
+    const buildingId = tile.buildingId;
+    if (!buildingId) {
+      console.error('Building ID not found');
+      return;
+    }
+    
+    // 3. Получить определения эволюции
+    const evolution = BUILDING_EVOLUTIONS[buildingId];
+    
+    if (!evolution) {
+      console.log('No evolution available for this building');
+      return;
+    }
+    
+    // 4. Получить текущий уровень здания и уровень эволюции
+    const buildingLevel = state.grid.tileLevels?.[k] || 1;
+    const currentEvolutionLevel = state.grid.tileEvolutionLevels?.[k] || 0;
+    
+    // 5. Найти следующую доступную эволюцию
+    const nextEvolution = getNextEvolution(buildingId, currentEvolutionLevel);
+    
+    if (!nextEvolution) {
+      console.log('Max evolution tier reached');
+      return;
+    }
+    
+    // 6. Проверить достигнут ли требуемый уровень
+    if (buildingLevel < nextEvolution.level) {
+      console.log(`Building level ${buildingLevel} is below required ${nextEvolution.level}`);
+      return;
+    }
+    
+    // 7. Проверить стоимость эволюции (если она есть)
+    if (nextEvolution.cost) {
+      const { credits, quantum_points } = nextEvolution.cost;
+      
+      if (credits && state.currency.credits.lt(credits)) {
+        console.log(`Not enough credits for evolution (need ${credits.toString()})`);
+        return;
+      }
+      
+      if (quantum_points && state.quantumPoints.lt(quantum_points)) {
+        console.log(`Not enough quantum points for evolution (need ${quantum_points.toString()})`);
+        return;
+      }
+    }
+    
+    // 8. Применить эволюцию
+    set((draft) => {
+      // Списать стоимость, если она есть
+      if (nextEvolution.cost) {
+        if (nextEvolution.cost.credits) {
+          draft.currency.credits = draft.currency.credits.sub(nextEvolution.cost.credits);
+        }
+        if (nextEvolution.cost.quantum_points) {
+          draft.quantumPoints = draft.quantumPoints.sub(nextEvolution.cost.quantum_points);
+        }
+      }
+      
+      // Инициализируем tileEvolutionLevels если его нет
+      if (!draft.grid.tileEvolutionLevels) {
+        draft.grid.tileEvolutionLevels = {};
+      }
+      
+      // Увеличить уровень эволюции
+      draft.grid.tileEvolutionLevels[k] = (draft.grid.tileEvolutionLevels[k] || 0) + 1;
+      
+      // Обновить статистику
+      if (!draft.buildingEvolutionStats) {
+        draft.buildingEvolutionStats = {
+          totalEvolutions: 0,
+          evolutionsByBuilding: {},
+        };
+      }
+      
+      draft.buildingEvolutionStats.totalEvolutions += 1;
+      
+      if (!draft.buildingEvolutionStats.evolutionsByBuilding[buildingId]) {
+        draft.buildingEvolutionStats.evolutionsByBuilding[buildingId] = 0;
+      }
+      draft.buildingEvolutionStats.evolutionsByBuilding[buildingId] += 1;
+      
+      // Добавить уведомление в лог событий
+      draft.eventLog.unshift({
+        id: `evolution_${buildingId}_${Date.now()}`,
+        type: 'building',
+        message: `🌟 ${nextEvolution.nameRu || nextEvolution.name}! Множитель ×${nextEvolution.multiplier}`,
+        timestamp: Date.now(),
+      });
+    });
+    
+    console.log(`✨ Building evolved to: ${nextEvolution.name} (×${nextEvolution.multiplier})`);
+  },
+
+  // ============================================================================
+  // Procedural Galaxies Methods (infinitely.md Phase 5)
+  // ============================================================================
+
+  generateProceduralGalaxy: () => {
+    set((state) => {
+      // Проверяем, разблокированы ли процедурные галактики
+      if (!state.ascension.unlocks.proceduralGalaxies) {
+        return state;
+      }
+      
+      // Определяем номер следующей галактики
+      const nextGalaxyNumber = 8 + state.proceduralGalaxies.galaxies.length;
+      
+      // Проверяем стоимость открытия
+      const cost = getDiscoveryCost(nextGalaxyNumber);
+      if (state.currency.credits.lt(cost)) {
+        return state; // Недостаточно кредитов
+      }
+      
+      // Генерируем новую галактику
+      const newGalaxy = generateGalaxy(state.proceduralGalaxies.currentSeed, nextGalaxyNumber);
+      
+      // Вычитаем стоимость
+      const newCredits = state.currency.credits.sub(cost);
+      
+      return {
+        ...state,
+        currency: {
+          ...state.currency,
+          credits: newCredits,
+        },
+        proceduralGalaxies: {
+          ...state.proceduralGalaxies,
+          galaxies: [...state.proceduralGalaxies.galaxies, newGalaxy],
+        },
+      };
+    });
+  },
+
+  exploreProceduralGalaxy: (galaxyNumber: number) => {
+    set((state) => {
+      // Находим галактику
+      const galaxyIndex = state.proceduralGalaxies.galaxies.findIndex(
+        g => g.galaxyNumber === galaxyNumber
+      );
+      
+      if (galaxyIndex === -1 || state.proceduralGalaxies.galaxies[galaxyIndex].discovered) {
+        return state; // Галактика не найдена или уже открыта
+      }
+      
+      // Отмечаем галактику как открытую
+      const updatedGalaxies = [...state.proceduralGalaxies.galaxies];
+      updatedGalaxies[galaxyIndex] = {
+        ...updatedGalaxies[galaxyIndex],
+        discovered: true,
+      };
+      
+      // Проверяем шанс выпадения артефакта
+      let newArtifacts = state.artifacts;
+      const shouldDrop = shouldDropArtifactFromGalaxy(galaxyNumber);
+      
+      if (shouldDrop) {
+        const artifact = generateGalaxyArtifact(galaxyNumber);
+        newArtifacts = {
+          ...state.artifacts,
+          discovered: [...state.artifacts.discovered, artifact],
+          totalFound: state.artifacts.totalFound + 1,
+        };
+        
+        // Добавляем уведомление в event log
+        state.eventLog.unshift({
+          id: `artifact_galaxy_${galaxyNumber}_${Date.now()}`,
+          type: 'achievement',
+          message: `🎁 Артефакт найден в Галактике ${galaxyNumber}: ${artifact.name}!`,
+          timestamp: Date.now(),
+        });
+      }
+      
+      // Добавляем уведомление об открытии галактики
+      state.eventLog.unshift({
+        id: `galaxy_discovered_${galaxyNumber}_${Date.now()}`,
+        type: 'galaxy',
+        message: `🌌 Галактика ${updatedGalaxies[galaxyIndex].generated.name} исследована!`,
+        timestamp: Date.now(),
+      });
+      
+      return {
+        ...state,
+        proceduralGalaxies: {
+          ...state.proceduralGalaxies,
+          galaxies: updatedGalaxies,
+          totalDiscovered: state.proceduralGalaxies.totalDiscovered + 1,
+        },
+        artifacts: newArtifacts,
+      };
+    });
+  },
+
+  // ============================================================================
+  // Artifact System Methods (infinitely.md Phase 6)
+  // ============================================================================
+  
+  equipArtifact: (artifactId: string) => {
+    set((state) => {
+      const artifact = state.artifacts.discovered.find(a => a.id === artifactId);
+      if (!artifact) return state;
+      
+      // Проверяем, не экипирован ли уже
+      if (state.artifacts.equipped.includes(artifactId)) return state;
+      
+      // Проверяем доступность слотов
+      import('../utils/artifactHelpers').then(({ calculateUsedSlots }) => {
+        const currentUsed = calculateUsedSlots(state.artifacts.discovered, state.artifacts.equipped);
+        if (currentUsed + artifact.slotsRequired > state.artifacts.maxSlots) {
+          state.addNotification({
+            type: 'error',
+            title: 'Недостаточно слотов',
+            message: `Артефакт требует ${artifact.slotsRequired} слотов, доступно ${state.artifacts.maxSlots - currentUsed}`,
+          });
+          return;
+        }
+        
+        set({
+          artifacts: {
+            ...state.artifacts,
+            equipped: [...state.artifacts.equipped, artifactId],
+            usedSlots: currentUsed + artifact.slotsRequired,
+          },
+        });
+      });
+      
+      return state;
+    });
+  },
+  
+  unequipArtifact: (artifactId: string) => {
+    set((state) => {
+      const artifact = state.artifacts.discovered.find(a => a.id === artifactId);
+      if (!artifact) return state;
+      
+      import('../utils/artifactHelpers').then(({ calculateUsedSlots }) => {
+        const newEquipped = state.artifacts.equipped.filter(id => id !== artifactId);
+        const newUsed = calculateUsedSlots(state.artifacts.discovered, newEquipped);
+        
+        set({
+          artifacts: {
+            ...state.artifacts,
+            equipped: newEquipped,
+            usedSlots: newUsed,
+          },
+        });
+      });
+      
+      return state;
+    });
+  },
+  
+  upgradeArtifact: (artifactId: string) => {
+    set((state) => {
+      const artifactIndex = state.artifacts.discovered.findIndex(a => a.id === artifactId);
+      if (artifactIndex === -1) return state;
+      
+      const artifact = state.artifacts.discovered[artifactIndex];
+      
+      // Проверяем макс уровень
+      if (artifact.level >= artifact.maxLevel) {
+        state.addNotification({
+          type: 'error',
+          title: 'Максимальный уровень',
+          message: 'Артефакт достиг максимального уровня',
+        });
+        return state;
+      }
+      
+      import('../utils/artifactHelpers').then(({ getUpgradeCost }) => {
+        const cost = getUpgradeCost(artifact);
+        
+        // Проверяем стоимость
+        if (state.currency.credits.lt(cost.credits)) {
+          state.addNotification({
+            type: 'error',
+            title: 'Недостаточно кредитов',
+            message: `Требуется ${cost.credits.toFixed(0)} кредитов`,
+          });
+          return;
+        }
+        
+        if (cost.qp && state.prestige.availableQuantumPoints < cost.qp.toNumber()) {
+          state.addNotification({
+            type: 'error',
+            title: 'Недостаточно QP',
+            message: `Требуется ${cost.qp.toFixed(0)} квантовых очков`,
+          });
+          return;
+        }
+        
+        if (cost.ap && state.ascension.ascensionPoints < cost.ap.toNumber()) {
+          state.addNotification({
+            type: 'error',
+            title: 'Недостаточно AP',
+            message: `Требуется ${cost.ap.toFixed(0)} очков вознесения`,
+          });
+          return;
+        }
+        
+        // Списываем ресурсы и улучшаем артефакт
+        const updatedArtifacts = [...state.artifacts.discovered];
+        updatedArtifacts[artifactIndex] = {
+          ...artifact,
+          level: artifact.level + 1,
+        };
+        
+        set({
+          currency: {
+            ...state.currency,
+            credits: state.currency.credits.sub(cost.credits),
+          },
+          prestige: cost.qp ? {
+            ...state.prestige,
+            availableQuantumPoints: state.prestige.availableQuantumPoints - cost.qp.toNumber(),
+          } : state.prestige,
+          ascension: cost.ap ? {
+            ...state.ascension,
+            ascensionPoints: state.ascension.ascensionPoints - cost.ap.toNumber(),
+          } : state.ascension,
+          artifacts: {
+            ...state.artifacts,
+            discovered: updatedArtifacts,
+            totalUpgraded: state.artifacts.totalUpgraded + 1,
+          },
+        });
+        
+        state.addNotification({
+          type: 'success',
+          title: 'Артефакт улучшен',
+          message: `${artifact.name} улучшен до уровня ${artifact.level + 1}`,
+        });
+      });
+      
+      return state;
+    });
+  },
+
+  // ============================================================================
+  // Daily Rewards & Retention Methods (infinitely.md - Retention Mechanics)
+  // ============================================================================
+
+  // Проверить и обновить daily login при загрузке
+  checkAndUpdateDailyLogin: () => {
+    set((state) => {
+      import('../utils/dailyRewardsHelpers').then(({ 
+        updateDailyLogin, 
+        generateDailyRewardsCalendar,
+        updateTimeBasedRewards
+      }) => {
+        let dailyLogin = state.retention.dailyLogin;
+        
+        // Первый вход - создаём календарь
+        if (dailyLogin.rewards.length === 0) {
+          dailyLogin = {
+            ...dailyLogin,
+            rewards: generateDailyRewardsCalendar(),
+            lastLoginDate: '',
+          };
+        }
+        
+        // Обновляем daily login
+        dailyLogin = updateDailyLogin(dailyLogin);
+        
+        // Обновляем time-based rewards
+        const timeBasedRewards = updateTimeBasedRewards(
+          state.retention.timeBasedRewards,
+          Date.now()
+        );
+        
+        // Обновляем статистику
+        const stats = {
+          ...state.retention.stats,
+          sessionsCount: state.retention.stats.sessionsCount + 1,
+          currentSessionStart: Date.now(),
+        };
+        
+        set({
+          retention: {
+            dailyLogin,
+            timeBasedRewards,
+            stats,
+          },
+        });
+      });
+      
+      return state;
+    });
+  },
+
+  // Собрать награду за день
+  claimDailyReward: (day: number) => {
+    set((state) => {
+      import('../utils/dailyRewardsHelpers').then(({ 
+        canClaimDailyReward,
+        claimDailyReward 
+      }) => {
+        if (!canClaimDailyReward(state.retention.dailyLogin, day)) {
+          state.addNotification({
+            type: 'error',
+            title: 'Недоступно',
+            message: 'Эта награда уже собрана или ещё недоступна',
+          });
+          return;
+        }
+        
+        const reward = state.retention.dailyLogin.rewards.find(r => r.day === day);
+        if (!reward) return;
+        
+        // Начисляем награды
+        let newCurrency = { ...state.currency };
+        let newGrid = { ...state.grid };
+        
+        if (reward.rewards.credits) {
+          newCurrency.credits = newCurrency.credits.add(reward.rewards.credits);
+        }
+        if (reward.rewards.researchPoints) {
+          newCurrency.researchPoints = newCurrency.researchPoints.add(reward.rewards.researchPoints);
+        }
+        if (reward.rewards.influence) {
+          newCurrency.influence = newCurrency.influence.add(reward.rewards.influence);
+        }
+        
+        // Ресурсы
+        if (reward.rewards.resources) {
+          for (const [resType, amount] of Object.entries(reward.rewards.resources)) {
+            const type = resType as ResourceType;
+            const cur = getBuf(newGrid.buffers, 'base', type);
+            const newAmount = cur.add(amount);
+            newGrid = {
+              ...newGrid,
+              buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
+            };
+          }
+        }
+        
+        // Обновляем статус награды
+        const updatedDailyLogin = claimDailyReward(state.retention.dailyLogin, day);
+        
+        set({
+          currency: newCurrency,
+          grid: newGrid,
+          retention: {
+            ...state.retention,
+            dailyLogin: updatedDailyLogin,
+          },
+        });
+        
+        state.addNotification({
+          type: 'success',
+          title: `Награда за день ${day} получена!`,
+          message: `🎁 Стрик: ${state.retention.dailyLogin.currentStreak} дней`,
+        });
+      });
+      
+      return state;
+    });
+  },
+
+  // Собрать time-based reward
+  collectTimeBasedReward: (rewardId: string) => {
+    set((state) => {
+      const reward = state.retention.timeBasedRewards.containers.find(r => r.id === rewardId);
+      if (!reward || reward.collected) return state;
+      
+      // Начисляем награды
+      let newCurrency = { ...state.currency };
+      let newGrid = { ...state.grid };
+      
+      if (reward.rewards.credits) {
+        newCurrency.credits = newCurrency.credits.add(reward.rewards.credits);
+      }
+      if (reward.rewards.researchPoints) {
+        newCurrency.researchPoints = newCurrency.researchPoints.add(reward.rewards.researchPoints);
+      }
+      
+      // Ресурсы
+      if (reward.rewards.resources) {
+        for (const [resType, amount] of Object.entries(reward.rewards.resources)) {
+          const type = resType as ResourceType;
+          const cur = getBuf(newGrid.buffers, 'base', type);
+          const newAmount = cur.add(amount);
+          newGrid = {
+            ...newGrid,
+            buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
+          };
+        }
+      }
+      
+      // Отмечаем как собранное
+      const updatedContainers = state.retention.timeBasedRewards.containers.map(r =>
+        r.id === rewardId ? { ...r, collected: true } : r
+      );
+      
+      set({
+        currency: newCurrency,
+        grid: newGrid,
+        retention: {
+          ...state.retention,
+          timeBasedRewards: {
+            ...state.retention.timeBasedRewards,
+            containers: updatedContainers,
+          },
+        },
+      });
+      
+      state.addNotification({
+        type: 'success',
+        title: 'Контейнер получен!',
+        message: '📦 Ресурсы добавлены',
+      });
+      
+      return state;
+    });
+  },
+
+  // ============================================================================
+  // Signal Interception Methods (infinitely.md - Active Play Bonuses)
+  // ============================================================================
+  
+  /**
+   * Обрабатывает спавн нового сигнала
+   */
+  spawnNewSignal: () => {
+    set((state) => {
+      if (!shouldSpawnSignal(state.signalInterception)) {
+        return state;
+      }
+      
+      // Получаем текущее производство для расчёта наград
+      const currentProduction: Partial<Record<ResourceType, Decimal>> = {};
+      for (const [type, resState] of Object.entries(state.resources)) {
+        currentProduction[type as ResourceType] = resState.perSecond;
+      }
+      
+      const newSignal = spawnSignal(currentProduction);
+      const nextTime = calculateNextSignalTime(state.signalInterception.signalFrequency);
+      
+      set({
+        signalInterception: {
+          ...state.signalInterception,
+          activeSignal: newSignal,
+          nextSignalAt: nextTime,
+        },
+      });
+      
+      return state;
+    });
+  },
+  
+  /**
+   * Обрабатывает клик по сигналу
+   */
+  claimSignal: (signalId: string) => {
+    set((state) => {
+      const signal = state.signalInterception.activeSignal;
+      
+      if (!signal || signal.id !== signalId || signal.claimed) {
+        return state;
+      }
+      
+      // Проверяем, не истёк ли сигнал
+      if (isSignalExpired(signal)) {
+        // Сигнал истёк - не получаем награду
+        set({
+          signalInterception: {
+            ...state.signalInterception,
+            activeSignal: null,
+            totalSignalsMissed: state.signalInterception.totalSignalsMissed + 1,
+          },
+        });
+        
+        state.addNotification({
+          type: 'error',
+          title: 'Сигнал потерян!',
+          message: 'Вы не успели перехватить сигнал 😢',
+        });
+        
+        return state;
+      }
+      
+      // Применяем награду
+      const { reward } = signal;
+      let newCurrency = { ...state.currency };
+      let newGrid = { ...state.grid };
+      let newBoosts = [...state.signalInterception.activeBoosts];
+      
+      // Мгновенные награды
+      if (reward.type === 'resources' || reward.type === 'instant') {
+        if (reward.credits) {
+          newCurrency.credits = newCurrency.credits.add(reward.credits);
+        }
+        if (reward.researchPoints) {
+          newCurrency.researchPoints = newCurrency.researchPoints.add(reward.researchPoints);
+        }
+        if (reward.darkMatter) {
+          newCurrency.darkMatter = newCurrency.darkMatter.add(reward.darkMatter);
+        }
+        if (reward.resources) {
+          for (const [resType, amount] of Object.entries(reward.resources)) {
+            const type = resType as ResourceType;
+            const cur = getBuf(newGrid.buffers, 'base', type);
+            const newAmount = cur.add(amount);
+            newGrid = {
+              ...newGrid,
+              buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
+            };
+          }
+        }
+      }
+      
+      // Бусты
+      if (reward.type === 'boost') {
+        const boost = createBoostFromReward(signal);
+        if (boost) {
+          newBoosts.push(boost);
+        }
+      }
+      
+      // Обновляем состояние
+      set({
+        currency: newCurrency,
+        grid: newGrid,
+        signalInterception: {
+          ...state.signalInterception,
+          activeSignal: { ...signal, claimed: true },
+          activeBoosts: newBoosts,
+          totalSignalsCaught: state.signalInterception.totalSignalsCaught + 1,
+        },
+      });
+      
+      // Через небольшую задержку убираем сигнал
+      setTimeout(() => {
+        set((state) => ({
+          signalInterception: {
+            ...state.signalInterception,
+            activeSignal: null,
+          },
+        }));
+      }, 1000);
+      
+      state.addNotification({
+        type: 'success',
+        title: 'Сигнал перехвачен! 🎯',
+        message: getSignalRewardDescription(reward),
+      });
+      
+      return state;
+    });
+  },
+  
+  /**
+   * Обновляет состояние сигналов (удаляет истёкшие бусты и сигналы)
+   */
+  updateSignals: () => {
+    set((state) => {
+      // Удаляем истёкшие бусты
+      const activeBoosts = removeExpiredBoosts(state.signalInterception.activeBoosts);
+      
+      // Проверяем истёкший сигнал
+      let activeSignal = state.signalInterception.activeSignal;
+      let totalMissed = state.signalInterception.totalSignalsMissed;
+      
+      if (activeSignal && !activeSignal.claimed && isSignalExpired(activeSignal)) {
+        // Сигнал истёк и не был собран
+        activeSignal = null;
+        totalMissed += 1;
+      }
+      
+      set({
+        signalInterception: {
+          ...state.signalInterception,
+          activeSignal,
+          activeBoosts,
+          totalSignalsMissed: totalMissed,
+        },
+      });
+      
+      return state;
+    });
+  },
+  
+  /**
+   * Переключает систему сигналов
+   */
+  toggleSignals: (enabled: boolean) => {
+    set((state) => ({
+      signalInterception: {
+        ...state.signalInterception,
+        signalsEnabled: enabled,
+      },
+    }));
   },
 }));
 

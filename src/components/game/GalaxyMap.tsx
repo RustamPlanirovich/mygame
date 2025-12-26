@@ -1,6 +1,12 @@
 import { useGameStore } from '../../features/gameStore';
 import { GALAXIES, canUnlockGalaxy } from '../../core/constants/galaxies';
 import type { GalaxyId } from '../../core/gameTypes';
+import { formatNumber } from '../../core/math/format';
+import { 
+  getSpecialFeatureDescription, 
+  getSpecialFeatureColor, 
+  getDiscoveryCost 
+} from '../../utils/galaxyGenerator';
 
 export function GalaxyMap() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -10,6 +16,13 @@ export function GalaxyMap() {
   const switchGalaxy = useGameStore((s) => s.switchGalaxy);
   const unlockGalaxy = useGameStore((s) => s.unlockGalaxy);
   const influence = useGameStore((s) => s.currency.influence);
+  const credits = useGameStore((s) => s.currency.credits);
+  
+  // Procedural galaxies
+  const proceduralGalaxies = useGameStore((s) => s.proceduralGalaxies.galaxies);
+  const proceduralUnlocked = useGameStore((s) => s.ascension.unlocks.proceduralGalaxies);
+  const generateProceduralGalaxy = useGameStore((s) => s.generateProceduralGalaxy);
+  const exploreProceduralGalaxy = useGameStore((s) => s.exploreProceduralGalaxy);
 
   const galaxyEntries = Object.entries(GALAXIES) as [GalaxyId, typeof GALAXIES[GalaxyId]][];
   
@@ -214,6 +227,179 @@ export function GalaxyMap() {
           </div>
         </div>
       </div>
+
+      {/* Procedural Galaxies Section */}
+      {proceduralUnlocked && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-white">🌠 Процедурные Галактики</h2>
+            <div className="text-sm text-gray-400">
+              Открыто: {proceduralGalaxies.filter(g => g.discovered).length}/{proceduralGalaxies.length}
+            </div>
+          </div>
+
+          {/* Info Banner */}
+          <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-lg p-4 border border-purple-500/30">
+            <div className="text-sm text-gray-300">
+              🌌 Процедурные галактики - это бесконечные случайно генерируемые миры с уникальными свойствами и наградами.
+              Каждая галактика создается с помощью детерминированного алгоритма и будет одинаковой при перезагрузке игры.
+            </div>
+          </div>
+
+          {/* Generate New Galaxy Button */}
+          {proceduralGalaxies.length === 0 || proceduralGalaxies[proceduralGalaxies.length - 1].discovered ? (
+            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-600">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-white font-semibold mb-1">
+                    Сгенерировать новую галактику #{8 + proceduralGalaxies.length}
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    Стоимость: {formatNumber(getDiscoveryCost(8 + proceduralGalaxies.length))} кредитов
+                  </div>
+                </div>
+                <button
+                  onClick={generateProceduralGalaxy}
+                  disabled={credits.lt(getDiscoveryCost(8 + proceduralGalaxies.length))}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 
+                           disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                >
+                  Генерировать
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Procedural Galaxies Grid */}
+          {proceduralGalaxies.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {proceduralGalaxies.map((galaxy) => {
+                const isDiscovered = galaxy.discovered;
+                const featureColor = getSpecialFeatureColor(galaxy.generated.specialFeature);
+
+                return (
+                  <div
+                    key={galaxy.galaxyNumber}
+                    className={`
+                      relative p-4 rounded-lg border-2 transition-all
+                      ${isDiscovered
+                        ? 'border-purple-500 bg-purple-900/20'
+                        : 'border-gray-700 bg-gray-800/30'
+                      }
+                    `}
+                    style={isDiscovered ? {
+                      borderColor: featureColor,
+                      boxShadow: `0 0 20px ${featureColor}40`,
+                    } : undefined}
+                  >
+                    {/* Galaxy Number Badge */}
+                    <div className="absolute top-2 right-2 bg-gray-900/80 text-white text-xs px-2 py-1 rounded">
+                      #{galaxy.galaxyNumber}
+                    </div>
+
+                    {/* Lock Icon */}
+                    {!isDiscovered && (
+                      <div className="absolute top-2 left-2">
+                        <span className="text-2xl">🔒</span>
+                      </div>
+                    )}
+
+                    <div className="text-2xl mb-2">{galaxy.generated.name}</div>
+
+                    {/* Special Feature */}
+                    {galaxy.generated.specialFeature && (
+                      <div 
+                        className="text-sm font-semibold px-2 py-1 rounded mb-2 inline-block"
+                        style={{
+                          backgroundColor: featureColor + '20',
+                          color: featureColor,
+                        }}
+                      >
+                        {galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}
+                        {galaxy.generated.specialFeature === 'nebula' && '☁️ Туманность'}
+                        {galaxy.generated.specialFeature === 'quasar' && '💫 Квазар'}
+                        {galaxy.generated.specialFeature === 'ruins' && '🏛️ Руины'}
+                      </div>
+                    )}
+
+                    {/* Difficulty */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-gray-400">Сложность:</span>
+                      <span className="text-xs font-semibold text-red-400">
+                        ×{galaxy.generated.difficulty.toFixed(1)}
+                      </span>
+                    </div>
+
+                    {/* Resource Modifiers (only if discovered) */}
+                    {isDiscovered && Object.keys(galaxy.generated.resourceModifiers).length > 0 && (
+                      <div className="text-xs text-gray-400 mb-2">
+                        <span className="font-semibold">Бонусы к ресурсам:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(galaxy.generated.resourceModifiers)
+                            .slice(0, 3)
+                            .map(([res, mult]) => (
+                              <span 
+                                key={res} 
+                                className={`px-1.5 py-0.5 rounded ${
+                                  mult > 1 
+                                    ? 'bg-green-900/30 text-green-400' 
+                                    : 'bg-red-900/30 text-red-400'
+                                }`}
+                              >
+                                {res}: {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rewards (only if discovered) */}
+                    {isDiscovered && galaxy.rewards.uniqueBonus && (
+                      <div className="text-xs text-amber-400 mb-2 flex items-center gap-1">
+                        <span>🎁</span>
+                        <span>{galaxy.rewards.uniqueBonus}</span>
+                      </div>
+                    )}
+
+                    {/* Artifact (only if discovered and has artifact) */}
+                    {isDiscovered && galaxy.rewards.artifactId && (
+                      <div className="text-xs text-purple-400 mb-2 flex items-center gap-1">
+                        <span>💎</span>
+                        <span>Артефакт: {galaxy.rewards.artifactId}</span>
+                      </div>
+                    )}
+
+                    {/* Description (only if discovered) */}
+                    {isDiscovered && galaxy.generated.specialFeature && (
+                      <div className="text-xs text-gray-400 mt-2 italic">
+                        {getSpecialFeatureDescription(galaxy.generated.specialFeature)}
+                      </div>
+                    )}
+
+                    {/* Explore Button */}
+                    {!isDiscovered && (
+                      <button
+                        onClick={() => exploreProceduralGalaxy(galaxy.galaxyNumber)}
+                        className="w-full mt-3 px-3 py-2 bg-purple-600 hover:bg-purple-700 
+                                 text-white text-sm rounded-lg transition-colors"
+                      >
+                        Исследовать галактику
+                      </button>
+                    )}
+
+                    {/* Status Badge */}
+                    {galaxy.completed && (
+                      <div className="absolute bottom-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                        ✓ Завершена
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -394,6 +394,7 @@ export interface Building {
   };
   count: number;
   level?: number; // Building level (1-500), affects production/consumption
+  evolutionLevel?: number; // Evolution tier (0 = no evolution, 1 = first tier, etc.)
   coord?: GridCoord; // Координаты здания на сетке
   proximityRules?: ProximityRule[]; // Правила близости для здания
   proximityMultiplier?: number; // Текущий множитель от близости
@@ -461,6 +462,26 @@ export interface MarketState {
   orders?: TradingOrder[];
 }
 
+export interface ContractResourceAnalysis {
+  resource: ResourceType;
+  needed: Decimal; // Сколько всего нужно
+  current: Decimal; // Сколько сейчас есть
+  remaining: Decimal; // Сколько ещё нужно
+  production: Decimal; // Производство в секунду
+  etaSeconds: number; // Секунд до готовности
+  willComplete: boolean; // Успеет ли к дедлайну
+  isBottleneck: boolean; // Это узкое место?
+}
+
+export interface ContractAnalysis {
+  perResource: ContractResourceAnalysis[];
+  overallStatus: 'on_track' | 'at_risk' | 'will_fail' | 'ready';
+  criticalResource: ResourceType | null; // Самый проблемный ресурс
+  suggestion: string; // Подсказка игроку
+  timeToComplete: number; // Секунд до полного выполнения
+  speedBonus: boolean; // Получит ли бонус за скорость
+}
+
 export interface Contract {
   id: string;
   title: string;
@@ -473,10 +494,20 @@ export interface Contract {
     researchPoints?: Decimal;
     influence?: Decimal;
   };
+  // Speed bonus (awarded if completed in less than half the time)
+  speedBonus?: {
+    credits?: Decimal;
+    researchPoints?: Decimal;
+    influence?: Decimal;
+  };
   // Expiration timestamp
   expiresAt: number;
+  // When contract was accepted
+  acceptedAt: number;
   // Difficulty tier (affects rewards)
   tier: 'easy' | 'medium' | 'hard' | 'epic';
+  // Analysis data (computed dynamically)
+  analysis?: ContractAnalysis;
 }
 
 export interface TradingOrder {
@@ -703,6 +734,8 @@ export interface GridState {
   tiles: Record<string, string>;
   // key = "x,y"; value = building level (1-500) [Фаза 8.5]
   tileLevels?: Record<string, number>;
+  // key = "x,y"; value = evolution level (0-3) [Phase 4: Building Evolution]
+  tileEvolutionLevels?: Record<string, number>;
   // key = "x,y"; value = deposit type (where extraction buildings can be placed)
   deposits?: Record<string, DepositType>;
   // key = "x,y" (and special key "base"); values are stringified decimals
@@ -802,6 +835,155 @@ export interface RandomEventsState {
   eventFrequencyMultiplier: number; // 1.0 = normal, 2.0 = twice as often
 }
 
+// ============================================================================
+// Daily Rewards & Retention Systems (infinitely.md - Retention Mechanics)
+// ============================================================================
+
+export interface DailyReward {
+  day: number;                      // День (1-7)
+  rewards: {
+    credits?: Decimal;
+    researchPoints?: Decimal;
+    influence?: Decimal;
+    resources?: Partial<Record<ResourceType, Decimal>>;
+    artifact?: string;              // ID артефакта (для особых дней)
+  };
+  claimed: boolean;
+}
+
+export interface DailyLoginState {
+  currentStreak: number;            // Текущая серия дней подряд
+  longestStreak: number;            // Рекорд серии
+  lastLoginDate: string;            // ISO date string (YYYY-MM-DD)
+  totalLogins: number;              // Всего входов
+  rewards: DailyReward[];           // Календарь наград на 7 дней
+  currentDay: number;               // Текущий день в цикле (1-7)
+}
+
+export interface TimeBasedReward {
+  id: string;
+  name: string;
+  availableAt: number;              // Timestamp когда можно собрать
+  rewards: {
+    credits?: Decimal;
+    researchPoints?: Decimal;
+    resources?: Partial<Record<ResourceType, Decimal>>;
+  };
+  collected: boolean;
+}
+
+export interface TimeBasedRewardsState {
+  containers: TimeBasedReward[];   // Доступные контейнеры
+  lastCollectionTime: number;       // Когда последний раз собирали
+  collectionInterval: number;       // Интервал в мс (4 часа = 14400000)
+  maxStoredContainers: number;      // Максимум контейнеров (2-3)
+}
+
+export interface PlayerStats {
+  totalPlayTime: number;            // Секунд всего
+  sessionsCount: number;            // Количество сессий
+  currentSessionStart: number;      // Timestamp начала текущей сессии
+  lifetimeResourcesProduced: Partial<Record<ResourceType, Decimal>>;
+  lifetimeResourcesSpent: Partial<Record<ResourceType, Decimal>>;
+  lifetimeCreditsEarned: Decimal;
+  lifetimeCreditsSpent: Decimal;
+}
+
+export interface RetentionState {
+  dailyLogin: DailyLoginState;
+  timeBasedRewards: TimeBasedRewardsState;
+  stats: PlayerStats;
+}
+
+// ============================================================================
+// Signal Interception System (infinitely.md - Active Play Bonuses)
+// ============================================================================
+
+export type SignalType = 
+  | 'resource_cache'       // Куча ресурсов
+  | 'production_boost'     // Буст производства x7 на 30 сек
+  | 'research_burst'       // Мгновенные RP
+  | 'energy_surge'         // Временная бесплатная энергия
+  | 'lucky_find'           // Случайный редкий предмет
+  | 'time_warp'            // Ускорение времени x2 на 60 сек
+  | 'golden_comet';        // Редкий сигнал с мега-наградами
+
+export interface SignalReward {
+  type: 'resources' | 'boost' | 'instant';
+  // Ресурсы
+  resources?: Partial<Record<ResourceType, Decimal>>;
+  credits?: Decimal;
+  researchPoints?: Decimal;
+  // Бусты
+  productionMultiplier?: number;
+  boostDuration?: number;           // В миллисекундах
+  // Другие награды
+  artifact?: string;                // ID артефакта
+  darkMatter?: Decimal;
+}
+
+export interface ActiveSignal {
+  id: string;
+  type: SignalType;
+  position: {
+    x: number;                      // Координата X на карте (0-1)
+    y: number;                      // Координата Y на карте (0-1)
+  };
+  spawnedAt: number;                // Timestamp появления
+  expiresAt: number;                // Timestamp исчезновения
+  duration: number;                 // Длительность в миллисекундах
+  reward: SignalReward;
+  claimed: boolean;
+}
+
+export interface ActiveBoost {
+  id: string;
+  type: string;                     // Тип буста
+  startedAt: number;
+  expiresAt: number;
+  multiplier: number;
+  affectedResources?: ResourceType[]; // Если пусто - все ресурсы
+}
+
+export interface SignalInterceptionState {
+  activeSignal: ActiveSignal | null;
+  activeBoosts: ActiveBoost[];
+  nextSignalAt: number;             // Timestamp следующего сигнала
+  totalSignalsCaught: number;
+  totalSignalsMissed: number;
+  signalFrequency: number;          // Базовая частота в минутах (2-5)
+  signalsEnabled: boolean;
+}
+
+// ============================================================================
+// Production Chains System (infinitely.md - Factorio-lite mechanics)
+// ============================================================================
+
+export interface ProductionNode {
+  resource: ResourceType;
+  production: Decimal;              // Производство в секунду
+  consumption: Decimal;             // Потребление в секунду
+  balance: Decimal;                 // Баланс (production - consumption)
+  producers: string[];              // ID зданий-производителей
+  consumers: string[];              // ID зданий-потребителей
+  efficiency: number;               // 0-1, насколько эффективно используется
+}
+
+export interface ProductionChain {
+  startResource: ResourceType;
+  endResource: ResourceType;
+  nodes: ProductionNode[];
+  bottleneck: ResourceType | null;  // Узкое место в цепи
+  efficiency: number;               // 0-1, общая эффективность цепи
+}
+
+export interface ProductionChainAnalysis {
+  chains: ProductionChain[];
+  bottlenecks: ResourceType[];
+  suggestions: string[];            // Рекомендации по улучшению
+  efficiency: number;               // Общая эффективность производства
+}
+
 export interface GameState {
   resources: Record<ResourceType, ResourceState>;
   buildings: Building[];
@@ -829,6 +1011,12 @@ export interface GameState {
   megastructures: MegastructuresState; // New: Megastructures system (Фаза 9)
   endgame: EndgameState; // New: Endgame and endings system (Фаза 9)
   prestige: PrestigeState; // New: Prestige system (Фаза 9.3)
+  ascension: AscensionState; // New: Ascension system (Phase 2 - infinitely.md)
+  repeatableResearch: RepeatableResearchState; // New: Repeatable research (Phase 3 - infinitely.md)
+  proceduralGalaxies: ProceduralGalaxyState; // New: Procedural galaxies (Phase 5 - infinitely.md)
+  artifacts: ArtifactState; // New: Artifacts system (Phase 6 - infinitely.md)
+  retention: RetentionState; // New: Daily rewards & retention mechanics (infinitely.md)
+  signalInterception: SignalInterceptionState; // New: Active play bonuses (infinitely.md)
   lastTick: number;
   
   // Energy balance telemetry
@@ -848,6 +1036,10 @@ export interface GameState {
   tick: (dt: number) => void;
   loadGame: () => Promise<void>;
   saveGame: () => Promise<void>;
+  saveGameManual: (saveName: string) => Promise<{ ok: boolean; save?: any; error?: string }>;
+  getSavesList: () => Promise<{ ok: boolean; saves?: any[]; error?: string }>;
+  loadGameFromSave: (saveId: number) => Promise<{ ok: boolean; error?: string }>;
+  deleteSave: (saveId: number) => Promise<{ ok: boolean; error?: string }>;
   selectTile: (pos: GridCoord | null) => void;
   setCameraPosition: (x: number, y: number, zoom: number) => void;
   expandGrid: (minWidth: number, minHeight: number) => void;
@@ -920,6 +1112,30 @@ export interface GameState {
   performPrestige: () => void;
   buyPrestigeUpgrade: (upgradeId: PrestigeUpgradeId) => void;
   toggleFastMode: () => void;
+  // Ascension system (Phase 2 - infinitely.md)
+  checkAscensionRequirements: () => boolean;
+  calculateAscensionGain: () => number;
+  performAscension: () => void;
+  // Repeatable research system (Phase 3 - infinitely.md)
+  researchRepeatable: (researchId: RepeatableResearchId) => void;
+  // Building evolution system (Phase 4 - infinitely.md)
+  evolveBuildingAt: (coord: GridCoord) => void;
+  // Procedural galaxies (Phase 5 - infinitely.md)
+  generateProceduralGalaxy: () => void;
+  exploreProceduralGalaxy: (galaxyNumber: number) => void;
+  // Artifact system (Phase 6 - infinitely.md)
+  equipArtifact: (artifactId: string) => void;
+  unequipArtifact: (artifactId: string) => void;
+  upgradeArtifact: (artifactId: string) => void;
+  // Daily rewards & retention (infinitely.md - Retention Mechanics)
+  claimDailyReward: (day: number) => void;
+  collectTimeBasedReward: (rewardId: string) => void;
+  checkAndUpdateDailyLogin: () => void;
+  // Signal Interception (infinitely.md - Active Play Bonuses)
+  spawnNewSignal: () => void;
+  claimSignal: (signalId: string) => void;
+  updateSignals: () => void;
+  toggleSignals: (enabled: boolean) => void;
 }
 
 // Фаза 8.7: Система достижений
@@ -1179,4 +1395,224 @@ export interface PrestigeState {
   };
   // Fast mode enabled?
   fastModeEnabled: boolean;
+}
+
+// ============================================================================
+// Ascension System (Phase 2 - Second Layer of Prestige)
+// ============================================================================
+
+export interface AscensionRequirements {
+  minPrestigeCount: number;      // Minimum number of prestiges required
+  minQuantumPoints: number;       // Minimum QP earned in total
+  allMegastructures: boolean;     // All megastructures must be built
+}
+
+export interface AscensionMultipliers {
+  qpGain: number;                 // Multiplier to Quantum Point gain
+  globalProduction: number;       // Multiplier to all resource production
+  researchSpeed: number;          // Multiplier to research speed
+  startingCredits: number;        // Starting credits after prestige
+}
+
+export interface AscensionUnlocks {
+  infiniteResearch: boolean;      // Unlock repeatable research
+  buildingEvolution: boolean;     // Unlock building evolution system
+  proceduralGalaxies: boolean;    // Unlock procedural galaxy generation
+}
+
+export interface AscensionState {
+  // Total number of ascensions
+  ascensionCount: number;
+  
+  // Ascension Points (AP) - currency for ascension upgrades
+  ascensionPoints: number;
+  
+  // Lifetime AP earned (never decreases)
+  lifetimeAscensionPoints: number;
+  
+  // Requirements to perform next ascension
+  requirements: AscensionRequirements;
+  
+  // Permanent multipliers (increase with each ascension)
+  multipliers: AscensionMultipliers;
+  
+  // Features unlocked through ascension
+  unlocks: AscensionUnlocks;
+  
+  // Statistics
+  stats: {
+    totalAscensionTime: number;      // Total time across all ascensions (seconds)
+    fastestAscension: number;         // Fastest time to ascension (seconds)
+    totalQuantumPointsEarned: number; // Total QP earned across all ascensions
+  };
+}
+
+// ============================================================================
+// Repeatable Research (Unlocked after first Ascension)
+// ============================================================================
+
+export type RepeatableResearchId = 
+  | 'automation_efficiency'
+  | 'quantum_computing'
+  | 'matter_compression'
+  | 'energy_optimization'
+  | 'neural_networks'
+  | 'dark_matter_manipulation';
+
+export interface RepeatableResearch {
+  id: RepeatableResearchId;
+  name: string;
+  description: string;
+  icon?: string;                    // Icon emoji
+  currentLevel: number;             // Infinite level
+  maxLevelPerAscension: number;     // Cap per ascension (e.g., 100)
+  
+  baseCost: Record<string, number>; // Base resource costs
+  costScaling: number;              // Cost multiplier per level (e.g., 1.5)
+  
+  effect: {
+    type: 'production' | 'efficiency' | 'speed' | 'capacity';
+    valuePerLevel: number;          // Bonus per level (e.g., 0.02 = +2%)
+  };
+  
+  // Convenience properties (from effect)
+  effectType?: 'percentage' | 'multiplier';
+  valuePerLevel?: number;
+}
+
+export interface RepeatableResearchState {
+  researches: Partial<Record<RepeatableResearchId, number>>; // level per research
+  totalLevelsThisAscension: number; // Track total levels gained this run
+  // Statistics for each research
+  stats: Partial<Record<RepeatableResearchId, {
+    totalLevels: number;           // Total levels purchased all-time
+    highestLevel: number;          // Highest level ever reached
+    totalSpent: Record<string, number>; // Total resources spent
+  }>>;
+  // History of previous ascension runs
+  history: Array<{
+    ascensionNumber: number;
+    timestamp: number;
+    researches: Partial<Record<RepeatableResearchId, number>>;
+    totalLevels: number;
+  }>;
+}
+
+// ============================================================================
+// Building Evolution (Unlocked after Ascension)
+// ============================================================================
+
+export interface BuildingEvolutionTier {
+  level: number;                    // Required building level (e.g., 100, 250, 500)
+  name: string;                     // Evolution name (e.g., 'Orbital Solar Array')
+  nameRu?: string;                  // Russian name
+  description?: string;             // Description of evolution
+  multiplier: number;               // Production multiplier (e.g., 2, 5, 10)
+  cost?: {                          // Evolution cost
+    credits?: Decimal;
+    quantum_points?: Decimal;
+  };
+  newAbilities?: string[];          // Optional new abilities
+  visualUpgrade?: string;           // Icon/visual indicator
+}
+
+export interface BuildingEvolution {
+  baseBuilding: BuildingType;       // Original building type
+  evolutionLevel: number;           // Current evolution tier (0, 1, 2, 3...)
+  evolutions: BuildingEvolutionTier[]; // Available evolution tiers
+}
+
+// ============================================================================
+// Procedural Galaxies (Unlocked after Ascension)
+// ============================================================================
+
+export type SpecialGalaxyFeature = 'black_hole' | 'nebula' | 'quasar' | 'ruins' | null;
+
+export interface ProceduralGalaxy {
+  seed: number;                     // For deterministic generation
+  galaxyNumber: number;             // Galaxy index (8, 9, 10...)
+  
+  generated: {
+    name: string;                   // Generated galaxy name
+    resourceModifiers: Partial<Record<ResourceType, number>>; // Resource efficiency modifiers
+    difficulty: number;             // Difficulty multiplier
+    specialFeature: SpecialGalaxyFeature; // Unique feature
+  };
+  
+  discovered: boolean;              // Has player discovered this galaxy?
+  completed: boolean;               // Has player completed this galaxy?
+  
+  rewards: {
+    uniqueBonus?: string;           // Permanent bonus description
+    artifactId?: string;            // Artifact reward (if any)
+  };
+}
+
+export interface ProceduralGalaxyState {
+  galaxies: ProceduralGalaxy[];     // Generated galaxies
+  currentSeed: number;              // Current generation seed
+  totalDiscovered: number;          // Total galaxies discovered
+}
+
+// ============================================================================
+// Artifacts System (Phase 6 - infinitely.md)
+// ============================================================================
+
+export type ArtifactRarity = 'common' | 'rare' | 'epic' | 'legendary' | 'mythic';
+
+export type ArtifactSource = 'galaxy' | 'boss' | 'event' | 'achievement' | 'ascension';
+
+export type ArtifactEffectType = 
+  | 'globalProduction'
+  | 'resourceProduction'
+  | 'researchSpeed'
+  | 'buildingEfficiency'
+  | 'expeditionSuccess'
+  | 'combatPower'
+  | 'energyCapacity'
+  | 'prestigeGain'
+  | 'ascensionPoints'
+  | 'galaxyUnlockCost';
+
+export interface ArtifactEffect {
+  stat: ArtifactEffectType;
+  value: number;                    // Base value (percentage)
+  isPercentage: boolean;
+  affectsResource?: ResourceType;   // For resourceProduction effects
+}
+
+export interface Artifact {
+  id: string;
+  name: string;
+  description?: string;
+  rarity: ArtifactRarity;
+  
+  effects: ArtifactEffect[];
+  
+  level: number;                    // Upgrade level (0-10)
+  maxLevel: number;                 // Max upgrade level
+  
+  source: ArtifactSource;           // How it was obtained
+  discoveredAt: number;             // Timestamp
+  
+  slotsRequired: number;            // How many slots it takes (1-3)
+}
+
+export interface ArtifactRarityConfig {
+  color: string;                    // UI color
+  effectRange: [number, number];   // Min-max effect value
+  slots: number;                    // Slots required
+  dropRate: number;                 // Drop chance percentage
+  baseCost: number;                 // Base upgrade cost
+}
+
+export interface ArtifactState {
+  discovered: Artifact[];           // All discovered artifacts
+  equipped: string[];               // IDs of equipped artifacts
+  maxSlots: number;                 // Total available slots (increases with ascension)
+  usedSlots: number;                // Currently used slots
+  
+  // Stats
+  totalFound: number;
+  totalUpgraded: number;
 }

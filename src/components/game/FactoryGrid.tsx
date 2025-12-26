@@ -9,6 +9,7 @@ import { ProximityWarningModal } from './ProximityWarningModal';
 import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
 import { getPowerSources, isInRadius, isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getLogisticsHubs, isInLogisticsZone, calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
+import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 
 // Hexagonal grid constants (flat-top hexagons)
 const HEX_SIZE = 28; // Radius of hexagon
@@ -842,7 +843,12 @@ export function FactoryGrid() {
             t.x = centerX;
             t.y = centerY + textOffsetY;
           } else if (hasBuilding) {
-            const emoji = getBuildingEmoji(grid.tiles[k]);
+            const buildingId = grid.tiles[k];
+            const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
+            const currentEvolution = evolutionLevel > 0 ? getCurrentEvolution(buildingId, evolutionLevel) : null;
+            
+            // Используем visualUpgrade emoji если есть эволюция, иначе базовую эмодзи здания
+            const emoji = currentEvolution?.visualUpgrade || getBuildingEmoji(buildingId);
             const isBlocked = missingResources.length > 0;
             
             const t = getTextFromPool(emoji, isBlocked ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
@@ -851,6 +857,14 @@ export function FactoryGrid() {
             const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
             t.y = centerY + textOffsetY - (isBlocked ? 6 : 0);
+            
+            // Добавляем звездочку для эволюционированных зданий
+            if (evolutionLevel > 0 && showDetailedText) {
+              const star = getTextFromPool('⭐', TEXT_STYLES.warning);
+              star.anchor.set(0.5, 0.5);
+              star.x = centerX + (GRID_MODE === 'hex' ? 12 : 18);
+              star.y = centerY + textOffsetY - 8;
+            }
 
             // Warning icon когда заблокировано
             if (isBlocked && showDetailedText) {

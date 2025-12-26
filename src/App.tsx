@@ -9,16 +9,23 @@ import { FactoryGrid } from './components/game/FactoryGrid';
 import { SidePanelTabs } from './components/game/SidePanelTabs';
 import { ClickerZone } from './components/game/ClickerZone';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
+import { SignalOverlay } from './components/game/SignalOverlay';
 import { Dashboard } from './components/game/Dashboard';
 import { Minimap } from './components/game/Minimap';
 import { HelpModal } from './components/game/HelpPanel';
+import { AuthForm } from './components/auth/AuthForm';
+import { SaveManager } from './components/game/SaveManager';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
-import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, Save } from 'lucide-react';
 
 function App() {
+  const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+
   const loadGame = useGameStore(state => state.loadGame);
+  const checkAndUpdateDailyLogin = useGameStore(state => state.checkAndUpdateDailyLogin);
   const buildings = useGameStore(state => state.buildings);
   const settings = useGameStore(state => state.settings);
   
@@ -35,6 +42,9 @@ function App() {
   
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
+  
+  // Save manager state
+  const [showSaveManager, setShowSaveManager] = useState(false);
   
   // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
   const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
@@ -78,10 +88,29 @@ function App() {
     useGameHotkeys();
   }
 
-  // Load save on mount
+  // Проверяем авторизацию при загрузке
   useEffect(() => {
-    loadGame();
-  }, [loadGame]);
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+      } catch (e) {
+        localStorage.removeItem('user');
+      }
+    }
+    setIsAuthChecked(true);
+  }, []);
+
+  // Load save on mount (только после успешной авторизации)
+  useEffect(() => {
+    if (user) {
+      loadGame().then(() => {
+        // Проверяем и обновляем daily login после загрузки
+        checkAndUpdateDailyLogin();
+      });
+    }
+  }, [user, loadGame, checkAndUpdateDailyLogin]);
   
   // Применяем рекомендуемые настройки при первом запуске на мобильном
   useEffect(() => {
@@ -94,11 +123,49 @@ function App() {
   // Показываем кликер только если нет ни одного генератора
   const showClicker = buildings.find(b => b.id === 'generator_mk1')?.count === 0;
 
+  // Обработчик выхода
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    setUser(null);
+  };
+
+  // Показываем форму авторизации, если не проверили авторизацию или пользователь не залогинен
+  if (!isAuthChecked) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-cyber-black">
+        <div className="text-cyan-400">Загрузка...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthForm onSuccess={setUser} />;
+  }
+
   return (
     <div className="h-[100dvh] flex bg-cyber-black text-cyber-text overflow-hidden">
+      {/* User info */}
+      <div className="fixed top-2 left-2 z-40 bg-black/80 text-cyan-400 px-3 py-1 rounded text-sm flex items-center gap-3">
+        <span>{user.email}</span>
+        <button
+          onClick={() => setShowSaveManager(true)}
+          className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+          title="Управление сохранениями"
+        >
+          <Save className="w-4 h-4" />
+          Сохранения
+        </button>
+        <button
+          onClick={handleLogout}
+          className="text-red-400 hover:text-red-300 text-xs"
+        >
+          Выйти
+        </button>
+      </div>
+
       {/* FPS Counter (F3 в dev режиме) */}
       {showFPS && (
-        <div className="fixed top-2 left-2 z-50 bg-black/80 text-green-400 px-2 py-1 rounded text-xs font-mono">
+        <div className="fixed top-2 left-80 z-50 bg-black/80 text-green-400 px-2 py-1 rounded text-xs font-mono">
           FPS: {getFPS()}
         </div>
       )}
@@ -232,8 +299,14 @@ function App() {
       {/* Event notification toasts */}
       <EventNotificationToast />
       
+      {/* Signal Interception Overlay */}
+      <SignalOverlay />
+      
       {/* Help Modal - открывается по F1 */}
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
+      
+      {/* Save Manager */}
+      <SaveManager isOpen={showSaveManager} onClose={() => setShowSaveManager(false)} />
     </div>
   );
 }

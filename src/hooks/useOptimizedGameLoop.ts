@@ -60,6 +60,11 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         achievementCheckRef.current = 0;
       }
 
+      // Signal Interception: проверяем спавн новых сигналов
+      const signalState = useGameStore.getState();
+      signalState.spawnNewSignal();
+      signalState.updateSignals();
+
       accumulatedTimeRef.current -= frameTime;
       updates++;
     }

@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format.ts';
 import type { UpgradeId } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { Microscope } from 'lucide-react';
 import { TechTreePanel } from './TechTreePanel';
+import { RepeatableResearchList } from './RepeatableResearchList';
 import {
   UPGRADE_DEFS,
   computeBandwidth,
@@ -42,6 +43,7 @@ const EFFECT_TEXT: Record<UpgradeId, string> = {
 };
 
 export function ResearchPanel() {
+  const [activeTab, setActiveTab] = useState<'upgrades' | 'repeatable'>('upgrades');
   const research = useGameStore((s) => s.research);
   const meta = useGameStore((s) => s.meta);
   const demons = useGameStore((s) => s.demons);
@@ -49,6 +51,9 @@ export function ResearchPanel() {
   const buyUpgrade = useGameStore((s) => s.buyUpgrade);
   const productionMatrix = useGameStore((s) => s.productionMatrix);
   const buyProductionMatrixUpgrade = useGameStore((s) => s.buyProductionMatrixUpgrade);
+  const ascension = useGameStore((s) => s.ascension);
+  
+  const showRepeatable = ascension?.unlocks?.infiniteResearch || false;
 
   const summary = useMemo(() => {
     const levels = research.levels;
@@ -114,14 +119,46 @@ export function ResearchPanel() {
         <div className="text-xs text-cyber-text-dim">5 веток · уровни сохраняются</div>
       </div>
 
-      <div className="text-xs text-cyber-text-dim mb-2">
-        Чертежи: <span className="text-cyber-text">{formatNumber(meta.blueprints)}</span>
+      {/* Вкладки */}
+      <div className="flex gap-2 mb-4">
+        <button
+          className={`px-4 py-2 rounded-t-lg text-sm font-semibold transition-colors ${
+            activeTab === 'upgrades'
+              ? 'bg-cyber-blue/20 text-cyber-blue border-b-2 border-cyber-blue'
+              : 'bg-gray-800/50 text-gray-400 hover:text-gray-300'
+          }`}
+          onClick={() => setActiveTab('upgrades')}
+        >
+          🔬 Базовые Исследования
+        </button>
+        
+        <button
+          className={`px-4 py-2 rounded-t-lg text-sm font-semibold transition-colors ${
+            activeTab === 'repeatable'
+              ? 'bg-cyan-600/20 text-cyan-400 border-b-2 border-cyan-400'
+              : showRepeatable
+              ? 'bg-gray-800/50 text-gray-400 hover:text-gray-300'
+              : 'bg-gray-900/50 text-gray-600 cursor-not-allowed'
+          }`}
+          onClick={() => showRepeatable && setActiveTab('repeatable')}
+          disabled={!showRepeatable}
+          title={!showRepeatable ? 'Разблокируется после первого Вознесения' : ''}
+        >
+          ♾️ Повторяемые {!showRepeatable && '🔒'}
+        </button>
       </div>
 
-      {/* Tech Tree */}
-      <div className="mb-4">
-        <TechTreePanel />
-      </div>
+      {/* Содержимое вкладок */}
+      {activeTab === 'upgrades' ? (
+        <div>
+          <div className="text-xs text-cyber-text-dim mb-2">
+            Чертежи: <span className="text-cyber-text">{formatNumber(meta.blueprints)}</span>
+          </div>
+
+          {/* Tech Tree */}
+          <div className="mb-4">
+            <TechTreePanel />
+          </div>
 
       <div className="text-xs text-cyber-text-dim mb-3">
         Итог: скорость x<span className="text-cyber-text">{summary.speedMult.toFixed(2)}</span>
@@ -204,6 +241,21 @@ export function ResearchPanel() {
       <div className="text-xs text-cyber-text-dim mt-3">
         Исследования списывают ресурсы с базы (буфера) и влияют на симуляцию в реальном времени.
       </div>
+        </div>
+      ) : (
+        // Вкладка повторяемых исследований
+        showRepeatable ? (
+          <RepeatableResearchList />
+        ) : (
+          <div className="p-8 text-center space-y-3">
+            <div className="text-4xl">🔒</div>
+            <p className="text-gray-300 font-semibold">Повторяемые Исследования</p>
+            <p className="text-gray-400 text-sm">
+              Разблокируются после первого Вознесения
+            </p>
+          </div>
+        )
+      )}
     </div>
   );
 }

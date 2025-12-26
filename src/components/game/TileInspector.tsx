@@ -4,7 +4,7 @@ import { D, formatNumber } from '../../core/math/format.ts';
 import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
 import {
   computeBandwidth,
   computeCapsMultiplier,
@@ -12,6 +12,7 @@ import {
   computeSpeedMultiplier,
   computeTradeMultiplier,
 } from '../../core/constants/progression';
+import { BUILDING_EVOLUTIONS, getNextEvolution, getCurrentEvolution, getEvolutionMultiplier } from '../../core/constants/buildingEvolutions';
 
 export function TileInspector() {
   const grid = useGameStore((s) => s.grid);
@@ -21,16 +22,21 @@ export function TileInspector() {
   const researchLevels = useGameStore((s) => s.research.levels);
   const meta = useGameStore((s) => s.meta);
   const demons = useGameStore((s) => s.demons);
+  const ascension = useGameStore((s) => s.ascension);
+  const currency = useGameStore((s) => s.currency);
+  const quantumPoints = useGameStore((s) => s.quantumPoints);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
   const removeBuildingAt = useGameStore((s) => s.removeBuildingAt);
   const setTileMarketPolicy = useGameStore((s) => s.setTileMarketPolicy);
   const upgradeBuildingAt = useGameStore((s) => s.upgradeBuildingAt);
   const downgradeBuildingAt = useGameStore((s) => s.downgradeBuildingAt);
+  const evolveBuildingAt = useGameStore((s) => s.evolveBuildingAt);
 
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
   const buildingLevel = selectedKey ? (grid.tileLevels?.[selectedKey] || 1) : 1;
+  const evolutionLevel = selectedKey ? (grid.tileEvolutionLevels?.[selectedKey] || 0) : 0;
 
   const tileMarketPolicy = selectedKey ? (grid.marketPolicy?.[selectedKey] ?? {}) : {};
 
@@ -331,9 +337,117 @@ export function TileInspector() {
                 <div>💸 Понижение возвращает 50% стоимости предыдущего уровня</div>
                 <div>🎯 Производство на уровне {buildingLevel}: {Object.entries(building.production ?? {}).map(([res, amt]) => 
                   `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel))}/с`
-                ).join(', ') || 'нет'}</div>
+                ).join(', ')}</div>
               </div>
             </div>
+
+            {/* PHASE 4: ЭВОЛЮЦИЯ ЗДАНИЙ */}
+            {(() => {
+              // Проверяем, разблокирована ли эволюция
+              if (!ascension.unlocks.buildingEvolution) return null;
+
+              const evolutionConfig = BUILDING_EVOLUTIONS[buildingId];
+              if (!evolutionConfig || !evolutionConfig.tiers || evolutionConfig.tiers.length === 0) return null;
+
+              const currentEvolution = getCurrentEvolution(buildingId, evolutionLevel);
+              const nextEvolution = getNextEvolution(buildingId, evolutionLevel);
+              const currentMultiplier = getEvolutionMultiplier(buildingId, evolutionLevel);
+
+              if (!nextEvolution) {
+                // Максимальная эволюция достигнута
+                return (
+                  <div className="bg-gradient-to-r from-purple-900/40 to-pink-900/40 p-2 rounded border border-purple-500/50">
+                    <div className="flex items-center gap-2 text-xs text-purple-300">
+                      <Sparkles size={14} className="text-purple-400" />
+                      <span className="font-bold">⭐ МАКС. ЭВОЛЮЦИЯ</span>
+                    </div>
+                    <div className="text-[10px] text-purple-200 mt-1">
+                      {currentEvolution?.nameRu || 'Максимальная форма'}: Множитель производства ×{currentMultiplier}
+                    </div>
+                  </div>
+                );
+              }
+
+              const canEvolveLevel = buildingLevel >= nextEvolution.level;
+              
+              // Проверяем стоимость
+              const hasEnoughCredits = !nextEvolution.cost?.credits || currency.credits.gte(nextEvolution.cost.credits);
+              const hasEnoughQP = !nextEvolution.cost?.quantum_points || quantumPoints.gte(nextEvolution.cost.quantum_points);
+              const canAfford = hasEnoughCredits && hasEnoughQP;
+              const canEvolve = canEvolveLevel && canAfford;
+              
+              const progressPercent = Math.min(100, (buildingLevel / nextEvolution.level) * 100);
+
+              return (
+                <div className="bg-gradient-to-r from-purple-900/20 to-pink-900/20 p-2 rounded border border-purple-500/30">
+                  <div className="text-xs text-cyber-text-dim mb-2 flex items-center gap-2">
+                    <Sparkles size={14} className="text-purple-400" />
+                    <span>🧬 Эволюция здания</span>
+                  </div>
+                  
+                  {currentEvolution && (
+                    <div className="text-[10px] text-purple-300 mb-2">
+                      ✨ Текущая: {currentEvolution.nameRu} (×{currentMultiplier} производство)
+                    </div>
+                  )}
+
+                  <div className="mb-2">
+                    <div className="flex justify-between text-[10px] text-cyber-text-dim mb-1">
+                      <span>Прогресс до следующей эволюции</span>
+                      <span>{buildingLevel} / {nextEvolution.level}</span>
+                    </div>
+                    <div className="w-full bg-cyber-dark/60 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {nextEvolution.cost && (
+                    <div className="text-[10px] text-cyber-text-dim mb-2 flex flex-wrap gap-2">
+                      {nextEvolution.cost.credits && (
+                        <span className={hasEnoughCredits ? 'text-cyber-green' : 'text-cyber-red'}>
+                          💰 {formatNumber(nextEvolution.cost.credits)}
+                        </span>
+                      )}
+                      {nextEvolution.cost.quantum_points && (
+                        <span className={hasEnoughQP ? 'text-cyber-green' : 'text-cyber-red'}>
+                          ⚛️ {formatNumber(nextEvolution.cost.quantum_points)} QP
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    className={`w-full text-xs py-2 px-3 rounded flex items-center justify-center gap-2 transition-all ${
+                      canEvolve 
+                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white animate-pulse'
+                        : 'bg-cyber-dark/60 text-cyber-text-dim cursor-not-allowed'
+                    }`}
+                    onClick={() => canEvolve && evolveBuildingAt(grid.selected!)}
+                    disabled={!canEvolve}
+                  >
+                    <Sparkles size={14} />
+                    <span>
+                      {!canEvolveLevel
+                        ? `Требуется уровень ${nextEvolution.level}`
+                        : !canAfford
+                        ? 'Недостаточно ресурсов'
+                        : `Эволюционировать → ${nextEvolution.nameRu}`
+                      }
+                    </span>
+                  </button>
+
+                  <div className="text-[10px] text-purple-200/80 mt-2 space-y-0.5">
+                    <div>🌟 {nextEvolution.nameRu}: ×{nextEvolution.multiplier} к производству</div>
+                    {nextEvolution.description && (
+                      <div className="text-purple-300/60">{nextEvolution.description}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="text-xs text-cyber-text-dim">
               Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
