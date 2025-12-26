@@ -4,7 +4,7 @@ import { D, formatNumber } from '../../core/math/format.ts';
 import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Search, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
+import { Search, ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff } from 'lucide-react';
 import {
   computeBandwidth,
   computeCapsMultiplier,
@@ -13,6 +13,9 @@ import {
   computeTradeMultiplier,
 } from '../../core/constants/progression';
 import { BUILDING_EVOLUTIONS, getNextEvolution, getCurrentEvolution, getEvolutionMultiplier } from '../../core/constants/buildingEvolutions';
+import { isBuildingPowered } from '../../utils/powerGridHelpers';
+import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
+import { isBuildingDisableable } from '../../core/constants/buildingCategories';
 
 export function TileInspector() {
   const grid = useGameStore((s) => s.grid);
@@ -32,11 +35,13 @@ export function TileInspector() {
   const upgradeBuildingAt = useGameStore((s) => s.upgradeBuildingAt);
   const downgradeBuildingAt = useGameStore((s) => s.downgradeBuildingAt);
   const evolveBuildingAt = useGameStore((s) => s.evolveBuildingAt);
+  const toggleBuildingDisabled = useGameStore((s) => s.toggleBuildingDisabled);
 
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
   const buildingLevel = selectedKey ? (grid.tileLevels?.[selectedKey] || 1) : 1;
   const evolutionLevel = selectedKey ? (grid.tileEvolutionLevels?.[selectedKey] || 0) : 0;
+  const isDisabled = selectedKey ? (grid.tileDisabled?.[selectedKey] || false) : false;
 
   const tileMarketPolicy = selectedKey ? (grid.marketPolicy?.[selectedKey] ?? {}) : {};
 
@@ -109,6 +114,23 @@ export function TileInspector() {
     if (!buildingId) return null;
     return buildings.find((b) => b.id === buildingId) ?? null;
   }, [buildingId, buildings]);
+
+  // Проверяем состояние энергопокрытия
+  const powerStatus = useMemo(() => {
+    if (!building || !grid.selected) return null;
+    
+    // Если это источник энергии, не проверяем покрытие
+    const isPowerSource = building.powerGridRadius && building.powerGridRadius > 0;
+    if (isPowerSource) {
+      return { isPowerSource: true, isPowered: true, radius: building.powerGridRadius };
+    }
+    
+    // Проверяем покрытие для потребителей
+    const allBuildingsWithCoords = getBuildingsWithCoordinates(buildings, grid.tiles);
+    const isPowered = isBuildingPowered(grid.selected, allBuildingsWithCoords);
+    
+    return { isPowerSource: false, isPowered, radius: 0 };
+  }, [building, buildings, grid.selected, grid.tiles]);
 
   const ioInfo = useMemo(() => {
     if (!grid.selected || !selectedKey || !building) return null;
@@ -310,6 +332,49 @@ export function TileInspector() {
               </button>
             </div>
 
+            {/* ФАЗА 11: УПРАВЛЕНИЕ ЗДАНИЕМ (Отключить/Включить) */}
+            {buildingId && isBuildingDisableable(buildingId) && (
+              <div className={`p-2 rounded border ${
+                isDisabled 
+                  ? 'bg-red-900/20 border-red-500/30' 
+                  : 'bg-cyan-900/20 border-cyan-500/30'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <div className={`font-bold ${isDisabled ? 'text-red-300' : 'text-cyan-300'}`}>
+                      {isDisabled ? '⏸️ Здание отключено' : '▶️ Здание работает'}
+                    </div>
+                    <div className="text-[10px] text-cyber-gray-light mt-0.5">
+                      {isDisabled 
+                        ? 'Не производит и не потребляет ресурсы' 
+                        : 'Кликни для остановки производства'
+                      }
+                    </div>
+                  </div>
+                  <button
+                    className={`px-4 py-2 rounded text-xs font-bold flex items-center gap-2 transition-all ${
+                      isDisabled
+                        ? 'bg-green-600 hover:bg-green-500 text-white'
+                        : 'bg-red-600 hover:bg-red-500 text-white'
+                    }`}
+                    onClick={() => toggleBuildingDisabled(grid.selected!)}
+                  >
+                    {isDisabled ? (
+                      <>
+                        <Power size={14} />
+                        <span>ВКЛЮЧИТЬ</span>
+                      </>
+                    ) : (
+                      <>
+                        <PowerOff size={14} />
+                        <span>ОТКЛЮЧИТЬ</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* ФАЗА 8.5: Система уровней зданий */}
             <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
               <div className="text-xs text-cyber-text-dim mb-2">⬆️ Улучшение здания</div>
@@ -453,9 +518,49 @@ export function TileInspector() {
               Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
             </div>
 
+            {/* Индикатор энергопокрытия */}
+            {powerStatus && (
+              <div className={`text-xs p-2 rounded border ${
+                powerStatus.isPowerSource
+                  ? 'bg-cyan-900/20 border-cyan-500/30 text-cyan-300'
+                  : powerStatus.isPowered
+                  ? 'bg-green-900/20 border-green-500/30 text-green-300'
+                  : 'bg-red-900/30 border-red-500/50 text-red-300'
+              }`}>
+                <div className="flex items-center gap-2 font-bold">
+                  <Zap size={14} className={powerStatus.isPowerSource ? 'text-cyan-400' : powerStatus.isPowered ? 'text-green-400' : 'text-red-400'} />
+                  {powerStatus.isPowerSource ? (
+                    <span>⚡ Источник энергии (радиус: {powerStatus.radius} клеток)</span>
+                  ) : powerStatus.isPowered ? (
+                    <span>✅ В зоне энергопокрытия</span>
+                  ) : (
+                    <span>⚠️ ВНЕ ЗОНЫ ЭНЕРГОПОКРЫТИЯ</span>
+                  )}
+                </div>
+                {!powerStatus.isPowerSource && !powerStatus.isPowered && (
+                  <div className="text-[10px] text-red-200/80 mt-1">
+                    💡 Постройте электростанцию или подстанцию поблизости!
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="text-xs text-cyber-text-dim">
               Производство здания начнётся автоматически (если хватает входных ресурсов).
             </div>
+
+            {/* Визуальный индикатор отключенного здания */}
+            {isDisabled && (
+              <div className="text-xs bg-red-900/30 border border-red-500/50 text-red-300 p-2 rounded">
+                <div className="flex items-center gap-2 font-bold">
+                  <PowerOff size={14} className="text-red-400" />
+                  <span>⏸️ ЗДАНИЕ ОТКЛЮЧЕНО</span>
+                </div>
+                <div className="text-[10px] text-red-200/80 mt-1">
+                  Производство и потребление ресурсов остановлено. Включите здание выше для возобновления работы.
+                </div>
+              </div>
+            )}
 
             <div className="text-xs text-cyber-blue bg-cyber-dark/40 p-2 rounded border border-cyber-blue/30 mb-2">
               🔄 <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Летящие точки показывают активные поставки.

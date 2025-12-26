@@ -35,6 +35,7 @@ import type {
 } from '../core/gameTypes';
 import { D } from '../core/math/format.ts';
 import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
+import { isBuildingDisableable } from '../core/constants/buildingCategories';
 import {
   DEMON_DEFS,
   UPGRADE_DEFS,
@@ -491,11 +492,12 @@ const INITIAL_BUILDINGS: Building[] = [
   {
     id: 'generator_mk1',
     name: 'Аварийный Генератор',
-    description: "Старый, но надежный генератор. Вырабатывает мало энергии.",
+    description: "Старый, но надежный генератор. Вырабатывает мало энергии. Радиус покрытия: 3 клетки.",
     baseCost: { energy: D(5) },
     creditCost: D(50),
     costFactor: 1.15,
     production: { energy: D(1) },
+    powerGridRadius: 3,
     count: 0
   },
   {
@@ -1700,6 +1702,9 @@ const DEFAULT_GRID = {
   lastDtSeconds: 0,
   selectedBuildId: null as string | null,
   marketPolicy: {} as Record<string, Partial<Record<TradeResourceType, { import?: boolean; export?: boolean }>>>,
+  tileLevels: {} as Record<string, number>,
+  tileEvolutionLevels: {} as Record<string, number>,
+  tileDisabled: {} as Record<string, boolean>,
 };
 
 const keyOf = (pos: GridCoord) => `${pos.x},${pos.y}`;
@@ -3284,22 +3289,36 @@ export const useGameStore = create<GameState>((set, get) => ({
       buildingsWithProximity.forEach((b) => {
         if (b.count <= 0) return;
         
-        const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
-        if (placedCount === 0) return;
+        const placedKeys = Object.entries(state.grid.tiles)
+          .filter(([_, id]) => id === b.id)
+          .map(([key]) => key);
+        
+        if (placedKeys.length === 0) return;
+        
+        // Считаем только активные (не отключенные) здания
+        let activePlacedCount = 0;
+        for (const key of placedKeys) {
+          const isDisabled = state.grid.tileDisabled?.[key] || false;
+          if (!isDisabled) {
+            activePlacedCount++;
+          }
+        }
+        
+        if (activePlacedCount === 0) return;
         
         // Energy production
         if (b.production?.energy) {
-          totalEnergyProduction = totalEnergyProduction.add(D(b.production.energy).mul(placedCount));
+          totalEnergyProduction = totalEnergyProduction.add(D(b.production.energy).mul(activePlacedCount));
         }
         
         // Passive energy consumption
         if (b.energyConsumption) {
-          totalEnergyConsumption = totalEnergyConsumption.add(D(b.energyConsumption).mul(placedCount));
+          totalEnergyConsumption = totalEnergyConsumption.add(D(b.energyConsumption).mul(activePlacedCount));
         }
         
         // Active consumption (from consumption field, not energyConsumption)
         if (b.consumption?.energy) {
-          totalEnergyConsumption = totalEnergyConsumption.add(D(b.consumption.energy).mul(placedCount));
+          totalEnergyConsumption = totalEnergyConsumption.add(D(b.consumption.energy).mul(activePlacedCount));
         }
       });
       
@@ -3307,14 +3326,29 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (waveActiveEconomy) {
         buildingsWithProximity.forEach((b) => {
           if (b.count <= 0) return;
-          const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
-          if (placedCount === 0) return;
+          
+          const placedKeys = Object.entries(state.grid.tiles)
+            .filter(([_, id]) => id === b.id)
+            .map(([key]) => key);
+          
+          if (placedKeys.length === 0) return;
+          
+          // Считаем только активные (не отключенные) здания
+          let activePlacedCount = 0;
+          for (const key of placedKeys) {
+            const isDisabled = state.grid.tileDisabled?.[key] || false;
+            if (!isDisabled) {
+              activePlacedCount++;
+            }
+          }
+          
+          if (activePlacedCount === 0) return;
           
           if (b.combat?.energyPerSecond) {
-            totalEnergyConsumption = totalEnergyConsumption.add(D(b.combat.energyPerSecond).mul(placedCount));
+            totalEnergyConsumption = totalEnergyConsumption.add(D(b.combat.energyPerSecond).mul(activePlacedCount));
           }
           if (b.defense?.energyPerSecond) {
-            totalEnergyConsumption = totalEnergyConsumption.add(D(b.defense.energyPerSecond).mul(placedCount));
+            totalEnergyConsumption = totalEnergyConsumption.add(D(b.defense.energyPerSecond).mul(activePlacedCount));
           }
         });
       }
@@ -3373,6 +3407,13 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (!isPowered) {
               continue;
             }
+          }
+
+          // Фаза 11: Проверка disabled state
+          // Отключенные здания не работают (не производят и не потребляют)
+          const isDisabled = state.grid.tileDisabled?.[tileKey] || false;
+          if (isDisabled) {
+            continue;
           }
 
           const tilePolicy = state.grid.marketPolicy?.[tileKey];
@@ -8022,6 +8063,44 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
     
     console.log(`✨ Building evolved to: ${nextEvolution.name} (×${nextEvolution.multiplier})`);
+  },
+
+  // ============================================================================
+  // Building Management Methods (Phase 11: Building Disable/Enable)
+  // ============================================================================
+
+  toggleBuildingDisabled: (coord: GridCoord) => {
+    set((state) => {
+      const k = keyOf(coord);
+      const buildingId = state.grid.tiles[k];
+      
+      if (!buildingId) {
+        console.warn('No building at this coordinate');
+        return state;
+      }
+      
+      // Проверяем, можно ли отключить это здание
+      if (!isBuildingDisableable(buildingId)) {
+        console.warn(`Building ${buildingId} cannot be disabled`);
+        return state;
+      }
+      
+      // Инициализируем tileDisabled если его нет
+      const tileDisabled = { ...(state.grid.tileDisabled || {}) };
+      
+      // Переключаем состояние
+      const currentState = tileDisabled[k] || false;
+      tileDisabled[k] = !currentState;
+      
+      // Возвращаем обновленное состояние
+      return {
+        ...state,
+        grid: {
+          ...state.grid,
+          tileDisabled,
+        },
+      };
+    });
   },
 
   // ============================================================================

@@ -736,6 +736,8 @@ export interface GridState {
   tileLevels?: Record<string, number>;
   // key = "x,y"; value = evolution level (0-3) [Phase 4: Building Evolution]
   tileEvolutionLevels?: Record<string, number>;
+  // key = "x,y"; value = disabled state (true = building is disabled) [Phase 11: Building Management]
+  tileDisabled?: Record<string, boolean>;
   // key = "x,y"; value = deposit type (where extraction buildings can be placed)
   deposits?: Record<string, DepositType>;
   // key = "x,y" (and special key "base"); values are stringified decimals
