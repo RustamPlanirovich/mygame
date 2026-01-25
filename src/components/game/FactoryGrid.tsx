@@ -1131,23 +1131,21 @@ export function FactoryGrid() {
         const particleX = fromX + (toX - fromX) * progress;
         const particleY = fromY + (toY - fromY) * progress;
         
-        // Рисуем частицу с эффектом свечения
-        g.circle(particleX, particleY, 5).fill({ color, alpha: 0.9 });
-        g.circle(particleX, particleY, 3).fill({ color: 0xffffff, alpha: 0.7 });
+        // Рисуем частицу с эффектом свечения (масштабируем размер в зависимости от зума)
+        const particleSize = Math.max(2, 5 / cam.zoom);
+        const innerParticleSize = Math.max(1, 3 / cam.zoom);
+        g.circle(particleX, particleY, particleSize).fill({ color, alpha: 0.9 });
+        g.circle(particleX, particleY, innerParticleSize).fill({ color: 0xffffff, alpha: 0.7 });
         
         // Текст с количеством (только при высоком зуме)
-        if (cam.zoom > 1.2 && textLayer) {
+        if (cam.zoom > 1.2 && showText) {
           const flowStyle = TEXT_STYLES.flow.clone();
           flowStyle.fill = color;
           const amount = typeof transport.amount === 'string' ? D(transport.amount) : transport.amount;
-          const flowText = new PIXI.Text({
-            text: formatNumber(amount),
-            style: flowStyle,
-          });
+          const flowText = getTextFromPool(formatNumber(amount), flowStyle);
           flowText.anchor.set(0.5, 0.5);
           flowText.x = particleX;
           flowText.y = particleY - 10;
-          textLayer.addChild(flowText);
         }
       }
     }

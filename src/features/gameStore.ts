@@ -1445,7 +1445,13 @@ const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   radioactive_waste: INITIAL_RESOURCES.radioactive_waste.max,
 };
 
-const recomputeCaps = (resources: typeof INITIAL_RESOURCES, buildings: Building[], capsMultiplier: Decimal = D(1)) => {
+const recomputeCaps = (
+  resources: typeof INITIAL_RESOURCES, 
+  buildings: Building[], 
+  capsMultiplier: Decimal = D(1),
+  tileLevels: Record<string, number> = {},
+  tiles: Record<string, string> = {}
+) => {
   const next = { ...resources };
 
   const caps: Record<ResourceType, Decimal> = {
@@ -1501,13 +1507,22 @@ const recomputeCaps = (resources: typeof INITIAL_RESOURCES, buildings: Building[
     radioactive_waste: BASE_RESOURCE_MAX.radioactive_waste,
   };
 
+  // ФАЗА 8.5: Добавляем вместимость от зданий с учетом их уровней
   for (const b of buildings) {
-    if (b.count <= 0) continue;
     if (!b.productionMultipliers) continue;
-    for (const [resType, amount] of Object.entries(b.productionMultipliers)) {
-      const rType = resType as ResourceType;
-      if (!caps[rType]) continue;
-      caps[rType] = caps[rType].add(D(amount).mul(b.count));
+    
+    // Находим ВСЕ здания этого типа на карте и суммируем их уровни
+    for (const [tileKey, buildingId] of Object.entries(tiles)) {
+      if (buildingId === b.id) {
+        const level = tileLevels[tileKey] || 1;
+        
+        // Добавляем вместимость: базовая_вместимость × уровень_здания
+        for (const [resType, amount] of Object.entries(b.productionMultipliers)) {
+          const rType = resType as ResourceType;
+          if (!caps[rType]) continue;
+          caps[rType] = caps[rType].add(D(amount).mul(level));
+        }
+      }
     }
   }
 
@@ -2141,7 +2156,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
 
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const capped = recomputeCaps(newResources, newBuildings, capsMult);
+      const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       return { resources: capped, buildings: newBuildings, currency: newCurrency };
     });
   },
@@ -2229,7 +2244,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       newBuildings[buildingIndex] = { ...building, count: building.count + 1 };
 
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const capped = recomputeCaps(newResources, newBuildings, capsMult);
+      const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
 
       // init tile buffer
       let nextBuffers = buffers;
@@ -2305,7 +2320,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const capped = recomputeCaps(newResources, newBuildings, capsMult);
+      const capped = recomputeCaps(newResources, newBuildings, capsMult, nextTileLevels, nextTiles);
 
       // keep buffer record (so resources can remain, but it's ok). Optional cleanup later.
 
@@ -2647,7 +2662,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const capsMult = computeCapsMultiplier(levels, state.meta.qubits);
 
       let resources = syncResourcesFromBase({ ...state.resources }, grid.buffers);
-      resources = recomputeCaps(resources, state.buildings, capsMult);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       buffers = clampBaseBufferToCaps(grid.buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
       grid = { ...grid, buffers };
@@ -2766,7 +2781,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       let buffers = spendCostFromBase(state.grid.buffers, cost);
       let resources = syncResourcesFromBase({ ...state.resources }, buffers);
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      resources = recomputeCaps(resources, state.buildings, capsMult);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       buffers = clampBaseBufferToCaps(buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
@@ -2797,7 +2812,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       let resources = syncResourcesFromBase({ ...state.resources }, buffers);
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      resources = recomputeCaps(resources, state.buildings, capsMult);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       buffers = clampBaseBufferToCaps(buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
@@ -2827,7 +2842,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       let resources = syncResourcesFromBase({ ...state.resources }, buffers);
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      resources = recomputeCaps(resources, state.buildings, capsMult);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       buffers = clampBaseBufferToCaps(buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
@@ -2999,8 +3014,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         return b;
       });
 
-      const capsMult = computeCapsMultiplier(state.research.levels, nextMeta.qubits);
-      let resources = recomputeCaps({ ...INITIAL_RESOURCES }, nextBuildings, capsMult);
+      const capsMult = computeCapsMultiplier(newResearch.levels, nextMeta.qubits);
+      let resources = recomputeCaps({ ...INITIAL_RESOURCES }, nextBuildings, capsMult, {}, nextTiles);
       let buffers = clampBaseBufferToCaps(nextGrid.buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
@@ -3041,7 +3056,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       let buffers = spendCostFromBase(state.grid.buffers, cost);
       let resources = syncResourcesFromBase({ ...state.resources }, buffers);
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      resources = recomputeCaps(resources, state.buildings, capsMult);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
       buffers = clampBaseBufferToCaps(buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
@@ -3118,11 +3133,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Update proximity multipliers for all buildings
       const buildingsWithProximity = updateAllProximityMultipliers(state.buildings, state.grid.tiles);
 
-      // caps first
+      // caps first - передаем tileLevels и tiles для правильного расчета вместимости
       let newResources = recomputeCaps(
         { ...state.resources }, 
         buildingsWithProximity, 
-        capsMult.mul(artifactBonuses.energyCapacity)  // Apply artifact energy capacity bonus
+        capsMult.mul(artifactBonuses.energyCapacity),  // Apply artifact energy capacity bonus
+        state.grid.tileLevels || {},
+        state.grid.tiles
       );
 
       const baseKey = 'base';
@@ -5261,24 +5278,279 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Загрузить конкретное сохранение
   loadGameFromSave: async (saveId: number) => {
+    console.log('🔄 Загрузка сохранения ID:', saveId);
     try {
-      if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
+      if (!isAuthenticated()) {
+        console.error('❌ Пользователь не авторизован');
+        return { ok: false, error: 'NO_USER' };
+      }
       
+      console.log('📡 Запрос к серверу...');
       const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
         headers: getAuthHeaders(),
       });
 
+      console.log('📦 Ответ получен, статус:', response.status);
       const result = await response.json();
       if (!result.ok) {
+        console.error('❌ Ошибка от сервера:', result.error);
         return { ok: false, error: result.error };
       }
 
+      console.log('✅ Данные получены, начинаем применение...');
+      const save = result.save.data;
+      
+      // Применяем загруженное состояние (используем ту же логику что в loadGame)
+      console.log('🔧 Начинаем set() для применения состояния...');
+      set((state) => {
+        console.log('📝 Внутри set(), обрабатываем состояние...');
+        const loadedResearch: ResearchState = save.research && save.research.levels
+          ? {
+              levels: {
+                ...INITIAL_RESEARCH.levels,
+                ...save.research.levels,
+              },
+              technologies: save.research.technologies
+                ? {
+                    ...INITIAL_RESEARCH.technologies,
+                    ...save.research.technologies,
+                  }
+                : INITIAL_RESEARCH.technologies,
+            }
+          : state.research;
+
+        const loadedDemons: DemonsState = save.demons && save.demons.active
+          ? {
+              ...state.demons,
+              active: {
+                ...state.demons.active,
+                ...save.demons.active,
+              },
+              rentPaid: {
+                smart_broker: false,
+                overclocker: false,
+                oracle: false,
+              },
+            }
+          : state.demons;
+
+        const loadedGalaxies: GalaxiesState = save.galaxies
+          ? {
+              ...state.galaxies,
+              ...save.galaxies,
+            }
+          : state.galaxies;
+
+        const loadedMeta: MetaState = save.meta
+          ? { 
+              qubits: D(save.meta.qubits ?? '0'),
+              blueprints: D(save.meta.blueprints ?? '0'),
+              lifetimeEnergyProduced: D(save.meta.lifetimeEnergyProduced ?? '0'),
+            }
+          : state.meta;
+
+        const loadedMarket: MarketState = save.market
+          ? {
+              ...state.market,
+              prices: save.market.prices 
+                ? Object.fromEntries(
+                    Object.entries(save.market.prices).map(([k, v]) => [k, D(v as any)])
+                  ) as Record<TradeResourceType, Decimal>
+                : state.market.prices,
+              event: save.market.event ?? state.market.event,
+              nextUpdateAt: save.market.nextUpdateAt ?? state.market.nextUpdateAt,
+              history: save.market.history ?? state.market.history,
+            }
+          : state.market;
+
+        const loadedShip: ShipState = save.ship
+          ? { ...state.ship, ...save.ship }
+          : state.ship;
+
+        const loadedCombat: CombatState = save.combat
+          ? { ...state.combat, ...save.combat }
+          : state.combat;
+
+        const loadedAegis: AegisState = save.aegis
+          ? { ...state.aegis, ...save.aegis }
+          : state.aegis;
+
+        const loadedStarChart: StarChartState = save.starChart
+          ? { ...state.starChart, ...save.starChart }
+          : state.starChart;
+
+        const loadedPolitics: PoliticsState = save.politics
+          ? { ...state.politics, ...save.politics }
+          : state.politics;
+
+        const loadedQuantumNet: QuantumNetState = save.quantumNet
+          ? { ...state.quantumNet, ...save.quantumNet }
+          : state.quantumNet;
+
+        const loadedExpedition: ExpeditionState = save.expedition
+          ? { ...state.expedition, ...save.expedition }
+          : state.expedition;
+
+        const loadedRandomEvents: RandomEventsState = save.randomEvents
+          ? { ...state.randomEvents, ...save.randomEvents }
+          : state.randomEvents;
+
+        const loadedProductionMatrix: ProductionMatrixState = save.productionMatrix
+          ? { ...state.productionMatrix, ...save.productionMatrix }
+          : state.productionMatrix;
+
+        const loadedIntergalacticLogistics: IntergalacticLogisticsState = save.intergalacticLogistics
+          ? { ...state.intergalacticLogistics, ...save.intergalacticLogistics }
+          : state.intergalacticLogistics;
+
+        let newResources = state.resources;
+        if (save.resources) {
+          for (const key of Object.keys(save.resources) as (keyof ResourcesState)[]) {
+            const val = save.resources[key];
+            if (val && typeof val === 'object' && 'amount' in val && 'max' in val) {
+              newResources[key].amount = D(val.amount);
+              newResources[key].max = D(val.max);
+            }
+          }
+        }
+
+        let newBuildings = state.buildings.map((b) => ({ ...b }));
+        if (save.buildings && Array.isArray(save.buildings)) {
+          newBuildings = save.buildings.map((sb: any) => {
+            const existing = state.buildings.find((b2) => b2.id === sb.id);
+            if (!existing) return sb;
+            return { ...existing, count: sb.count ?? 0 };
+          });
+        }
+
+        let newCurrency = { ...state.currency };
+        if (save.currency) {
+          newCurrency.credits = D(save.currency.credits ?? '0');
+          newCurrency.influence = D(save.currency.influence ?? '0');
+          newCurrency.researchPoints = D(save.currency.researchPoints ?? '0');
+        }
+
+        const grid = save.grid
+          ? {
+              ...state.grid,
+              tiles: save.grid.tiles ?? {},
+              tileLevels: save.grid.tileLevels ?? {},
+              tileEvolutionLevels: save.grid.tileEvolutionLevels ?? {},
+              tileDisabled: save.grid.tileDisabled ?? {},
+              buffers: save.grid.buffers ?? state.grid.buffers,
+              deposits: save.grid.deposits ?? state.grid.deposits,
+              width: save.grid.width ?? state.grid.width,
+              height: save.grid.height ?? state.grid.height,
+              selected: save.grid.selected ?? null,
+              selectedBuildId: save.grid.selectedBuildId ?? null,
+              activeTransports: save.grid.activeTransports ?? [],
+              focusedLink: save.grid.focusedLink ?? null,
+              marketPolicy: save.grid.marketPolicy ?? {},
+              lastDtSeconds: save.grid.lastDtSeconds ?? 0,
+              cameraX: typeof save.grid.cameraX === 'number' ? save.grid.cameraX : state.grid.cameraX,
+              cameraY: typeof save.grid.cameraY === 'number' ? save.grid.cameraY : state.grid.cameraY,
+              cameraZoom: typeof save.grid.cameraZoom === 'number' ? save.grid.cameraZoom : state.grid.cameraZoom,
+            }
+          : state.grid;
+
+        const tileCounts = new Map<string, number>();
+        for (const v of Object.values(grid.tiles ?? {})) {
+          if (typeof v === 'string') {
+            tileCounts.set(v, (tileCounts.get(v) ?? 0) + 1);
+          }
+        }
+        if (tileCounts.size > 0) {
+          newBuildings = newBuildings.map((b) => ({ ...b, count: tileCounts.get(b.id) ?? 0 }));
+        }
+
+        // МИГРАЦИЯ: Добавляем отсутствующие tileLevels для зданий на карте
+        if (grid.tiles && Object.keys(grid.tiles).length > 0) {
+          if (!grid.tileLevels) {
+            grid.tileLevels = {};
+          }
+          
+          let migratedCount = 0;
+          for (const tileKey of Object.keys(grid.tiles)) {
+            if (!(tileKey in grid.tileLevels)) {
+              grid.tileLevels[tileKey] = 1;
+              migratedCount++;
+            }
+          }
+          
+          if (migratedCount > 0) {
+            console.log('🔧 Миграция: инициализированы уровни для', migratedCount, 'зданий');
+          }
+          
+          if (!grid.tileEvolutionLevels) {
+            grid.tileEvolutionLevels = {};
+          }
+          for (const tileKey of Object.keys(grid.tiles)) {
+            if (!(tileKey in grid.tileEvolutionLevels)) {
+              grid.tileEvolutionLevels[tileKey] = 0;
+            }
+          }
+        }
+
+        console.log('📊 Загрузка: зданий на карте =', Object.keys(grid.tiles || {}).length, ', tileLevels =', Object.keys(grid.tileLevels || {}).length);
+
+        const capsMult = computeCapsMultiplier(loadedResearch.levels, loadedMeta.qubits);
+        newResources = recomputeCaps(newResources, newBuildings, capsMult, grid.tileLevels || {}, grid.tiles);
+        let nextBuffers = grid.buffers ?? state.grid.buffers;
+        nextBuffers = clampBaseBufferToCaps(nextBuffers, newResources);
+        newResources = syncResourcesFromBase(newResources, nextBuffers);
+
+        const deposits: Record<string, DepositType> = grid.deposits && typeof grid.deposits === 'object'
+          ? (grid.deposits as Record<string, DepositType>)
+          : generateDeposits(grid.width, grid.height);
+
+        const desired = desiredGridSizeForResearch(loadedResearch.levels);
+        const expandedGrid =
+          grid.width < desired.width || grid.height < desired.height
+            ? {
+                ...grid,
+                width: Math.max(grid.width, desired.width),
+                height: Math.max(grid.height, desired.height),
+              }
+            : grid;
+
+        console.log('✅ Состояние подготовлено, возвращаем новое состояние');
+        return {
+          ...state,
+          research: loadedResearch,
+          demons: loadedDemons,
+          galaxies: loadedGalaxies,
+          meta: loadedMeta,
+          market: loadedMarket,
+          ship: loadedShip,
+          combat: loadedCombat,
+          aegis: loadedAegis,
+          starChart: loadedStarChart,
+          politics: loadedPolitics,
+          quantumNet: loadedQuantumNet,
+          expedition: loadedExpedition,
+          randomEvents: loadedRandomEvents,
+          productionMatrix: loadedProductionMatrix,
+          intergalacticLogistics: loadedIntergalacticLogistics,
+          resources: newResources,
+          buildings: newBuildings,
+          currency: newCurrency,
+          grid: expandedGrid,
+          pollution: save.pollution ?? state.pollution,
+          nanoSwarm: save.nanoSwarm ?? state.nanoSwarm,
+        };
+      });
+      
+      console.log('✅ set() успешно выполнен');
+      
       // Сохраняем ID текущего активного сохранения
+      console.log('💾 Сохраняем ID активного сохранения...');
       await saveCurrentSaveIdToServer(saveId);
 
+      console.log('🎉 Загрузка полностью завершена!');
       return { ok: true };
     } catch (e) {
-      console.error('Failed to load save', e);
+      console.error('💥 КРИТИЧЕСКАЯ ОШИБКА при загрузке:', e);
+      console.error('Stack trace:', (e as Error).stack);
       return { ok: false, error: String(e) };
     }
   },
@@ -5838,6 +6110,9 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ? { x: save.grid.selected.x, y: save.grid.selected.y }
                 : null,
               tiles: save.grid.tiles && typeof save.grid.tiles === 'object' ? save.grid.tiles : state.grid.tiles,
+              tileLevels: save.grid.tileLevels && typeof save.grid.tileLevels === 'object' ? save.grid.tileLevels : (state.grid.tileLevels ?? {}),
+              tileEvolutionLevels: save.grid.tileEvolutionLevels && typeof save.grid.tileEvolutionLevels === 'object' ? save.grid.tileEvolutionLevels : (state.grid.tileEvolutionLevels ?? {}),
+              tileDisabled: save.grid.tileDisabled && typeof save.grid.tileDisabled === 'object' ? save.grid.tileDisabled : (state.grid.tileDisabled ?? {}),
               deposits: save.grid.deposits && typeof save.grid.deposits === 'object' ? save.grid.deposits : state.grid.deposits,
               buffers: save.grid.buffers && typeof save.grid.buffers === 'object' ? save.grid.buffers : state.grid.buffers,
               activeTransports: [], // Reset transports on load
@@ -5878,8 +6153,39 @@ export const useGameStore = create<GameState>((set, get) => ({
           newBuildings = newBuildings.map((b) => ({ ...b, count: tileCounts.get(b.id) ?? 0 }));
         }
 
+        // МИГРАЦИЯ: Добавляем отсутствующие tileLevels для зданий на карте
+        if (grid.tiles && Object.keys(grid.tiles).length > 0) {
+          if (!grid.tileLevels) {
+            grid.tileLevels = {};
+          }
+          
+          let migratedCount = 0;
+          for (const tileKey of Object.keys(grid.tiles)) {
+            if (!(tileKey in grid.tileLevels)) {
+              grid.tileLevels[tileKey] = 1;
+              migratedCount++;
+            }
+          }
+          
+          if (migratedCount > 0) {
+            console.log('🔧 Миграция: инициализированы уровни для', migratedCount, 'зданий');
+          }
+          
+          // Также добавляем tileEvolutionLevels если их нет
+          if (!grid.tileEvolutionLevels) {
+            grid.tileEvolutionLevels = {};
+          }
+          for (const tileKey of Object.keys(grid.tiles)) {
+            if (!(tileKey in grid.tileEvolutionLevels)) {
+              grid.tileEvolutionLevels[tileKey] = 0;
+            }
+          }
+        }
+
+        console.log('📊 Загрузка: зданий на карте =', Object.keys(grid.tiles || {}).length, ', tileLevels =', Object.keys(grid.tileLevels || {}).length);
+
         const capsMult = computeCapsMultiplier(loadedResearch.levels, loadedMeta.qubits);
-        newResources = recomputeCaps(newResources, newBuildings, capsMult);
+        newResources = recomputeCaps(newResources, newBuildings, capsMult, grid.tileLevels || {}, grid.tiles);
         let nextBuffers = grid.buffers ?? state.grid.buffers;
         nextBuffers = clampBaseBufferToCaps(nextBuffers, newResources);
         newResources = syncResourcesFromBase(newResources, nextBuffers);
@@ -6968,17 +7274,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Upgrade the building level
       const newTileLevels = { ...tileLevels, [tileKey]: currentLevel + 1 };
       
+      // ФАЗА 8.5: Обновляем grid и пересчитываем вместимость
+      const updatedGrid = {
+        ...state.grid,
+        tileLevels: newTileLevels,
+      };
+      
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const updatedResources = recomputeCaps(newResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
+      
       return {
         ...state,
-        resources: newResources,
+        resources: updatedResources,
         currency: {
           ...state.currency,
           credits: newCredits,
         },
-        grid: {
-          ...state.grid,
-          tileLevels: newTileLevels,
-        },
+        grid: updatedGrid,
       };
     });
   },
@@ -7038,17 +7350,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Downgrade the building level
       const newTileLevels = { ...tileLevels, [tileKey]: currentLevel - 1 };
       
+      // ФАЗА 8.5: Обновляем grid и пересчитываем вместимость
+      const updatedGrid = {
+        ...state.grid,
+        tileLevels: newTileLevels,
+      };
+      
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const updatedResources = recomputeCaps(newResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
+      
       return {
         ...state,
-        resources: newResources,
+        resources: updatedResources,
         currency: {
           ...state.currency,
           credits: newCredits,
         },
-        grid: {
-          ...state.grid,
-          tileLevels: newTileLevels,
-        },
+        grid: updatedGrid,
       };
     });
   },
@@ -7066,7 +7384,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   resetGame: () => {
     const now = Date.now();
     const capsMult = computeCapsMultiplier(INITIAL_RESEARCH.levels, INITIAL_META.qubits);
-    let resources = recomputeCaps({ ...INITIAL_RESOURCES }, BUILDINGS_WITH_PROXIMITY, capsMult);
+    let resources = recomputeCaps({ ...INITIAL_RESOURCES }, BUILDINGS_WITH_PROXIMITY, capsMult, {}, {});
     let buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
     resources = syncResourcesFromBase(resources, buffers);
 

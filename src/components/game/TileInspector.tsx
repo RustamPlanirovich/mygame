@@ -238,23 +238,38 @@ export function TileInspector() {
             </div>
 
             <div className="pt-2 border-t border-cyber-gray/50">
-              <div className="text-xs text-cyber-text-dim mb-2">Склад базы</div>
-              <div className="text-xs text-cyber-text-dim flex flex-wrap gap-x-3 gap-y-1">
-                {(['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'] as ResourceType[]).map((r) => {
-                  const raw = grid.buffers.base?.[r];
-                  const amt = raw ? D(raw) : D(0);
-                  const max = resources[r].max;
-                  const full = max.gt(0) && amt.gte(max);
-                  return (
-                    <div key={r}>
-                      <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}:</span>{' '}
-                      <span className={`font-mono ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>
-                        {formatNumber(amt)} / {formatNumber(max)}
-                      </span>
-                      {full ? <span className="text-cyber-red"> (ПОЛНО)</span> : null}
-                    </div>
-                  );
-                })}
+              <div className="text-xs text-cyber-text-dim mb-2">📦 Склад базы</div>
+              <div className="text-[10px] text-cyber-gray-light mb-2 italic">
+                ℹ️ Все ресурсы автоматически отправляются сюда<br/>
+                💡 Складские модули увеличивают вместимость
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {(Object.keys(resources) as ResourceType[])
+                  .filter((r) => resources[r].max.gt(0)) // Показываем только ресурсы с ненулевой вместимостью
+                  .map((r) => {
+                    const raw = grid.buffers.base?.[r];
+                    const amt = raw ? D(raw) : D(0);
+                    const max = resources[r].max;
+                    const full = max.gt(0) && amt.gte(max);
+                    const fillPercent = max.gt(0) ? amt.div(max).mul(100).toNumber() : 0;
+                    return (
+                      <div key={r} className="bg-cyber-dark/40 p-1.5 rounded">
+                        <div className="flex items-center justify-between text-[10px] mb-0.5">
+                          <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}</span>
+                          <span className={`font-mono ${full ? 'text-cyber-red font-bold' : fillPercent > 80 ? 'text-orange-400' : 'text-cyber-text'}`}>
+                            {formatNumber(amt)} / {formatNumber(max)}
+                            {full && <span className="ml-1">🔴 ПОЛНО</span>}
+                          </span>
+                        </div>
+                        <div className="h-1 bg-cyber-gray/20 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all ${full ? 'bg-cyber-red' : fillPercent > 80 ? 'bg-orange-400' : 'bg-cyber-blue'}`}
+                            style={{ width: `${Math.min(fillPercent, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
 
               <div className="mt-3 pt-2 border-t border-cyber-gray/50">
@@ -378,32 +393,125 @@ export function TileInspector() {
             {/* ФАЗА 8.5: Система уровней зданий */}
             <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
               <div className="text-xs text-cyber-text-dim mb-2">⬆️ Улучшение здания</div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="flex-1 bg-green-600/80 hover:bg-green-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => upgradeBuildingAt(grid.selected!)}
-                  disabled={buildingLevel >= 500}
-                >
-                  <ArrowUp size={14} />
-                  <span>Улучшить (Ур. {buildingLevel + 1})</span>
-                </button>
-                <button
-                  className="flex-1 bg-orange-600/80 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => downgradeBuildingAt(grid.selected!)}
-                  disabled={buildingLevel <= 1}
-                >
-                  <ArrowDown size={14} />
-                  <span>Понизить (Ур. {buildingLevel - 1})</span>
-                </button>
-              </div>
-              <div className="text-[10px] text-cyber-gray-light mt-2 space-y-0.5">
-                <div>💡 Каждый уровень умножает производство и потребление</div>
-                <div>💰 Стоимость улучшения растет экспоненциально (x1.15)</div>
-                <div>💸 Понижение возвращает 50% стоимости предыдущего уровня</div>
-                <div>🎯 Производство на уровне {buildingLevel}: {Object.entries(building.production ?? {}).map(([res, amt]) => 
-                  `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel))}/с`
-                ).join(', ')}</div>
-              </div>
+              
+              {(() => {
+                // Рассчитываем стоимость улучшения
+                const upgradeCostFactor = Math.pow(1.15, buildingLevel);
+                const upgradeCost: Array<{resource: string, amount: Decimal, available: Decimal, canAfford: boolean}> = [];
+                let canAffordUpgrade = buildingLevel < 500;
+                
+                Object.entries(building.baseCost).forEach(([resource, baseCost]) => {
+                  const cost = D(baseCost).mul(upgradeCostFactor);
+                  const available = resources[resource as ResourceType]?.amount || D(0);
+                  const canAfford = available.gte(cost);
+                  if (!canAfford) canAffordUpgrade = false;
+                  upgradeCost.push({ resource, amount: cost, available, canAfford });
+                });
+                
+                if (building.creditCost) {
+                  const creditCost = building.creditCost.mul(upgradeCostFactor);
+                  const canAfford = currency.credits.gte(creditCost);
+                  if (!canAfford) canAffordUpgrade = false;
+                  upgradeCost.push({ resource: 'credits', amount: creditCost, available: currency.credits, canAfford });
+                }
+                
+                // Рассчитываем возврат за понижение
+                const downgradeCostFactor = Math.pow(1.15, buildingLevel - 1);
+                const downgradeRefund: Array<{resource: string, amount: Decimal}> = [];
+                
+                Object.entries(building.baseCost).forEach(([resource, baseCost]) => {
+                  const refund = D(baseCost).mul(downgradeCostFactor).mul(0.5);
+                  downgradeRefund.push({ resource, amount: refund });
+                });
+                
+                if (building.creditCost) {
+                  const creditRefund = building.creditCost.mul(downgradeCostFactor).mul(0.5);
+                  downgradeRefund.push({ resource: 'credits', amount: creditRefund });
+                }
+                
+                return (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="flex-1 bg-green-600/80 hover:bg-green-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => upgradeBuildingAt(grid.selected!)}
+                        disabled={!canAffordUpgrade}
+                      >
+                        <ArrowUp size={14} />
+                        <span>Улучшить (Ур. {buildingLevel + 1})</span>
+                      </button>
+                      <button
+                        className="flex-1 bg-orange-600/80 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => downgradeBuildingAt(grid.selected!)}
+                        disabled={buildingLevel <= 1}
+                      >
+                        <ArrowDown size={14} />
+                        <span>Понизить (Ур. {buildingLevel - 1})</span>
+                      </button>
+                    </div>
+                    
+                    {/* Стоимость улучшения */}
+                    {buildingLevel < 500 && upgradeCost.length > 0 && (
+                      <div className="text-[10px] mt-2 p-1.5 bg-green-900/20 rounded border border-green-500/30">
+                        <div className="text-green-400 font-semibold mb-1">📈 Стоимость улучшения:</div>
+                        <div className="flex flex-wrap gap-2">
+                          {upgradeCost.map(({ resource, amount, canAfford }) => (
+                            <span key={resource} className={canAfford ? 'text-green-300' : 'text-red-400'}>
+                              {resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]} {formatNumber(amount)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Возврат за понижение */}
+                    {buildingLevel > 1 && downgradeRefund.length > 0 && (
+                      <div className="text-[10px] mt-2 p-1.5 bg-orange-900/20 rounded border border-orange-500/30">
+                        <div className="text-orange-400 font-semibold mb-1">📉 Возврат за понижение (50%):</div>
+                        <div className="flex flex-wrap gap-2">
+                          {downgradeRefund.map(({ resource, amount }) => (
+                            <span key={resource} className="text-orange-300">
+                              {resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]} {formatNumber(amount)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="text-[10px] text-cyber-gray-light mt-2 space-y-0.5">
+                      <div>💡 Каждый уровень умножает производство и потребление</div>
+                      
+                      {/* Производство */}
+                      {building.production && Object.keys(building.production).length > 0 && (
+                        <>
+                          <div>🎯 Производство на уровне {buildingLevel}: {Object.entries(building.production).map(([res, amt]) => 
+                            `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel))}/с`
+                          ).join(', ')}</div>
+                          {buildingLevel < 500 && (
+                            <div>🔮 На уровне {buildingLevel + 1}: {Object.entries(building.production).map(([res, amt]) => 
+                              `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel + 1))}/с`
+                            ).join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                      
+                      {/* Вместимость (для складов) */}
+                      {building.productionMultipliers && Object.keys(building.productionMultipliers).length > 0 && (
+                        <>
+                          <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {Object.entries(building.productionMultipliers).map(([res, amt]) => 
+                            `${RESOURCE_LABEL[res as ResourceType]} +${formatNumber(D(amt).mul(buildingLevel))}`
+                          ).join(', ')}</div>
+                          {buildingLevel < 500 && (
+                            <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {Object.entries(building.productionMultipliers).map(([res, amt]) => 
+                              `${RESOURCE_LABEL[res as ResourceType]} +${formatNumber(D(amt).mul(buildingLevel + 1))}`
+                            ).join(', ')}</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* PHASE 4: ЭВОЛЮЦИЯ ЗДАНИЙ */}

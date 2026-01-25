@@ -43,13 +43,21 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   };
 
   const handleLoadSave = async (saveId: number) => {
+    console.log('🎮 Пользователь выбрал сохранение:', saveId);
     setLoading(true);
-    const result = await loadGameFromSave(saveId);
-    if (result.ok) {
-      onClose();
-      window.location.reload(); // Перезагружаем страницу для применения нового сохранения
-    } else {
-      setError('Ошибка загрузки сохранения');
+    try {
+      const result = await loadGameFromSave(saveId);
+      if (result.ok) {
+        console.log('✅ Сохранение успешно загружено');
+        onClose();
+        // Не перезагружаем страницу - состояние уже применено через set()
+      } else {
+        console.error('❌ Ошибка при загрузке:', result.error);
+        setError(`Ошибка загрузки сохранения: ${result.error}`);
+      }
+    } catch (e) {
+      console.error('💥 Исключение при загрузке:', e);
+      setError(`Ошибка: ${String(e)}`);
     }
     setLoading(false);
   };
