@@ -726,6 +726,8 @@ export interface GalaxiesState {
   fuelReserve: Decimal;
   // Notifications
   notifications: Notification[];
+  // Currently active platform for management (optional)
+  activePlatformId?: string;
 }
 
 export interface GridState {
@@ -1080,6 +1082,7 @@ export interface GameState {
   upgradePlatform: (platformId: string, upgradeType: 'defense' | 'mining' | 'storage') => void;
   removePlatform: (platformId: string) => void;
   toggleAutoTransport: () => void;
+  setActivePlatform: (platformId: string | null) => void;
   // Fleet system actions
   buildShip: (shipType: ShipType) => void;
   upgradeShip: (shipId: string) => void;

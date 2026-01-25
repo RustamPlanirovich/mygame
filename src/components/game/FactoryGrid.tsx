@@ -98,20 +98,30 @@ export function FactoryGrid() {
     y: number;
     buildingId: string;
   } | null>(null);
-
+  
   // КРИТИЧНО: Подписываемся только на нужные части стейта, чтобы избежать лишних ререндеров
-  const grid = useGameStore((s) => ({
-    tiles: s.grid.tiles,
-    deposits: s.grid.deposits,
-    selected: s.grid.selected,
-    selectedBuildId: s.grid.selectedBuildId,
-    highlightedBuildingId: s.grid.highlightedBuildingId,
-    buffers: s.grid.buffers,
-    activeTransports: s.grid.activeTransports,
-    tileEvolutionLevels: s.grid.tileEvolutionLevels,
-    width: s.grid.width,
-    height: s.grid.height,
-  }), (a, b) => {
+  // Если активна платформа - используем её сетку, иначе главную базу
+  const grid = useGameStore((s) => {
+    const activePlatform = s.galaxies.activePlatformId 
+      ? s.galaxies.platforms.find(p => p.id === s.galaxies.activePlatformId) 
+      : null;
+    const platformGrid = activePlatform ? activePlatform.grid : null;
+    const mainGrid = s.grid;
+    const activeGrid = platformGrid || mainGrid;
+    
+    return {
+      tiles: activeGrid.tiles,
+      deposits: activeGrid.deposits,
+      selected: activeGrid.selected,
+      selectedBuildId: activeGrid.selectedBuildId,
+      highlightedBuildingId: (mainGrid as any).highlightedBuildingId,
+      buffers: activeGrid.buffers,
+      activeTransports: (mainGrid as any).activeTransports || [],
+      tileEvolutionLevels: (mainGrid as any).tileEvolutionLevels || {},
+      width: activeGrid.width,
+      height: activeGrid.height,
+    };
+  }, (a, b) => {
     // Shallow compare для оптимизации
     return a.tiles === b.tiles &&
            a.deposits === b.deposits &&
@@ -127,6 +137,7 @@ export function FactoryGrid() {
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
   const selectTile = useGameStore((s) => s.selectTile);
+  const selectBuild = useGameStore((s) => s.selectBuild);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
   const setCameraPosition = useGameStore((s) => s.setCameraPosition);
   
@@ -341,22 +352,52 @@ export function FactoryGrid() {
         const s = useGameStore.getState();
 
         const gridPos = pixelToGrid(wp.x, wp.y);
-        const x = clamp(gridPos.x, 0, s.grid.width - 1);
-        const y = clamp(gridPos.y, 0, s.grid.height - 1);
+        const x = clamp(gridPos.x, 0, grid.width - 1);
+        const y = clamp(gridPos.y, 0, grid.height - 1);
 
         const pos = { x, y };
         selectTile(pos);
+        
+        // Auto-select building when clicking on deposit (if no building selected)
+        if (!grid.selectedBuildId && grid.deposits) {
+          const key = `${x},${y}`;
+          const depositType = grid.deposits[key];
+          if (depositType) {
+            // Find the first building that requires this deposit
+            const matchingBuilding = s.buildings.find(b => {
+              const requiredDeposit = (() => {
+                if (b.id === 'miner_mk1') return 'ore';
+                if (b.id === 'ice_extractor_mk1') return 'ice';
+                if (b.id === 'carbon_harvester_mk1') return 'carbon';
+                if (b.id === 'gas_well_mk1') return 'natural_gas';
+                if (b.id === 'oil_well_mk1') return 'oil';
+                if (b.id === 'sand_quarry_mk1') return 'sand';
+                if (b.id === 'uranium_mine_mk1') return 'uranium';
+                if (b.id === 'chrome_mine_mk1') return 'chrome';
+                if (b.id === 'titanium_mine_mk1') return 'titanium';
+                if (b.id === 'copper_mine_mk1') return 'copper';
+                return null;
+              })();
+              return requiredDeposit === depositType;
+            });
+            
+            if (matchingBuilding) {
+              selectBuild(matchingBuilding.id);
+              return; // Don't try to place building immediately
+            }
+          }
+        }
 
-        if (s.grid.selectedBuildId) {
+        if (grid.selectedBuildId) {
           // Найдем здание по ID
-          const building = s.buildings.find(b => b.id === s.grid.selectedBuildId);
+          const building = s.buildings.find(b => b.id === grid.selectedBuildId);
           if (!building) {
             placeSelectedBuildAt(pos);
             return;
           }
 
           // Проверяем правила близости
-          const check = checkBuildingPlacement(x, y, building, s.buildings, s.grid.tiles);
+          const check = checkBuildingPlacement(x, y, building, s.buildings, grid.tiles);
           
           // Если нет предупреждений или качество хорошее - строим сразу
           if (check.warnings.length === 0 || 
@@ -364,7 +405,7 @@ export function FactoryGrid() {
             placeSelectedBuildAt(pos);
           } else {
             // Показываем модальное окно с предупреждениями
-            setPendingPlacement({ x, y, buildingId: s.grid.selectedBuildId });
+            setPendingPlacement({ x, y, buildingId: grid.selectedBuildId });
           }
         }
       };
@@ -1252,9 +1293,37 @@ export function FactoryGrid() {
     };
   }, [pendingPlacement]);
 
+  // Реактивно получаем данные активной платформы для UI
+  const activePlatform = useGameStore((s) => 
+    s.galaxies.activePlatformId 
+      ? s.galaxies.platforms.find(p => p.id === s.galaxies.activePlatformId) 
+      : null
+  );
+
   return (
-    <div className="h-full w-full" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>
+    <div className="h-full w-full relative" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>
       <div ref={containerRef} className="w-full h-full" />
+      
+      {/* Platform indicator */}
+      {activePlatform && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
+          <div className="bg-gradient-to-r from-cyan-900/90 to-blue-900/90 border-2 border-cyan-500 rounded-lg px-4 py-2 shadow-lg shadow-cyan-500/30">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🛰️</span>
+              <div>
+                <div className="text-sm font-bold text-white">{activePlatform.name}</div>
+                <div className="text-xs text-cyan-300">Управление платформой</div>
+              </div>
+              <button
+                onClick={() => useGameStore.getState().setActivePlatform(null)}
+                className="ml-2 bg-cyan-600 hover:bg-cyan-700 text-white text-xs px-3 py-1 rounded transition-all"
+              >
+                ← На базу
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Модальное окно предупреждений */}
       {pendingPlacement && modalData && (

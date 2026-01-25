@@ -52,7 +52,15 @@ function buildTitle(building: Building) {
 
 export function BuildingList() {
   const buildings = useGameStore((s) => s.buildings);
-  const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
+  // Read selectedBuildId from active platform or main base
+  const selectedBuildId = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.grid.selectedBuildId ?? null;
+    }
+    return s.grid.selectedBuildId;
+  });
   const highlightedBuildingId = useGameStore((s) => s.grid.highlightedBuildingId);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const setHighlightedBuilding = useGameStore((s) => s.setHighlightedBuilding);
@@ -411,13 +419,12 @@ export function BuildingList() {
                     
                     {/* Кнопка показать цепочку */}
                     {Object.keys(b.production).length > 0 && (
-                      <button
-                        type="button"
+                      <div
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleChainExpansion(b.id);
                         }}
-                        className="ml-auto flex items-center gap-0.5 text-[9px] text-cyber-blue hover:text-cyber-green transition-colors"
+                        className="ml-auto flex items-center gap-0.5 text-[9px] text-cyber-blue hover:text-cyber-green transition-colors cursor-pointer"
                       >
                         {expandedChains.has(b.id) ? (
                           <>
@@ -430,7 +437,7 @@ export function BuildingList() {
                             <span>Показать цепочку</span>
                           </>
                         )}
-                      </button>
+                      </div>
                     )}
                   </div>
 

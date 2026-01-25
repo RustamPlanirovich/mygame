@@ -35,18 +35,57 @@ const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
 };
 
 export function TileInspector() {
+  // Get active platform to determine which grid to use
+  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
+  const platforms = useGameStore((s) => s.galaxies.platforms);
+  const activePlatform = activePlatformId ? platforms.find(p => p.id === activePlatformId) : null;
+  
   // Подписываемся на конкретные поля grid для правильного реактивного обновления
-  const selected = useGameStore((s) => s.grid.selected);
-  const tiles = useGameStore((s) => s.grid.tiles);
-  const deposits = useGameStore((s) => s.grid.deposits);
-  const buffers = useGameStore((s) => s.grid.buffers);
-  const tileLevels = useGameStore((s) => s.grid.tileLevels);
-  const tileEvolutionLevels = useGameStore((s) => s.grid.tileEvolutionLevels);
-  const tileDisabled = useGameStore((s) => s.grid.tileDisabled);
-  const marketPolicy = useGameStore((s) => s.grid.marketPolicy);
-  const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
-  const gridWidth = useGameStore((s) => s.grid.width);
-  const gridHeight = useGameStore((s) => s.grid.height);
+  // Use platform grid if active, otherwise main grid
+  const selected = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.selected;
+    return s.grid.selected;
+  });
+  const tiles = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.tiles;
+    return s.grid.tiles;
+  });
+  const deposits = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.deposits;
+    return s.grid.deposits;
+  });
+  const buffers = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.buffers;
+    return s.grid.buffers;
+  });
+  const tileLevels = useGameStore((s) => {
+    if (activePlatform) return {};
+    return s.grid.tileLevels;
+  });
+  const tileEvolutionLevels = useGameStore((s) => {
+    if (activePlatform) return {};
+    return s.grid.tileEvolutionLevels;
+  });
+  const tileDisabled = useGameStore((s) => {
+    if (activePlatform) return {};
+    return s.grid.tileDisabled;
+  });
+  const marketPolicy = useGameStore((s) => {
+    if (activePlatform) return {};
+    return s.grid.marketPolicy;
+  });
+  const selectedBuildId = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.selectedBuildId;
+    return s.grid.selectedBuildId;
+  });
+  const gridWidth = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.width;
+    return s.grid.width;
+  });
+  const gridHeight = useGameStore((s) => {
+    if (activePlatform) return activePlatform.grid.height;
+    return s.grid.height;
+  });
   
   // Собираем grid обратно для совместимости с остальным кодом
   const grid = useMemo(() => ({

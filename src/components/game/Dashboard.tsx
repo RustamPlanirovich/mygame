@@ -2,6 +2,7 @@ import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
 import { TECHNOLOGIES } from '../../core/constants/technologies';
 import { ACHIEVEMENTS } from '../../core/constants/achievements';
+import { GALAXIES } from '../../core/constants/galaxies';
 import { UserCircle } from 'lucide-react';
 
 interface DashboardProps {
@@ -26,18 +27,15 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const totalTech = Object.keys(TECHNOLOGIES).length;
   
   const totalShips = fleet.ships.length;
-  const totalPlatforms = Object.values(galaxies).reduce(
-    (sum, g) => sum + (g.platforms?.length || 0),
-    0
-  );
+  const totalPlatforms = galaxies.platforms?.length || 0;
   
   const activeEnemies = combat.enemies.length;
   
   const unlockedAchievements = Object.keys(achievementsData.unlocked).length;
   const totalAchievements = ACHIEVEMENTS.length;
   
-  const unlockedGalaxies = Object.values(galaxies).filter(g => g.unlocked).length;
-  const totalGalaxies = Object.keys(galaxies).length;
+  const unlockedGalaxies = galaxies.unlockedGalaxies?.length || 0;
+  const totalGalaxies = Object.keys(GALAXIES).length;
 
   // Основные метрики - компактно
   const mainStats = [

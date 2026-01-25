@@ -2215,7 +2215,31 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   selectTile: (pos) => {
     set((state) => {
-      // Link system removed - now just select tile
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      if (activePlatformId) {
+        // Update platform grid
+        const platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex === -1) return state;
+        
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...updatedPlatforms[platformIndex],
+          grid: {
+            ...updatedPlatforms[platformIndex].grid,
+            selected: pos,
+          },
+        };
+        
+        return {
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
+      // Main base - Link system removed - now just select tile
       return { grid: { ...state.grid, selected: pos } };
     });
   },
@@ -2246,7 +2270,34 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   selectBuild: (buildingId) => {
-    set((state) => ({ grid: { ...state.grid, selectedBuildId: buildingId, focusedLink: null } }));
+    set((state) => {
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      if (activePlatformId) {
+        // Update platform grid
+        const platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex === -1) return state;
+        
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...updatedPlatforms[platformIndex],
+          grid: {
+            ...updatedPlatforms[platformIndex].grid,
+            selectedBuildId: buildingId,
+          },
+        };
+        
+        return {
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
+      // Main base
+      return { grid: { ...state.grid, selectedBuildId: buildingId, focusedLink: null } };
+    });
   },
 
   setHighlightedBuilding: (buildingId) => {
@@ -2255,6 +2306,86 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   placeSelectedBuildAt: (pos) => {
     set((state) => {
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      // If on platform, build on platform grid
+      if (activePlatformId) {
+        const platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex === -1) return state;
+        
+        const platform = state.galaxies.platforms[platformIndex];
+        const buildId = platform.grid.selectedBuildId;
+        if (!buildId) return state;
+
+        const k = keyOf(pos);
+        if (platform.grid.tiles[k]) return state;
+
+        const requiredDeposit = requiredDepositForBuilding(buildId);
+        if (requiredDeposit) {
+          const deposits = platform.grid.deposits ?? {};
+          if (deposits[k] !== requiredDeposit) return state;
+        }
+
+        const buildingIndex = state.buildings.findIndex((b) => b.id === buildId);
+        if (buildingIndex === -1) return state;
+
+        const building = state.buildings[buildingIndex];
+        const cost = calculateCost(building);
+
+        for (const [resType, amount] of Object.entries(cost)) {
+          const rType = resType as ResourceType;
+          const needed = D(amount);
+          if (!state.resources[rType] || state.resources[rType].amount.lt(needed)) return state;
+        }
+
+        const newResources = { ...state.resources };
+        let buffers = state.grid.buffers;
+        for (const [resType, amount] of Object.entries(cost)) {
+          const rType = resType as ResourceType;
+          if (!newResources[rType]) continue;
+          // Spend from base buffer
+          const cur = getBuf(buffers, 'base', rType);
+          const next = cur.sub(amount).max(D(0));
+          buffers = setBuf(buffers, 'base', rType, next);
+          newResources[rType] = { ...newResources[rType], amount: next };
+        }
+
+        const newBuildings = [...state.buildings];
+        newBuildings[buildingIndex] = { ...building, count: building.count + 1 };
+
+        const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+        const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
+
+        // Place building on platform
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...platform,
+          grid: {
+            ...platform.grid,
+            tiles: {
+              ...platform.grid.tiles,
+              [k]: buildId,
+            },
+            selected: null,
+            selectedBuildId: null,
+          },
+        };
+        
+        return {
+          resources: capped,
+          buildings: newBuildings,
+          grid: {
+            ...state.grid,
+            buffers,
+          },
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
+      // Main base logic
       const buildId = state.grid.selectedBuildId;
       if (!buildId) return state;
 
@@ -3835,6 +3966,12 @@ export const useGameStore = create<GameState>((set, get) => ({
                 produced = produced.mul(repeatableExoticMult);
               }
               
+              // Apply current galaxy resource bonuses
+              const currentGalaxy = GALAXIES[state.galaxies.currentGalaxyId];
+              if (currentGalaxy?.resourceBonuses && currentGalaxy.resourceBonuses[rType]) {
+                produced = produced.mul(currentGalaxy.resourceBonuses[rType]);
+              }
+              
               // ФАЗА 8.3: Применяем логистический штраф за дальность
               // Здания далеко от базы/складов работают менее эффективно
               if (rType !== 'energy') {
@@ -3857,17 +3994,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               const cur = getBuf(buffers, tileKey, rType);
               buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
 
-              // ОТЛАДКА: Логируем производство песка
-              if (rType === 'sand' && produced.gt(0)) {
-                console.log(`🏖️ ПРОИЗВОДСТВО ПЕСКА на ${tileKey}:`, {
-                  здание: b.id,
-                  произведено: produced.toString(),
-                  ratio: ratio.toString(),
-                  уровень: state.grid.tileLevels?.[tileKey] || 1,
-                  локальный_буфер_до: cur.toString(),
-                  локальный_буфер_после: cur.add(produced).toString(),
-                });
-              }
+            
 
               if (rType === 'energy' && produced.gt(0)) {
                 lifetimeEnergyProduced = lifetimeEnergyProduced.add(produced);
@@ -4647,13 +4774,59 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newNotifications: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
       
       const updatedPlatforms = state.galaxies.platforms.map(platform => {
-        // Platforms will mine resources from their deposits automatically
-        // TODO: Implement actual resource generation based on deposits on platform grid
-        // TODO: Store resources in platform.resources
-        // TODO: Apply mining bonus (1 + miningLevel * 0.5) to production
-        
         let updatedPlatform = { ...platform };
         const galaxy = GALAXIES[platform.galaxyId];
+        
+        // Initialize platform resources if not present
+        if (!updatedPlatform.resources || Object.keys(updatedPlatform.resources).length === 0) {
+          updatedPlatform.resources = {} as Record<ResourceType, import('../core/gameTypes').ResourceState>;
+          for (const r of Object.keys(newResources) as ResourceType[]) {
+            updatedPlatform.resources[r] = {
+              amount: D(0),
+              max: D(1000 * (1 + (platform.upgrades?.storage || 0) * 0.5)), // Base 1000, +50% per storage upgrade
+              production: D(0),
+            };
+          }
+        }
+        
+        // Process buildings on platform grid and produce resources
+        const miningBonus = 1 + (platform.upgrades?.mining || 0) * 0.5; // +50% per mining upgrade
+        
+        for (const [tileKey, buildingId] of Object.entries(platform.grid.tiles)) {
+          const building = state.buildings.find(b => b.id === buildingId);
+          if (!building?.production) continue;
+          
+          // Check if building is on correct deposit
+          const requiredDeposit = requiredDepositForBuilding(building.id);
+          if (requiredDeposit) {
+            const tileDeposit = platform.grid.deposits?.[tileKey];
+            if (tileDeposit !== requiredDeposit) continue;
+          }
+          
+          // Produce resources
+          for (const [resType, perSecond] of Object.entries(building.production)) {
+            const rType = resType as ResourceType;
+            let produced = D(perSecond).mul(dt).mul(miningBonus);
+            
+            // Apply galaxy resource bonuses
+            if (galaxy?.resourceBonuses && galaxy.resourceBonuses[rType]) {
+              produced = produced.mul(galaxy.resourceBonuses[rType]);
+            }
+            
+            // Add to platform resources (with cap check)
+            const currentAmount = updatedPlatform.resources[rType]?.amount || D(0);
+            const maxAmount = updatedPlatform.resources[rType]?.max || D(1000);
+            
+            if (currentAmount.lt(maxAmount)) {
+              const actualProduced = produced.min(maxAmount.sub(currentAmount));
+              updatedPlatform.resources[rType] = {
+                ...updatedPlatform.resources[rType]!,
+                amount: currentAmount.add(actualProduced),
+                production: D(perSecond).mul(miningBonus),
+              };
+            }
+          }
+        }
         
         // Check if it's time to spawn new enemy
         if (galaxy && galaxy.enemyLevelRange && now >= platform.combat.nextWaveAt) {
@@ -4815,6 +4988,22 @@ export const useGameStore = create<GameState>((set, get) => ({
               damagePerSecond: totalEnemyDamage.div(dt > 0 ? dt : 1),
             },
           };
+          
+          // Check if platform is destroyed
+          if (newHp.lte(0)) {
+            newNotifications.push({
+              type: 'warning',
+              title: '💥 Платформа уничтожена',
+              message: `Платформа "${platform.name}" была уничтожена врагами!`,
+              platformId: platform.id,
+            });
+            
+            // Mark for removal
+            updatedPlatform = {
+              ...updatedPlatform,
+              _destroyed: true,
+            } as any;
+          }
         } else {
           // No enemies, regenerate shields
           const newShieldHp = updatedPlatform.shieldHp.add(updatedPlatform.combat.shieldRegenPerSecond.mul(dt)).min(updatedPlatform.shieldMaxHp);
@@ -4831,35 +5020,73 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         return updatedPlatform;
       });
+      
+      // Remove destroyed platforms
+      const destroyedPlatformIds = updatedPlatforms.filter((p: any) => p._destroyed).map(p => p.id);
+      const survivingPlatforms = updatedPlatforms.filter((p: any) => !p._destroyed);
 
       // Auto-transport resources from platforms to main station
       let nextGalaxies = { 
         ...state.galaxies,
         fuelReserve: D(state.galaxies.fuelReserve),
+        // Clear active platform if it was destroyed
+        activePlatformId: destroyedPlatformIds.includes(state.galaxies.activePlatformId || '') 
+          ? undefined 
+          : state.galaxies.activePlatformId,
       };
-      if (state.galaxies.autoTransportEnabled && updatedPlatforms.length > 0) {
-        const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
-        const totalTransportCost = transportCostPerPlatform.mul(updatedPlatforms.length).mul(dt);
+      
+      const finalPlatforms = survivingPlatforms.map(platform => {
+        let updatedPlatform = { ...platform };
         
-        if (state.galaxies.fuelReserve.gte(totalTransportCost)) {
-          nextGalaxies = {
-            ...state.galaxies,
-            platforms: updatedPlatforms,
-            fuelReserve: state.galaxies.fuelReserve.sub(totalTransportCost),
-          };
-          // TODO: Actually transfer resources from platforms to main station
-        } else {
-          nextGalaxies = {
-            ...state.galaxies,
-            platforms: updatedPlatforms,
-          };
+        if (state.galaxies.autoTransportEnabled) {
+          const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
+          const transportCost = transportCostPerPlatform.mul(dt);
+          
+          if (state.galaxies.fuelReserve.gte(transportCost)) {
+            // Transfer resources from platform to main base
+            for (const r of Object.keys(newResources) as ResourceType[]) {
+              const platformAmount = updatedPlatform.resources[r]?.amount || D(0);
+              
+              if (platformAmount.gt(0)) {
+                // Transfer 10% of platform resources per second (capped by base capacity)
+                const transferRate = platformAmount.mul(0.1).mul(dt);
+                const baseAmount = getBuf(buffers, baseKey, r);
+                const baseCap = newResources[r].max;
+                
+                // Only transfer if base has space
+                if (baseCap.lte(0) || baseAmount.lt(baseCap)) {
+                  const spaceAvailable = baseCap.gt(0) ? baseCap.sub(baseAmount).max(D(0)) : transferRate;
+                  const actualTransfer = transferRate.min(spaceAvailable).min(platformAmount);
+                  
+                  if (actualTransfer.gt(0)) {
+                    // Remove from platform
+                    updatedPlatform.resources[r] = {
+                      ...updatedPlatform.resources[r]!,
+                      amount: platformAmount.sub(actualTransfer),
+                    };
+                    
+                    // Add to base buffer
+                    buffers = setBuf(buffers, baseKey, r, baseAmount.add(actualTransfer));
+                  }
+                }
+              }
+            }
+            
+            // Deduct fuel cost
+            nextGalaxies = {
+              ...nextGalaxies,
+              fuelReserve: nextGalaxies.fuelReserve.sub(transportCost),
+            };
+          }
         }
-      } else {
-        nextGalaxies = {
-          ...state.galaxies,
-          platforms: updatedPlatforms,
-        };
-      }
+        
+        return updatedPlatform;
+      });
+      
+      nextGalaxies = {
+        ...nextGalaxies,
+        platforms: finalPlatforms,
+      };
 
       // Add new notifications
       if (newNotifications.length > 0) {
@@ -6861,6 +7088,21 @@ export const useGameStore = create<GameState>((set, get) => ({
         return state;
       }
       
+      // Generate deposits based on galaxy's available deposits
+      const galaxy = GALAXIES[galaxyId];
+      const platformDeposits: Record<string, import('../core/gameTypes').DepositType> = {};
+      
+      // Generate random deposits from galaxy's available deposits
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 10; x++) {
+          const key = `${x},${y}`;
+          if (Math.random() < 0.15 && galaxy.availableDeposits) { // 15% chance
+            const depositType = galaxy.availableDeposits[Math.floor(Math.random() * galaxy.availableDeposits.length)];
+            platformDeposits[key] = depositType;
+          }
+        }
+      }
+      
       const newPlatform: import('../core/gameTypes').SpacePlatform = {
         id: `platform_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         galaxyId,
@@ -6870,13 +7112,18 @@ export const useGameStore = create<GameState>((set, get) => ({
           height: 10,
           selected: null,
           tiles: {},
-          deposits: {}, // TODO: Generate deposits based on galaxy
+          deposits: platformDeposits,
           buffers: { base: {} },
           lastDtSeconds: 0,
           selectedBuildId: null,
         },
         buildings: [],
-        resources: {} as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
+        resources: Object.fromEntries(
+          Object.entries(INITIAL_RESOURCES).map(([key, res]) => [
+            key,
+            { amount: D(0), max: res.max }
+          ])
+        ) as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
         maxHp: D(1000),
         hp: D(1000),
         armor: D(200),
@@ -7000,6 +7247,33 @@ export const useGameStore = create<GameState>((set, get) => ({
         autoTransportEnabled: !state.galaxies.autoTransportEnabled,
       },
     }));
+  },
+
+  setActivePlatform: (platformId: string | null) => {
+    set((state) => {
+      if (platformId === null) {
+        // Switch back to main base
+        return {
+          galaxies: {
+            ...state.galaxies,
+            activePlatformId: undefined,
+          },
+        };
+      }
+      
+      const platform = state.galaxies.platforms.find(p => p.id === platformId);
+      if (!platform) {
+        console.warn(`Platform ${platformId} not found`);
+        return state;
+      }
+      
+      return {
+        galaxies: {
+          ...state.galaxies,
+          activePlatformId: platformId,
+        },
+      };
+    });
   },
 
   // Fleet system actions
@@ -7514,36 +7788,44 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       const platform = state.galaxies.platforms[platformIndex];
       
+      // Ensure all values are Decimal
+      const hp = D(platform.hp);
+      const maxHp = D(platform.maxHp);
+      const armor = D(platform.armor);
+      const maxArmor = D(platform.maxArmor);
+      const shieldHp = D(platform.shieldHp);
+      const shieldMaxHp = D(platform.shieldMaxHp);
+      
       // Calculate repair costs and amounts
       let totalCost = D(0);
-      let newHp = platform.hp;
-      let newArmor = platform.armor;
-      let newShieldHp = platform.shieldHp;
+      let newHp = hp;
+      let newArmor = armor;
+      let newShieldHp = shieldHp;
       
       if (repairType === 'hull' || repairType === 'all') {
-        const hullDamage = platform.maxHp.sub(platform.hp);
+        const hullDamage = maxHp.sub(hp);
         if (hullDamage.gt(0)) {
           const hullRepairCost = hullDamage.mul(10); // 10 credits per HP
           totalCost = totalCost.add(hullRepairCost);
-          newHp = platform.maxHp;
+          newHp = maxHp;
         }
       }
       
       if (repairType === 'armor' || repairType === 'all') {
-        const armorDamage = platform.maxArmor.sub(platform.armor);
+        const armorDamage = maxArmor.sub(armor);
         if (armorDamage.gt(0)) {
           const armorRepairCost = armorDamage.mul(5); // 5 credits per armor point
           totalCost = totalCost.add(armorRepairCost);
-          newArmor = platform.maxArmor;
+          newArmor = maxArmor;
         }
       }
       
       if (repairType === 'shield' || repairType === 'all') {
-        const shieldDamage = platform.shieldMaxHp.sub(platform.shieldHp);
+        const shieldDamage = shieldMaxHp.sub(shieldHp);
         if (shieldDamage.gt(0)) {
           const shieldRepairCost = shieldDamage.mul(3); // 3 credits per shield HP
           totalCost = totalCost.add(shieldRepairCost);
-          newShieldHp = platform.shieldMaxHp;
+          newShieldHp = shieldMaxHp;
         }
       }
       

@@ -41,7 +41,19 @@ const getDepositLabel = (deposit: DepositType) => {
 export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
   const buildings = useGameStore((s) => s.buildings);
   const resources = useGameStore((s) => s.resources);
-  const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
+  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
+  const platforms = useGameStore((s) => s.galaxies.platforms);
+  
+  // Get selectedBuildId from either platform or main grid
+  const selectedBuildId = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.grid.selectedBuildId || null;
+    }
+    return s.grid.selectedBuildId;
+  });
+  
   const selectBuild = useGameStore((s) => s.selectBuild);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyPositive, setShowOnlyPositive] = useState(true);
