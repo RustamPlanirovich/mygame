@@ -231,17 +231,65 @@ export function TileInspector() {
           <div className="text-sm text-cyber-text-dim">Выбери клетку на сетке слева.</div>
         ) : isBaseSelected ? (
           <div className="space-y-2">
-            <div className="text-sm text-cyber-text-dim">База</div>
-
-            <div className="text-xs text-cyber-text-dim">
-              Это склад (sink). Все ресурсы, которыми ты строишь и которые продаёшь на обмене, лежат здесь.
+            <div className="flex items-center gap-2">
+              <div className="text-2xl">🏠</div>
+              <div>
+                <div className="text-sm font-bold text-cyber-text">Центральная База</div>
+                <div className="text-[10px] text-cyber-gray-light">Координаты: {basePos.x}, {basePos.y}</div>
+              </div>
             </div>
 
+            <div className="bg-cyber-dark/60 p-2 rounded border border-cyber-blue/30">
+              <div className="text-xs text-cyber-text-dim mb-1">ℹ️ Что это такое?</div>
+              <div className="text-[10px] text-cyber-gray-light leading-relaxed">
+                <strong className="text-cyber-text">База</strong> — центральное хранилище всех ресурсов.<br/>
+                • Все произведённые ресурсы стекаются сюда<br/>
+                • Отсюда берутся ресурсы для строительства и торговли<br/>
+                • Энергия распределяется централизованно из базы<br/>
+                • <span className="text-cyber-blue">Складские модули</span> увеличивают вместимость базы
+              </div>
+            </div>
+
+            {(() => {
+              // Подсчитываем складские модули и их вклад
+              const warehouseBuildings = buildings.filter(b => 
+                b.productionMultipliers && Object.keys(b.productionMultipliers).length > 0
+              );
+              const totalWarehouseCount = warehouseBuildings.reduce((sum, b) => sum + b.count, 0);
+              
+              if (totalWarehouseCount > 0) {
+                return (
+                  <div className="bg-cyber-dark/40 p-2 rounded border border-green-500/30 mt-2">
+                    <div className="text-xs text-green-400 mb-1.5 flex items-center gap-1">
+                      📦 Складские модули ({totalWarehouseCount})
+                    </div>
+                    <div className="space-y-1">
+                      {warehouseBuildings.filter(b => b.count > 0).map(b => (
+                        <div key={b.id} className="text-[10px] text-cyber-gray-light flex items-center justify-between">
+                          <span>{b.name}</span>
+                          <span className="text-cyber-text font-mono">×{b.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[9px] text-green-300/70 mt-1.5 pt-1.5 border-t border-green-500/20">
+                      💡 Каждый склад увеличивает вместимость базы за каждый уровень
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             <div className="pt-2 border-t border-cyber-gray/50">
-              <div className="text-xs text-cyber-text-dim mb-2">📦 Склад базы</div>
-              <div className="text-[10px] text-cyber-gray-light mb-2 italic">
-                ℹ️ Все ресурсы автоматически отправляются сюда<br/>
-                💡 Складские модули увеличивают вместимость
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-cyber-text-dim">📦 Содержимое склада</div>
+                <div className="text-[10px] text-cyber-gray-light">
+                  {(Object.keys(resources) as ResourceType[]).filter(r => {
+                    const raw = grid.buffers.base?.[r];
+                    const amt = raw ? D(raw) : D(0);
+                    return amt.gt(0);
+                  }).length} ресурсов
+                </div>
               </div>
               <div className="max-h-48 overflow-y-auto space-y-1">
                 {(Object.keys(resources) as ResourceType[])
@@ -252,24 +300,33 @@ export function TileInspector() {
                     const max = resources[r].max;
                     const full = max.gt(0) && amt.gte(max);
                     const fillPercent = max.gt(0) ? amt.div(max).mul(100).toNumber() : 0;
+                    
+                    // Пропускаем ресурсы с нулевым количеством для компактности
+                    if (amt.lte(0)) return null;
+                    
                     return (
-                      <div key={r} className="bg-cyber-dark/40 p-1.5 rounded">
+                      <div key={r} className="bg-cyber-dark/40 p-1.5 rounded border border-cyber-gray/20 hover:border-cyber-blue/30 transition-colors">
                         <div className="flex items-center justify-between text-[10px] mb-0.5">
                           <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}</span>
                           <span className={`font-mono ${full ? 'text-cyber-red font-bold' : fillPercent > 80 ? 'text-orange-400' : 'text-cyber-text'}`}>
                             {formatNumber(amt)} / {formatNumber(max)}
-                            {full && <span className="ml-1">🔴 ПОЛНО</span>}
+                            {full && <span className="ml-1">⚠️</span>}
                           </span>
                         </div>
-                        <div className="h-1 bg-cyber-gray/20 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-cyber-gray/20 rounded-full overflow-hidden">
                           <div 
                             className={`h-full transition-all ${full ? 'bg-cyber-red' : fillPercent > 80 ? 'bg-orange-400' : 'bg-cyber-blue'}`}
                             style={{ width: `${Math.min(fillPercent, 100)}%` }}
                           />
                         </div>
+                        {full && (
+                          <div className="text-[9px] text-cyber-red mt-0.5">
+                            Переполнение! Стройте складские модули
+                          </div>
+                        )}
                       </div>
                     );
-                  })}
+                  }).filter(Boolean)}
               </div>
 
               <div className="mt-3 pt-2 border-t border-cyber-gray/50">

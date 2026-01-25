@@ -28,7 +28,7 @@ export const UPGRADE_DEFS: Record<
   },
   storage_caps: {
     name: 'Склады: Контейнеры',
-    description: 'Увеличивает лимиты хранения всех ресурсов на базе.',
+    description: 'Увеличивает множитель вместимости центральной БАЗЫ для всех ресурсов (работает со складскими модулями).',
     maxLevel: 10,
     baseCost: { energy: D(200), steel: D(12) },
     costFactor: 1.55,
