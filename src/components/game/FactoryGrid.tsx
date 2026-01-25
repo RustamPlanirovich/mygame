@@ -797,7 +797,10 @@ export function FactoryGrid() {
         }
         
         // Оптимизация: пропускаем детальную проверку ресурсов при сильном отдалении
-        if (!isBase && hasBuilding && showDetailedText) {
+        // Примечание: С автоматической доставкой ресурсы доставляются по требованию,
+        // поэтому не показываем "НЕТ:resource" - это создаёт путаницу
+        // Оставляем только проверку энергии в отдельном месте
+        /*if (!isBase && hasBuilding && showDetailedText) {
           const b = buildingsById[grid.tiles[k]];
           if (b?.consumption) {
             let missing = false;
@@ -817,7 +820,7 @@ export function FactoryGrid() {
               strokeAlpha = 0.8;
             }
           }
-        }
+        }*/
 
         // Draw stroke - при сильном отдалении упрощаем или пропускаем
         if (showText || (hasBuilding && cam.zoom < 0.5)) {

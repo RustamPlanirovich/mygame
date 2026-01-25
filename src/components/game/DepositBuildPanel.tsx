@@ -10,6 +10,16 @@ const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
   if (buildingId === 'miner_mk1') return 'ore';
   if (buildingId === 'ice_extractor_mk1') return 'ice';
   if (buildingId === 'carbon_harvester_mk1') return 'carbon';
+  // Фаза 2: Новые добывающие здания
+  if (buildingId === 'gas_well_mk1') return 'natural_gas';
+  if (buildingId === 'oil_well_mk1') return 'oil';
+  if (buildingId === 'sand_quarry_mk1') return 'sand';
+  // Фаза 2.3: Металлические шахты
+  if (buildingId === 'uranium_mine_mk1') return 'uranium';
+  if (buildingId === 'chrome_mine_mk1') return 'chrome';
+  if (buildingId === 'titanium_mine_mk1') return 'titanium';
+  // Фаза 2.4: Медная шахта
+  if (buildingId === 'copper_mine_mk1') return 'copper';
   return null;
 };
 
@@ -18,6 +28,13 @@ const getDepositLabel = (deposit: DepositType) => {
     case 'ore': return 'РУДА';
     case 'ice': return 'ЛЁД';
     case 'carbon': return 'УГЛЕРОД';
+    case 'natural_gas': return 'ПРИРОДНЫЙ ГАЗ';
+    case 'oil': return 'НЕФТЬ';
+    case 'sand': return 'ПЕСОК';
+    case 'uranium': return 'УРАН';
+    case 'chrome': return 'ХРОМ';
+    case 'titanium': return 'ТИТАН';
+    case 'copper': return 'МЕДЬ';
   }
 };
 

@@ -16,6 +16,7 @@ import { HelpModal } from './components/game/HelpPanel';
 import { AuthForm } from './components/auth/AuthForm';
 import { SaveManager } from './components/game/SaveManager';
 import { ProfilePanel } from './components/game/ProfilePanel';
+import { CheatPanel } from './components/game/CheatPanel';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
@@ -57,6 +58,9 @@ function App() {
   // Profile modal state
   const [showProfile, setShowProfile] = useState(false);
   
+  // Cheat panel state
+  const [showCheatPanel, setShowCheatPanel] = useState(false);
+  
   // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
   const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
   
@@ -72,6 +76,11 @@ function App() {
       const handler = (e: KeyboardEvent) => {
         if (e.key === 'F3') {
           setShowFPS(prev => !prev);
+        }
+        // Ctrl+K для открытия чит-панели
+        if (e.ctrlKey && e.key === 'k') {
+          e.preventDefault();
+          setShowCheatPanel(prev => !prev);
         }
       };
       window.addEventListener('keydown', handler);
@@ -331,6 +340,11 @@ function App() {
             </div>
           </div>
         </>
+      )}
+      
+      {/* Cheat Panel - только в dev режиме */}
+      {import.meta.env.DEV && showCheatPanel && (
+        <CheatPanel onClose={() => setShowCheatPanel(false)} />
       )}
     </div>
   );

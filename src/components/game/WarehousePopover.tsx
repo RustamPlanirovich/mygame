@@ -49,7 +49,37 @@ export function WarehousePopover(props: {
 
   const entries = useMemo(() => {
     const all = Object.keys(resources) as ResourceType[];
-    return all.map((k) => ({ key: k, ...resources[k] }));
+    
+    // Группировка ресурсов для логической сортировки
+    const groups = {
+      basic: ['energy', 'ore', 'ice', 'carbon', 'steel'] as ResourceType[],
+      phase2_basic: ['natural_gas', 'oil', 'sand', 'gasoline', 'plastic', 'glass', 'chemicals'] as ResourceType[],
+      phase2_metals: ['copper', 'uranium', 'chrome', 'titanium'] as ResourceType[],
+      phase2_advanced: ['semiconductors', 'dynamite', 'fiber'] as ResourceType[],
+      phase2_complex: ['integrated_circuit', 'battery', 'engine', 'display', 'computer', 'liquid_fuel', 'chrome_alloy', 'titanium_alloy', 'enriched_uranium'] as ResourceType[],
+      phase2_military: ['weapon', 'artillery', 'radar', 'nuclear_bomb'] as ResourceType[],
+      phase2_space: ['jet_engine', 'satellite', 'rocket', 'spaceship', 'console', 'space_station'] as ResourceType[],
+      special: ['dark_matter', 'robot', 'waste', 'radioactive_waste'] as ResourceType[],
+    };
+    
+    // Собираем в правильном порядке
+    const ordered: ResourceType[] = [];
+    for (const group of Object.values(groups)) {
+      for (const res of group) {
+        if (all.includes(res)) {
+          ordered.push(res);
+        }
+      }
+    }
+    
+    // Добавляем ресурсы которые не попали ни в одну группу
+    for (const res of all) {
+      if (!ordered.includes(res)) {
+        ordered.push(res);
+      }
+    }
+    
+    return ordered.map((k) => ({ key: k, ...resources[k] }));
   }, [resources]);
 
   if (!open) return null;
@@ -57,11 +87,11 @@ export function WarehousePopover(props: {
   return (
     <div
       ref={panelRef}
-      className="absolute right-3 sm:right-4 top-full mt-2 w-[min(520px,calc(100vw-1.5rem))] cyber-panel z-50"
+      className="absolute right-3 sm:right-4 top-full mt-2 w-[min(520px,calc(100vw-1.5rem))] max-h-[calc(100vh-8rem)] cyber-panel z-50 flex flex-col"
       role="dialog"
       aria-label="Склад"
     >
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 flex-shrink-0">
         <div className="text-sm text-cyber-green uppercase tracking-wider">Склад</div>
         <button type="button" className="cyber-button px-3 py-2 h-9" onClick={onClose} title="Закрыть">
           <div className="flex items-center gap-2">
@@ -71,7 +101,7 @@ export function WarehousePopover(props: {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto pr-1">
         {entries.map(({ key, amount, max, production }) => {
           const full = max.gt(0) && amount.gte(max);
           const pinned = isPinned(key);
@@ -106,7 +136,7 @@ export function WarehousePopover(props: {
         })}
       </div>
 
-      <div className="text-[11px] text-cyber-text-dim mt-2">
+      <div className="text-[11px] text-cyber-text-dim mt-2 pt-2 border-t border-cyber-gray/30 flex-shrink-0">
         Закреплённые ресурсы показываются в верхней строке.
       </div>
     </div>

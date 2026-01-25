@@ -144,7 +144,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 12000,
     prerequisites: ['microchips'],
     unlocks: {
-      buildings: ['computer_factory'],
+      buildings: ['computer_factory', 'bitcoin_farm_mk1'],
       resources: ['computer']
     }
   },
@@ -180,7 +180,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 18000,
     prerequisites: ['robotics'],
     unlocks: {
-      buildings: ['logistics_center', 'resource_accelerator']
+      buildings: ['logistics_hub_mk1', 'resource_accelerator_mk1', 'advanced_warehouse_mk1', 'recycler_mk1']
     }
   },
 
@@ -252,7 +252,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 45000,
     prerequisites: ['nuclear_physics'],
     unlocks: {
-      buildings: ['nuclear_power_plant', 'nuclear_bomb_factory'],
+      buildings: ['nuclear_power_plant', 'nuclear_bomb_factory', 'power_substation_mk1', 'cooling_system_mk1'],
       resources: ['nuclear_bomb']
     }
   },

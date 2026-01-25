@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useGameStore, calculateCost, getBasePos } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
-import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
+import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { Search, ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff } from 'lucide-react';
@@ -16,6 +16,23 @@ import { BUILDING_EVOLUTIONS, getNextEvolution, getCurrentEvolution, getEvolutio
 import { isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
+
+const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
+  if (buildingId === 'miner_mk1') return 'ore';
+  if (buildingId === 'ice_extractor_mk1') return 'ice';
+  if (buildingId === 'carbon_harvester_mk1') return 'carbon';
+  // Фаза 2: Новые добывающие здания
+  if (buildingId === 'gas_well_mk1') return 'natural_gas';
+  if (buildingId === 'oil_well_mk1') return 'oil';
+  if (buildingId === 'sand_quarry_mk1') return 'sand';
+  // Фаза 2.3: Металлические шахты
+  if (buildingId === 'uranium_mine_mk1') return 'uranium';
+  if (buildingId === 'chrome_mine_mk1') return 'chrome';
+  if (buildingId === 'titanium_mine_mk1') return 'titanium';
+  // Фаза 2.4: Медная шахта
+  if (buildingId === 'copper_mine_mk1') return 'copper';
+  return null;
+};
 
 export function TileInspector() {
   // Подписываемся на конкретные поля grid для правильного реактивного обновления
@@ -525,6 +542,14 @@ export function TileInspector() {
                         <span>Улучшить (Ур. {buildingLevel + 1})</span>
                       </button>
                       <button
+                        className="bg-cyan-600/80 hover:bg-cyan-600 text-white text-xs py-2 px-2 rounded flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => useGameStore.getState().maxUpgradeBuildingAt(grid.selected!)}
+                        disabled={!canAffordUpgrade}
+                        title="Улучшить на максимум"
+                      >
+                        <span className="font-bold">МАКС</span>
+                      </button>
+                      <button
                         className="flex-1 bg-orange-600/80 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => downgradeBuildingAt(grid.selected!)}
                         disabled={buildingLevel <= 1}
@@ -958,13 +983,7 @@ export function TileInspector() {
                 ) : null}
 
                 {(() => {
-                  const need = selectedBuild.id === 'miner_mk1'
-                    ? 'ore'
-                    : selectedBuild.id === 'ice_extractor_mk1'
-                      ? 'ice'
-                      : selectedBuild.id === 'carbon_harvester_mk1'
-                        ? 'carbon'
-                        : null;
+                  const need = requiredDepositForBuilding(selectedBuild.id);
                   if (!need) return null;
                   if (deposit === need) return null;
                   return (
@@ -976,7 +995,7 @@ export function TileInspector() {
 
                 <button
                   className="cyber-button text-xs py-2 px-3 w-full"
-                  disabled={!affordability.canAfford || Boolean(selectedBuild && (selectedBuild.id === 'miner_mk1' || selectedBuild.id === 'ice_extractor_mk1' || selectedBuild.id === 'carbon_harvester_mk1') && deposit !== (selectedBuild.id === 'miner_mk1' ? 'ore' : selectedBuild.id === 'ice_extractor_mk1' ? 'ice' : 'carbon'))}
+                  disabled={!affordability.canAfford || Boolean(selectedBuild && requiredDepositForBuilding(selectedBuild.id) && deposit !== requiredDepositForBuilding(selectedBuild.id))}
                   onClick={() => placeSelectedBuildAt(grid.selected!)}
                 >
                   ПОСТАВИТЬ ЗДЕСЬ

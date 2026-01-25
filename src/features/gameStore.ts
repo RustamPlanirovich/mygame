@@ -2119,6 +2119,33 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
+  addCredits: (amount) => {
+    set((state) => ({
+      currency: {
+        ...state.currency,
+        credits: state.currency.credits.add(D(amount))
+      }
+    }));
+  },
+
+  addResearchPoints: (amount) => {
+    set((state) => ({
+      currency: {
+        ...state.currency,
+        researchPoints: state.currency.researchPoints.add(D(amount))
+      }
+    }));
+  },
+
+  addInfluence: (amount) => {
+    set((state) => ({
+      currency: {
+        ...state.currency,
+        influence: state.currency.influence.add(D(amount))
+      }
+    }));
+  },
+
   buyBuilding: (buildingId) => {
     set((state) => {
       const buildingIndex = state.buildings.findIndex(b => b.id === buildingId);
@@ -3654,6 +3681,37 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           // Determine how much we can run given inputs.
           let ratio = D(1);
+          
+          // Проверяем что здания-добытчики стоят на правильном депозите
+          const requiredDeposit = requiredDepositForBuilding(b.id);
+          if (requiredDeposit) {
+            const tileDeposit = state.grid.deposits?.[tileKey];
+            if (tileDeposit !== requiredDeposit) {
+              ratio = D(0); // Не производим если нет депозита
+            }
+          }
+          
+          // Проверка энергии для зданий со старой системой energyConsumption
+          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+            const energyNeed = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(buildingLevel);
+            const availableEnergy = getBuf(buffers, baseKey, 'energy');
+            
+            if (availableEnergy.lte(0)) {
+              ratio = D(0);
+            } else if (energyNeed.gt(0)) {
+              ratio = ratio.min(availableEnergy.div(energyNeed));
+            }
+          }
+          
+          // Вычитаем энергию для зданий со старой системой energyConsumption
+          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+            const energyConsume = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(ratio).mul(buildingLevel);
+            const cur = getBuf(buffers, baseKey, 'energy');
+            buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsume));
+          }
+          
           if (b.consumption) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
@@ -3771,6 +3829,18 @@ export const useGameStore = create<GameState>((set, get) => ({
               const cur = getBuf(buffers, tileKey, rType);
               buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
 
+              // ОТЛАДКА: Логируем производство песка
+              if (rType === 'sand' && produced.gt(0)) {
+                console.log(`🏖️ ПРОИЗВОДСТВО ПЕСКА на ${tileKey}:`, {
+                  здание: b.id,
+                  произведено: produced.toString(),
+                  ratio: ratio.toString(),
+                  уровень: state.grid.tileLevels?.[tileKey] || 1,
+                  локальный_буфер_до: cur.toString(),
+                  локальный_буфер_после: cur.add(produced).toString(),
+                });
+              }
+
               if (rType === 'energy' && produced.gt(0)) {
                 lifetimeEnergyProduced = lifetimeEnergyProduced.add(produced);
               }
@@ -3852,6 +3922,16 @@ export const useGameStore = create<GameState>((set, get) => ({
             buffers = setBuf(buffers, tileKey, resourceType, localAmount.sub(toTransfer));
             const baseAmount = getBuf(buffers, baseKey, resourceType);
             buffers = setBuf(buffers, baseKey, resourceType, baseAmount.add(toTransfer));
+            
+            // ОТЛАДКА: Логируем передачу песка на базу
+            if (resourceType === 'sand') {
+              console.log(`📦 ПЕРЕДАЧА ПЕСКА НА БАЗУ с ${tileKey}:`, {
+                передано: toTransfer.toString(),
+                оставлено_локально: keepAmount.toString(),
+                база_до: baseAmount.toString(),
+                база_после: baseAmount.add(toTransfer).toString(),
+              });
+            }
           }
         }
       }
@@ -3861,6 +3941,63 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Sync global resources from base buffer (and clamp by caps)
       newResources = syncResourcesFromBase(newResources, buffers);
+
+      // Calculate production rates per second for UI display
+      // Считаем напрямую из зданий на карте
+      const productionRates: Record<ResourceType, Decimal> = {
+        energy: D(0), ore: D(0), ice: D(0), carbon: D(0), steel: D(0), dark_matter: D(0),
+        natural_gas: D(0), oil: D(0), gasoline: D(0), plastic: D(0), glass: D(0), chemicals: D(0), sand: D(0),
+        uranium: D(0), chrome: D(0), titanium: D(0), copper: D(0), semiconductors: D(0), dynamite: D(0), fiber: D(0),
+        integrated_circuit: D(0), battery: D(0), engine: D(0), display: D(0), computer: D(0), liquid_fuel: D(0),
+        chrome_alloy: D(0), titanium_alloy: D(0), enriched_uranium: D(0),
+        weapon: D(0), artillery: D(0), radar: D(0), nuclear_bomb: D(0),
+        jet_engine: D(0), satellite: D(0), rocket: D(0), spaceship: D(0), console: D(0), space_station: D(0),
+        robot: D(0), waste: D(0), radioactive_waste: D(0),
+      };
+      
+      // Суммируем производство со всех зданий на карте
+      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+        const building = state.buildings.find(b => b.id === buildingId);
+        if (!building?.production) continue;
+        
+        const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+        const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
+        const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
+        
+        for (const [resType, baseRate] of Object.entries(building.production)) {
+          const rType = resType as ResourceType;
+          let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult);
+          
+          // Применяем все те же множители что и в основном цикле
+          if (building.proximityMultiplier && building.proximityMultiplier !== 1) {
+            rate = rate.mul(building.proximityMultiplier);
+          }
+          
+          productionRates[rType] = productionRates[rType].add(rate);
+        }
+      }
+      
+      // Вычитаем потребление
+      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+        const building = state.buildings.find(b => b.id === buildingId);
+        if (!building?.consumption) continue;
+        
+        const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+        
+        for (const [resType, baseRate] of Object.entries(building.consumption)) {
+          const rType = resType as ResourceType;
+          const rate = D(baseRate).mul(buildingLevel);
+          productionRates[rType] = productionRates[rType].sub(rate);
+        }
+      }
+      
+      // Обновляем поле production в ресурсах
+      for (const resourceType of Object.keys(newResources) as ResourceType[]) {
+        newResources[resourceType] = {
+          ...newResources[resourceType],
+          production: productionRates[resourceType] || D(0),
+        };
+      }
 
       // Production Matrix: Auto-Sort (delete cheap resources to prevent clogging)
       if (autoSortEnabled) {
@@ -7702,6 +7839,117 @@ export const useGameStore = create<GameState>((set, get) => ({
   downgradeBuildingById: (_buildingId, _instanceId) => {
     // For future implementation if needed (for buildings not on grid)
     console.warn('downgradeBuildingById not yet implemented');
+  },
+
+  // Максимальное улучшение здания
+  maxUpgradeBuildingAt: (coord) => {
+    set((state) => {
+      const tileKey = `${coord.x},${coord.y}`;
+      const buildingId = state.grid.tiles[tileKey];
+      
+      if (!buildingId) {
+        console.warn('No building at this location');
+        return state;
+      }
+      
+      const tileLevels = state.grid.tileLevels || {};
+      let currentLevel = tileLevels[tileKey] || 1;
+      
+      if (currentLevel >= 500) {
+        console.warn('Building is already at max level (500)');
+        return state;
+      }
+      
+      const building = state.buildings.find(b => b.id === buildingId);
+      if (!building) {
+        console.warn('Building definition not found');
+        return state;
+      }
+      
+      // Копируем текущие ресурсы для расчётов
+      let availableResources = { ...state.resources };
+      let availableCredits = state.currency.credits;
+      let upgradesPerformed = 0;
+      const maxUpgrades = 500 - currentLevel; // Максимально до уровня 500
+      
+      // Пытаемся улучшать пока хватает ресурсов
+      for (let i = 0; i < maxUpgrades; i++) {
+        const levelForCost = currentLevel + i;
+        const costFactor = Math.pow(1.15, levelForCost);
+        let canAfford = true;
+        
+        // Проверяем ресурсы
+        for (const [resource, baseCost] of Object.entries(building.baseCost)) {
+          const cost = (baseCost as import('break_eternity.js').default).mul(costFactor);
+          const available = availableResources[resource as import('../core/gameTypes').ResourceType]?.amount || D(0);
+          
+          if (available.lt(cost)) {
+            canAfford = false;
+            break;
+          }
+        }
+        
+        // Проверяем кредиты
+        if (canAfford && building.creditCost) {
+          const creditCost = building.creditCost.mul(costFactor);
+          if (availableCredits.lt(creditCost)) {
+            canAfford = false;
+          }
+        }
+        
+        // Если не можем позволить, останавливаемся
+        if (!canAfford) break;
+        
+        // Вычитаем ресурсы
+        for (const [resource, baseCost] of Object.entries(building.baseCost)) {
+          const cost = (baseCost as import('break_eternity.js').default).mul(costFactor);
+          const resType = resource as import('../core/gameTypes').ResourceType;
+          if (availableResources[resType]) {
+            availableResources[resType] = {
+              ...availableResources[resType]!,
+              amount: availableResources[resType]!.amount.minus(cost),
+            };
+          }
+        }
+        
+        if (building.creditCost) {
+          const creditCost = building.creditCost.mul(costFactor);
+          availableCredits = availableCredits.minus(creditCost);
+        }
+        
+        upgradesPerformed++;
+      }
+      
+      // Если не было улучшений, ничего не делаем
+      if (upgradesPerformed === 0) {
+        console.log('Cannot afford any upgrades');
+        return state;
+      }
+      
+      // Применяем улучшения
+      const newLevel = currentLevel + upgradesPerformed;
+      const newTileLevels = { ...tileLevels, [tileKey]: newLevel };
+      
+      const updatedGrid = {
+        ...state.grid,
+        tileLevels: newTileLevels,
+      };
+      
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const updatedResources = recomputeCaps(availableResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
+      
+      console.log(`Upgraded building from level ${currentLevel} to ${newLevel} (${upgradesPerformed} upgrades)`);
+      
+      return {
+        ...state,
+        resources: updatedResources,
+        currency: {
+          ...state.currency,
+          credits: availableCredits,
+        },
+        grid: updatedGrid,
+      };
+    });
   },
 
   resetGame: () => {
