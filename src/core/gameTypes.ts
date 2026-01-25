@@ -275,6 +275,8 @@ export interface DemonsState {
   rentPaid: Record<DemonId, boolean>;
   oracleRecommendationId: string | null;
   oracleRecommendationRoiSeconds: number | null;
+  // Smart-Broker: какие ресурсы НЕ продавать автоматически
+  brokerExcludeFromAutoSell: Record<TradeResourceType, boolean>;
 }
 
 export interface CurrencyState {
@@ -1054,6 +1056,7 @@ export interface GameState {
   buyUpgrade: (id: UpgradeId) => void;
   researchTechnology: (id: TechnologyId) => void;
   toggleDemon: (id: DemonId) => void;
+  toggleBrokerAutoSell: (resource: TradeResourceType) => void;
   setNanoSwarmAllocation: (channel: NanoSwarmChannel, pct: number) => void;
   selectShipModule: (slot: ShipSlot, moduleId: ShipModuleId) => void;
   unlockShipModule: (moduleId: ShipModuleId) => void;

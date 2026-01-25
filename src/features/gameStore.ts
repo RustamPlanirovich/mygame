@@ -232,6 +232,7 @@ const INITIAL_DEMONS: DemonsState = {
   },
   oracleRecommendationId: null,
   oracleRecommendationRoiSeconds: null,
+  brokerExcludeFromAutoSell: {} as Record<TradeResourceType, boolean>,
 };
 
 const INITIAL_META: MetaState = {
@@ -2017,7 +2018,17 @@ const INITIAL_COMBAT: CombatState = {
   enemyPressurePotentialPerSecond: D(0),
 };
 
-const TRADEABLE: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
+const TRADEABLE: TradeResourceType[] = [
+  'ore', 'ice', 'carbon', 'steel',
+  'natural_gas', 'oil', 'gasoline', 'plastic', 'glass', 'sand',
+  'uranium', 'chrome', 'titanium',
+  'copper', 'semiconductors', 'dynamite', 'fiber',
+  'integrated_circuit', 'battery', 'engine', 'display', 'computer',
+  'liquid_fuel', 'chrome_alloy', 'titanium_alloy', 'enriched_uranium',
+  'weapon', 'artillery', 'radar', 'nuclear_bomb',
+  'jet_engine', 'satellite', 'rocket', 'spaceship', 'console', 'space_station',
+  'robot'
+];
 
 const clampPrice = (p: Decimal) => {
   const min = D(0.05);
@@ -2819,6 +2830,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       demons: {
         ...state.demons,
         active: { ...state.demons.active, [id]: !state.demons.active[id] },
+      },
+    }));
+  },
+
+  toggleBrokerAutoSell: (resource: TradeResourceType) => {
+    set((state) => ({
+      demons: {
+        ...state.demons,
+        brokerExcludeFromAutoSell: {
+          ...state.demons.brokerExcludeFromAutoSell,
+          [resource]: !state.demons.brokerExcludeFromAutoSell[resource],
+        },
       },
     }));
   },
@@ -4123,44 +4146,42 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Smart-Broker: auto-sell surplus (only if rent was paid)
       if (demonsPaid.smart_broker) {
-        // Проверяем что энергия не переполнена (оставляем место для прибыли)
         const energyCap = newResources.energy.max;
-        const energyHave = getBuf(buffers, baseKey, 'energy');
-        const energyThreshold = energyCap.mul(D('0.85')); // Не продаем если энергия >85%
+        const threshold = D('0.90');
         
-        if (energyHave.lt(energyThreshold)) {
-          const threshold = D('0.90');
-          for (const t of TRADEABLE) {
-            const cap = newResources[t].max;
-            const have = getBuf(buffers, baseKey, t);
-            const limit = cap.mul(threshold);
-            if (have.lte(limit)) continue;
+        for (const t of TRADEABLE) {
+          // Пропускаем если пользователь отключил автопродажу этого ресурса
+          if (state.demons.brokerExcludeFromAutoSell[t]) continue;
+          
+          const cap = newResources[t].max;
+          const have = getBuf(buffers, baseKey, t);
+          const limit = cap.mul(threshold);
+          if (have.lte(limit)) continue;
 
-            const excess = have.sub(limit);
-            const sellAmt = excess.min(D(12).mul(dt));
-            if (sellAmt.lte(0)) continue;
+          const excess = have.sub(limit);
+          const sellAmt = excess.min(D(12).mul(dt));
+          if (sellAmt.lte(0)) continue;
 
-            const price = nextMarket.prices[t];
-            const earned = price.mul(sellAmt).mul(D(tradeMult));
+          const price = nextMarket.prices[t];
+          const earned = price.mul(sellAmt).mul(D(tradeMult));
 
-            // Проверяем что заработанная энергия поместится
-            const curE = getBuf(buffers, baseKey, 'energy');
-            const futureE = curE.add(earned);
-            if (futureE.gt(energyCap)) {
-              // Продаем только столько, сколько поместится
-              const room = energyCap.sub(curE).max(D(0));
-              if (room.lte(0)) break; // Нет места - прекращаем продажу
-              const affordableSell = room.div(price.mul(D(tradeMult))).max(D(0));
-              const actualSell = sellAmt.min(affordableSell);
-              if (actualSell.lte(0)) continue;
-              
-              const actualEarned = price.mul(actualSell).mul(D(tradeMult));
-              buffers = setBuf(buffers, baseKey, t, have.sub(actualSell).max(D(0)));
-              buffers = setBuf(buffers, baseKey, 'energy', curE.add(actualEarned));
-            } else {
-              buffers = setBuf(buffers, baseKey, t, have.sub(sellAmt).max(D(0)));
-              buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
-            }
+          // Проверяем что заработанная энергия поместится
+          const curE = getBuf(buffers, baseKey, 'energy');
+          const futureE = curE.add(earned);
+          if (futureE.gt(energyCap)) {
+            // Продаем только столько, сколько поместится
+            const room = energyCap.sub(curE).max(D(0));
+            if (room.lte(0)) continue; // Нет места - пропускаем этот ресурс
+            const affordableSell = room.div(price.mul(D(tradeMult))).max(D(0));
+            const actualSell = sellAmt.min(affordableSell);
+            if (actualSell.lte(0)) continue;
+            
+            const actualEarned = price.mul(actualSell).mul(D(tradeMult));
+            buffers = setBuf(buffers, baseKey, t, have.sub(actualSell).max(D(0)));
+            buffers = setBuf(buffers, baseKey, 'energy', curE.add(actualEarned));
+          } else {
+            buffers = setBuf(buffers, baseKey, t, have.sub(sellAmt).max(D(0)));
+            buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
           }
         }
 
@@ -5260,6 +5281,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       research: state.research,
       demons: {
         active: state.demons.active,
+        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
       },
       meta: {
         qubits: state.meta.qubits.toString(),
@@ -5401,6 +5423,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       research: state.research,
       demons: {
         active: state.demons.active,
+        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
       },
       meta: {
         qubits: state.meta.qubits.toString(),
@@ -5586,6 +5609,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 overclocker: false,
                 oracle: false,
               },
+              brokerExcludeFromAutoSell: save.demons.brokerExcludeFromAutoSell ?? ({} as Record<TradeResourceType, boolean>),
             }
           : state.demons;
 
@@ -5593,6 +5617,50 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? {
               ...state.galaxies,
               ...save.galaxies,
+              platforms: Array.isArray(save.galaxies.platforms)
+                ? save.galaxies.platforms.map((p: any) => ({
+                    ...p,
+                    hp: D(p.hp ?? 100),
+                    maxHp: D(p.maxHp ?? 100),
+                    shieldHp: D(p.shieldHp ?? 0),
+                    maxShieldHp: D(p.maxShieldHp ?? 0),
+                    armor: D(p.armor ?? 0),
+                    maxArmor: D(p.maxArmor ?? 0),
+                    resources: p.resources
+                      ? Object.fromEntries(
+                          Object.entries(p.resources).map(([k, v]: [string, any]) => [
+                            k,
+                            { amount: D(v?.amount ?? 0), max: D(v?.max ?? 0) }
+                          ])
+                        )
+                      : {},
+                    combat: p.combat
+                      ? {
+                          ...p.combat,
+                          enemies: Array.isArray(p.combat.enemies)
+                            ? p.combat.enemies.map((e: any) => ({
+                                ...e,
+                                hp: D(e.hp ?? 0),
+                                maxHp: D(e.maxHp ?? 0),
+                                dps: D(e.dps ?? 0),
+                                armor: D(e.armor ?? 0),
+                                loot: e.loot
+                                  ? {
+                                      ...e.loot,
+                                      credits: D(e.loot.credits ?? 0),
+                                      resources: e.loot.resources
+                                        ? Object.fromEntries(
+                                            Object.entries(e.loot.resources).map(([k, v]) => [k, D(v as any)])
+                                          )
+                                        : undefined,
+                                    }
+                                  : undefined,
+                              }))
+                            : [],
+                        }
+                      : p.combat,
+                  }))
+                : state.galaxies.platforms,
             }
           : state.galaxies;
 
@@ -5907,6 +5975,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       research: state.research,
       demons: {
         active: state.demons.active,
+        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
       },
       meta: {
         qubits: state.meta.qubits.toString(),
@@ -6084,6 +6153,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               },
               oracleRecommendationId: null,
               oracleRecommendationRoiSeconds: null,
+              brokerExcludeFromAutoSell: save.demons.brokerExcludeFromAutoSell ?? ({} as Record<TradeResourceType, boolean>),
             }
           : state.demons;
 
@@ -6145,7 +6215,50 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? {
               currentGalaxyId: (save.galaxies.currentGalaxyId as import('../core/gameTypes').GalaxyId) ?? state.galaxies.currentGalaxyId,
               unlockedGalaxies: Array.isArray(save.galaxies.unlockedGalaxies) ? save.galaxies.unlockedGalaxies : state.galaxies.unlockedGalaxies,
-              platforms: Array.isArray(save.galaxies.platforms) ? save.galaxies.platforms : state.galaxies.platforms,
+              platforms: Array.isArray(save.galaxies.platforms) 
+                ? save.galaxies.platforms.map((p: any) => ({
+                    ...p,
+                    hp: D(p.hp ?? 100),
+                    maxHp: D(p.maxHp ?? 100),
+                    shieldHp: D(p.shieldHp ?? 0),
+                    maxShieldHp: D(p.maxShieldHp ?? 0),
+                    armor: D(p.armor ?? 0),
+                    maxArmor: D(p.maxArmor ?? 0),
+                    resources: p.resources 
+                      ? Object.fromEntries(
+                          Object.entries(p.resources).map(([k, v]: [string, any]) => [
+                            k,
+                            { amount: D(v?.amount ?? 0), max: D(v?.max ?? 0) }
+                          ])
+                        )
+                      : {},
+                    combat: p.combat 
+                      ? {
+                          ...p.combat,
+                          enemies: Array.isArray(p.combat.enemies)
+                            ? p.combat.enemies.map((e: any) => ({
+                                ...e,
+                                hp: D(e.hp ?? 0),
+                                maxHp: D(e.maxHp ?? 0),
+                                dps: D(e.dps ?? 0),
+                                armor: D(e.armor ?? 0),
+                                loot: e.loot 
+                                  ? {
+                                      ...e.loot,
+                                      credits: D(e.loot.credits ?? 0),
+                                      resources: e.loot.resources
+                                        ? Object.fromEntries(
+                                            Object.entries(e.loot.resources).map(([k, v]) => [k, D(v as any)])
+                                          )
+                                        : undefined,
+                                    }
+                                  : undefined,
+                              }))
+                            : [],
+                        }
+                      : p.combat,
+                  }))
+                : state.galaxies.platforms,
               autoTransportEnabled: typeof save.galaxies.autoTransportEnabled === 'boolean' ? save.galaxies.autoTransportEnabled : state.galaxies.autoTransportEnabled,
               fuelReserve: D(save.galaxies.fuelReserve ?? state.galaxies.fuelReserve.toString()),
               notifications: Array.isArray(save.galaxies.notifications) ? save.galaxies.notifications : [],

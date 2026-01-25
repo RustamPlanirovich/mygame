@@ -1,16 +1,31 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format.ts';
-import type { DemonId } from '../../core/gameTypes';
+import type { DemonId, TradeResourceType } from '../../core/gameTypes';
 import { DEMON_DEFS } from '../../core/constants/progression';
-import { Skull } from 'lucide-react';
+import { TRADE_LABEL } from '../../core/constants/labels';
+import { Skull, Settings } from 'lucide-react';
 
 const ORDER: DemonId[] = ['smart_broker', 'overclocker', 'oracle'];
+
+const TRADEABLE_RESOURCES: TradeResourceType[] = [
+  'ore', 'ice', 'carbon', 'steel',
+  'natural_gas', 'oil', 'gasoline', 'plastic', 'glass', 'sand',
+  'uranium', 'chrome', 'titanium',
+  'copper', 'semiconductors', 'dynamite', 'fiber',
+  'integrated_circuit', 'battery', 'engine', 'display', 'computer',
+  'liquid_fuel', 'chrome_alloy', 'titanium_alloy', 'enriched_uranium',
+  'weapon', 'artillery', 'radar', 'nuclear_bomb',
+  'jet_engine', 'satellite', 'rocket', 'spaceship', 'console', 'space_station',
+  'robot'
+];
 
 export function DemonsPanel() {
   const demons = useGameStore((s) => s.demons);
   const buildings = useGameStore((s) => s.buildings);
   const toggleDemon = useGameStore((s) => s.toggleDemon);
+  const toggleBrokerAutoSell = useGameStore((s) => s.toggleBrokerAutoSell);
+  const [showBrokerSettings, setShowBrokerSettings] = useState(false);
 
   const oracleHint = useMemo(() => {
     if (!demons.oracleRecommendationId || demons.oracleRecommendationRoiSeconds == null) return null;
@@ -75,6 +90,48 @@ export function DemonsPanel() {
       <div className="text-[10px] text-cyber-text-dim mt-2">
         💡 Эффекты работают только при оплате (хватает ⚡).
       </div>
+
+      {/* Smart-Broker Settings */}
+      {demons.active.smart_broker && (
+        <div className="mt-3 pt-3 border-t border-cyber-gray/50">
+          <button
+            onClick={() => setShowBrokerSettings(!showBrokerSettings)}
+            className="flex items-center gap-2 text-xs text-cyber-blue hover:text-cyber-green transition-colors mb-2"
+          >
+            <Settings size={14} />
+            <span>Настройки автопродажи Smart-Broker</span>
+            <span className="text-cyber-gray-light">{showBrokerSettings ? '▼' : '▶'}</span>
+          </button>
+
+          {showBrokerSettings && (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto cyber-scrollbar">
+              <div className="text-[10px] text-cyber-text-dim mb-2">
+                💡 Отключите автопродажу для ресурсов, которые нужно копить
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {TRADEABLE_RESOURCES.map((res) => {
+                  const excluded = Boolean(demons.brokerExcludeFromAutoSell[res]);
+                  return (
+                    <button
+                      key={res}
+                      onClick={() => toggleBrokerAutoSell(res)}
+                      className={`text-[10px] py-1.5 px-2 rounded border transition-colors text-left ${
+                        excluded
+                          ? 'bg-cyber-dark border-cyber-gray text-cyber-gray-light'
+                          : 'bg-cyber-green/10 border-cyber-green text-cyber-green'
+                      }`}
+                      title={excluded ? 'Не продается' : 'Продается автоматически'}
+                    >
+                      <span className="mr-1">{excluded ? '🚫' : '✓'}</span>
+                      {TRADE_LABEL[res] || res}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
