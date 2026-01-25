@@ -5572,6 +5572,156 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
+  // Перезаписать существующее сохранение
+  overwriteSave: async (saveId: number, saveName: string) => {
+    const state = get();
+    const save = {
+      resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
+      buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
+      currency: {
+        credits: state.currency.credits.toString(),
+        researchPoints: state.currency.researchPoints.toString(),
+        influence: state.currency.influence.toString(),
+      },
+      market: {
+        prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
+        event: state.market.event,
+        nextUpdateAt: state.market.nextUpdateAt,
+        history: state.market.history,
+      },
+      combat: {
+        baseHp: state.combat.baseHp.toString(),
+        baseMaxHp: state.combat.baseMaxHp.toString(),
+        shieldHp: state.combat.shieldHp.toString(),
+        shieldMaxHp: state.combat.shieldMaxHp.toString(),
+        nextWaveAt: state.combat.nextWaveAt,
+        waveEndsAt: state.combat.waveEndsAt,
+        nextSpawnAt: state.combat.nextSpawnAt,
+        enemies: state.combat.enemies.map((e) => ({
+          id: e.id,
+          type: e.type,
+          hp: e.hp.toString(),
+          maxHp: e.maxHp.toString(),
+          distance: e.distance,
+          speed: e.speed,
+        })),
+      },
+      research: state.research,
+      demons: {
+        active: state.demons.active,
+      },
+      meta: {
+        qubits: state.meta.qubits.toString(),
+        lifetimeEnergyProduced: state.meta.lifetimeEnergyProduced.toString(),
+        blueprints: state.meta.blueprints.toString(),
+      },
+      expedition: state.expedition,
+      nanoSwarm: state.nanoSwarm,
+      ship: state.ship,
+      starChart: state.starChart,
+      aegis: state.aegis,
+      productionMatrix: state.productionMatrix,
+      quantumNet: state.quantumNet,
+      politics: state.politics,
+      galaxies: {
+        currentGalaxyId: state.galaxies.currentGalaxyId,
+        unlockedGalaxies: state.galaxies.unlockedGalaxies,
+        platforms: state.galaxies.platforms,
+        autoTransportEnabled: state.galaxies.autoTransportEnabled,
+        fuelReserve: state.galaxies.fuelReserve.toString(),
+      },
+      pollution: {
+        wasteAmount: state.pollution.wasteAmount.toString(),
+        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
+        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
+        pollutionZones: state.pollution.pollutionZones,
+      },
+      intergalacticLogistics: {
+        caravans: state.intergalacticLogistics.caravans.map(c => ({
+          ...c,
+          cargo: Object.fromEntries(
+            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
+          ),
+          fuelCost: c.fuelCost.toString(),
+          fuelPaid: c.fuelPaid.toString(),
+          defense: c.defense.toString(),
+          underAttackBy: c.underAttackBy?.map(e => ({
+            ...e,
+            maxHp: e.maxHp.toString(),
+            hp: e.hp.toString(),
+            dps: e.dps.toString(),
+            armor: e.armor.toString(),
+          })),
+        })),
+        upgrades: state.intergalacticLogistics.upgrades,
+        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
+        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
+          ...r,
+          triggerAmount: r.triggerAmount.toString(),
+          sendAmount: r.sendAmount.toString(),
+        })),
+      },
+      randomEvents: {
+        activeEvents: state.randomEvents.activeEvents.map(e => ({
+          ...e,
+          effects: e.effects
+            ? {
+                ...e.effects,
+                resourceGain: e.effects.resourceGain
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                resourceLoss: e.effects.resourceLoss
+                  ? Object.fromEntries(
+                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
+                    )
+                  : undefined,
+                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
+                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
+              }
+            : undefined,
+        })),
+        eventHistory: state.randomEvents.eventHistory,
+        nextEventAt: state.randomEvents.nextEventAt,
+        eventsEnabled: state.randomEvents.eventsEnabled,
+        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
+      },
+      grid: state.grid,
+      lastTick: state.lastTick,
+    };
+
+    try {
+      if (!isAuthenticated()) {
+        throw new Error('NO_USER');
+      }
+      
+      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+        method: 'PUT',
+        headers: { 
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: saveName,
+          saveType: 'manual',
+          data: save,
+          saveId: saveId, // Передаем ID для перезаписи
+        }),
+      });
+
+      const result = await response.json();
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      return { ok: true, save: result.save };
+    } catch (e) {
+      console.error('Overwrite save failed', e);
+      return { ok: false, error: String(e) };
+    }
+  },
+
   loadGame: async () => {
     let save: any;
     try {

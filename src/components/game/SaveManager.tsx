@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from '../../features/gameStore';
-import { Save, Trash2, Download, X, Plus } from 'lucide-react';
+import { Save, Trash2, Download, X, Plus, RefreshCw } from 'lucide-react';
 
 interface SaveInfo {
   id: number;
@@ -26,6 +26,7 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   const loadGameFromSave = useGameStore(state => state.loadGameFromSave);
   const saveGameManual = useGameStore(state => state.saveGameManual);
   const deleteSave = useGameStore(state => state.deleteSave);
+  const overwriteSave = useGameStore(state => state.overwriteSave);
 
   useEffect(() => {
     if (isOpen) {
@@ -96,6 +97,23 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
       await loadSaves();
     } else {
       setError('Ошибка удаления сохранения');
+    }
+    setLoading(false);
+  };
+
+  const handleOverwriteSave = async (saveId: number, saveName: string) => {
+    if (!confirm(`Вы уверены, что хотите перезаписать сохранение "${saveName}"?`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    const result = await overwriteSave(saveId, saveName);
+    if (result.ok) {
+      await loadSaves();
+      setError('');
+    } else {
+      setError('Ошибка перезаписи сохранения');
     }
     setLoading(false);
   };
@@ -211,6 +229,14 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
                       title="Загрузить"
                     >
                       <Download className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleOverwriteSave(save.id, save.name)}
+                      disabled={loading}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
+                      title="Перезаписать текущим прогрессом"
+                    >
+                      <RefreshCw className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteSave(save.id)}
