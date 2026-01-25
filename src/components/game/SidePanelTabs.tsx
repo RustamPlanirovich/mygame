@@ -66,31 +66,36 @@ export function SidePanelTabs() {
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
   const deposit = selectedKey ? grid.deposits?.[selectedKey] : null;
+  
+  // Проверяем, является ли выбранная клетка базой
+  const isBaseSelected = grid.selected ? 
+    grid.selected.x === Math.floor(grid.width / 2) && grid.selected.y === Math.floor(grid.height / 2) 
+    : false;
 
   const tabs = useMemo(
     () =>
       [
-        { id: 'building' as const, label: 'Строительство', icon: Hammer, Node: <BuildingList /> },
-        { id: 'inspector' as const, label: 'Инспектор', icon: Search, Node: <TileInspector /> },
-        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Node: <QuestsPanel quests={quests} onClaimReward={claimQuestReward} /> },
-        { id: 'combat' as const, label: 'Бой', icon: Swords, Node: <CombatPanel /> },
-        { id: 'market' as const, label: 'Рынок', icon: Store, Node: <MarketPanel /> },
-        { id: 'research' as const, label: 'Исследования', icon: FlaskConical, Node: <ResearchPanel /> },
-        { id: 'politics' as const, label: 'Политика', icon: Landmark, Node: <PoliticsPanel /> },
-        { id: 'galaxies' as const, label: 'Галактики', icon: Globe, Node: <GalaxyMap /> },
-        { id: 'platforms' as const, label: 'Платформы', icon: Satellite, Node: <PlatformsPanel /> },
-        { id: 'fleet' as const, label: 'Флот', icon: Ship, Node: <FleetPanel /> },
-        { id: 'logistics' as const, label: 'Логистика', icon: Truck, Node: <IntergalacticLogisticsPanel /> },
-        { id: 'events' as const, label: 'События', icon: Zap, Node: <RandomEventsPanel /> },
-        { id: 'achievements' as const, label: 'Достижения', icon: Trophy, Node: <AchievementsPanel /> },
-        { id: 'megastructures' as const, label: 'Мегаструктуры', icon: Building2, Node: <MegastructuresPanel /> },
-        { id: 'help' as const, label: 'Справка', icon: BookOpen, Node: <HelpPanel /> },
-        { id: 'demons' as const, label: 'Демоны', icon: Ghost, Node: <DemonsPanel /> },
-        { id: 'prestige' as const, label: 'Престиж', icon: Sparkles, Node: <PrestigePanel /> },
-        { id: 'artifacts' as const, label: 'Артефакты', icon: Gift, Node: <ArtifactsPanel /> },
-        { id: 'rewards' as const, label: 'Награды', icon: CalendarDays, Node: <DailyRewardsPanel /> },
-        { id: 'chains' as const, label: 'Цепочки', icon: Network, Node: <ProductionChainVisualizer /> },
-        { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Node: <ExpeditionPanel /> },
+        { id: 'building' as const, label: 'Строительство', icon: Hammer, Component: BuildingList },
+        { id: 'inspector' as const, label: 'Инспектор', icon: Search, Component: TileInspector },
+        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Component: () => <QuestsPanel quests={quests} onClaimReward={claimQuestReward} /> },
+        { id: 'combat' as const, label: 'Бой', icon: Swords, Component: CombatPanel },
+        { id: 'market' as const, label: 'Рынок', icon: Store, Component: MarketPanel },
+        { id: 'research' as const, label: 'Исследования', icon: FlaskConical, Component: ResearchPanel },
+        { id: 'politics' as const, label: 'Политика', icon: Landmark, Component: PoliticsPanel },
+        { id: 'galaxies' as const, label: 'Галактики', icon: Globe, Component: GalaxyMap },
+        { id: 'platforms' as const, label: 'Платформы', icon: Satellite, Component: PlatformsPanel },
+        { id: 'fleet' as const, label: 'Флот', icon: Ship, Component: FleetPanel },
+        { id: 'logistics' as const, label: 'Логистика', icon: Truck, Component: IntergalacticLogisticsPanel },
+        { id: 'events' as const, label: 'События', icon: Zap, Component: RandomEventsPanel },
+        { id: 'achievements' as const, label: 'Достижения', icon: Trophy, Component: AchievementsPanel },
+        { id: 'megastructures' as const, label: 'Мегаструктуры', icon: Building2, Component: MegastructuresPanel },
+        { id: 'help' as const, label: 'Справка', icon: BookOpen, Component: HelpPanel },
+        { id: 'demons' as const, label: 'Демоны', icon: Ghost, Component: DemonsPanel },
+        { id: 'prestige' as const, label: 'Престиж', icon: Sparkles, Component: PrestigePanel },
+        { id: 'artifacts' as const, label: 'Артефакты', icon: Gift, Component: ArtifactsPanel },
+        { id: 'rewards' as const, label: 'Награды', icon: CalendarDays, Component: DailyRewardsPanel },
+        { id: 'chains' as const, label: 'Цепочки', icon: Network, Component: ProductionChainVisualizer },
+        { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Component: ExpeditionPanel },
       ],
     [quests, claimQuestReward],
   );
@@ -102,6 +107,9 @@ export function SidePanelTabs() {
     if (!selectedKey) {
       // Пустая клетка - возвращаемся в главное меню
       setActive(null);
+    } else if (isBaseSelected) {
+      // База - открываем инспектор
+      setActive('inspector');
     } else if (buildingId) {
       // Клетка с постройкой - открываем инспектор
       setActive('inspector');
@@ -112,7 +120,7 @@ export function SidePanelTabs() {
       // Пустая клетка без ресурса - возвращаемся в меню
       setActive(null);
     }
-  }, [selectedKey, buildingId, deposit]);
+  }, [selectedKey, buildingId, deposit, isBaseSelected]);
 
   const activeTab = tabs.find((t) => t.id === active);
 
@@ -121,7 +129,8 @@ export function SidePanelTabs() {
     if (active === 'deposit' && deposit) {
       return <DepositBuildPanel deposit={deposit as DepositType} />;
     }
-    return activeTab?.Node;
+    const Comp = activeTab?.Component;
+    return Comp ? <Comp /> : null;
   };
 
   const getTitle = () => {

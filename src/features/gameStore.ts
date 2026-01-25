@@ -3454,11 +3454,41 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Apply Energy Optimization from repeatable research (reduces consumption)
       totalEnergyConsumption = totalEnergyConsumption.mul(repeatableBonuses.energyEfficiency);
       
-      // Calculate efficiency: if consumption > production, reduce efficiency
+      // Calculate efficiency: if consumption > production, try to use stored energy from base
       let energyEfficiency = 1.0;
-      if (totalEnergyConsumption.gt(totalEnergyProduction) && totalEnergyProduction.gt(0)) {
-        energyEfficiency = Number(totalEnergyProduction.div(totalEnergyConsumption).toString());
-        energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
+      let energyDeficit = D(0);
+      
+      if (totalEnergyConsumption.gt(totalEnergyProduction)) {
+        energyDeficit = totalEnergyConsumption.sub(totalEnergyProduction);
+        const energyDeficitForTick = energyDeficit.mul(dtFacilities);
+        
+        // Проверяем, есть ли запас энергии в базе для покрытия дефицита
+        const availableEnergyInBase = getBuf(buffers, baseKey, 'energy');
+        
+        if (availableEnergyInBase.gte(energyDeficitForTick)) {
+          // Достаточно запасов - работаем на 100%, расходуем из базы
+          energyEfficiency = 1.0;
+          // Списываем недостающую энергию из базы
+          buffers = setBuf(buffers, baseKey, 'energy', availableEnergyInBase.sub(energyDeficitForTick));
+        } else if (availableEnergyInBase.gt(0)) {
+          // Частично покрываем дефицит из запасов
+          const coveredDeficit = availableEnergyInBase;
+          buffers = setBuf(buffers, baseKey, 'energy', D(0));
+          
+          // Рассчитываем эффективность с учётом частичного покрытия
+          const totalAvailable = totalEnergyProduction.mul(dtFacilities).add(coveredDeficit);
+          const totalNeeded = totalEnergyConsumption.mul(dtFacilities);
+          energyEfficiency = Number(totalAvailable.div(totalNeeded).toString());
+          energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
+        } else {
+          // Запасов нет - работаем только на производстве
+          if (totalEnergyProduction.gt(0)) {
+            energyEfficiency = Number(totalEnergyProduction.div(totalEnergyConsumption).toString());
+            energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
+          } else {
+            energyEfficiency = 0;
+          }
+        }
       }
 
       // Produce/consume into local tile buffers

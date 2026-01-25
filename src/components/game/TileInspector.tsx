@@ -18,7 +18,34 @@ import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
 
 export function TileInspector() {
-  const grid = useGameStore((s) => s.grid);
+  // Подписываемся на конкретные поля grid для правильного реактивного обновления
+  const selected = useGameStore((s) => s.grid.selected);
+  const tiles = useGameStore((s) => s.grid.tiles);
+  const deposits = useGameStore((s) => s.grid.deposits);
+  const buffers = useGameStore((s) => s.grid.buffers);
+  const tileLevels = useGameStore((s) => s.grid.tileLevels);
+  const tileEvolutionLevels = useGameStore((s) => s.grid.tileEvolutionLevels);
+  const tileDisabled = useGameStore((s) => s.grid.tileDisabled);
+  const marketPolicy = useGameStore((s) => s.grid.marketPolicy);
+  const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
+  const gridWidth = useGameStore((s) => s.grid.width);
+  const gridHeight = useGameStore((s) => s.grid.height);
+  
+  // Собираем grid обратно для совместимости с остальным кодом
+  const grid = useMemo(() => ({
+    selected,
+    tiles,
+    deposits,
+    buffers,
+    tileLevels,
+    tileEvolutionLevels,
+    tileDisabled,
+    marketPolicy,
+    selectedBuildId,
+    width: gridWidth,
+    height: gridHeight,
+  }), [selected, tiles, deposits, buffers, tileLevels, tileEvolutionLevels, tileDisabled, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
+  
   const buildings = useGameStore((s) => s.buildings);
   const resources = useGameStore((s) => s.resources);
   const combat = useGameStore((s) => s.combat);
