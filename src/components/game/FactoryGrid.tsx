@@ -105,8 +105,10 @@ export function FactoryGrid() {
     deposits: s.grid.deposits,
     selected: s.grid.selected,
     selectedBuildId: s.grid.selectedBuildId,
+    highlightedBuildingId: s.grid.highlightedBuildingId,
     buffers: s.grid.buffers,
     activeTransports: s.grid.activeTransports,
+    tileEvolutionLevels: s.grid.tileEvolutionLevels,
     width: s.grid.width,
     height: s.grid.height,
   }), (a, b) => {
@@ -115,8 +117,10 @@ export function FactoryGrid() {
            a.deposits === b.deposits &&
            a.selected === b.selected &&
            a.selectedBuildId === b.selectedBuildId &&
+           a.highlightedBuildingId === b.highlightedBuildingId &&
            a.buffers === b.buffers &&
            a.activeTransports === b.activeTransports &&
+           a.tileEvolutionLevels === b.tileEvolutionLevels &&
            a.width === b.width &&
            a.height === b.height;
   });
@@ -762,14 +766,18 @@ export function FactoryGrid() {
         const { px, py } = gridToPixel(x, y);
 
         const isBase = x === basePos.x && y === basePos.y;
+        const isHighlighted = hasBuilding && grid.highlightedBuildingId && grid.tiles[k] === grid.highlightedBuildingId;
+        
         // При малом зуме делаем здания более яркими и контрастными
         const buildingAlphaBoost = cam.zoom < 0.5 ? 0.5 : 0.35;
         const fill = isBase
           ? THEME_COLORS.cyberGreen
-          : hasBuilding
-            ? THEME_COLORS.cyberBlue
-            : THEME_COLORS.cyberDark;
-        const alpha = isBase ? 0.3 : hasBuilding ? buildingAlphaBoost : 0.4;
+          : isHighlighted
+            ? THEME_COLORS.cyberYellow
+            : hasBuilding
+              ? THEME_COLORS.cyberBlue
+              : THEME_COLORS.cyberDark;
+        const alpha = isBase ? 0.3 : isHighlighted ? 0.6 : hasBuilding ? buildingAlphaBoost : 0.4;
 
         // Draw tile based on mode
         if (GRID_MODE === 'square') {
@@ -789,8 +797,14 @@ export function FactoryGrid() {
         let strokeWidth = 1;
         const missingResources: ResourceType[] = [];
         
+        // Подсветка для выбранных зданий
+        if (isHighlighted) {
+          strokeColor = THEME_COLORS.cyberYellow;
+          strokeAlpha = 1.0;
+          strokeWidth = 3;
+        }
         // При малом зуме делаем обводку зданий толще и ярче для лучшей видимости
-        if (hasBuilding && cam.zoom < 0.5) {
+        else if (hasBuilding && cam.zoom < 0.5) {
           strokeColor = THEME_COLORS.cyberBlue;
           strokeAlpha = 0.9;
           strokeWidth = 2;

@@ -1726,6 +1726,7 @@ const DEFAULT_GRID = {
   }>,
   lastDtSeconds: 0,
   selectedBuildId: null as string | null,
+  highlightedBuildingId: null as string | null, // ID здания для подсветки на карте
   marketPolicy: {} as Record<string, Partial<Record<TradeResourceType, { import?: boolean; export?: boolean }>>>,
   tileLevels: {} as Record<string, number>,
   tileEvolutionLevels: {} as Record<string, number>,
@@ -2246,6 +2247,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   selectBuild: (buildingId) => {
     set((state) => ({ grid: { ...state.grid, selectedBuildId: buildingId, focusedLink: null } }));
+  },
+
+  setHighlightedBuilding: (buildingId) => {
+    set((state) => ({ grid: { ...state.grid, highlightedBuildingId: buildingId } }));
   },
 
   placeSelectedBuildAt: (pos) => {

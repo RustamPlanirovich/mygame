@@ -754,6 +754,8 @@ export interface GridState {
   // last simulation dt in seconds (for UI diagnostics)
   lastDtSeconds: number;
   selectedBuildId: string | null;
+  // ID здания для подсветки на карте (когда пользователь выбирает тип здания)
+  highlightedBuildingId?: string | null;
 
   // Per-tile market policies for trade resources (fallback behavior).
   // key = "x,y"; value = per-resource toggles.
@@ -1049,6 +1051,7 @@ export interface GameState {
   setCameraPosition: (x: number, y: number, zoom: number) => void;
   expandGrid: (minWidth: number, minHeight: number) => void;
   selectBuild: (buildingId: string | null) => void;
+  setHighlightedBuilding: (buildingId: string | null) => void;
   placeSelectedBuildAt: (pos: GridCoord) => void;
   removeBuildingAt: (pos: GridCoord) => void;
 

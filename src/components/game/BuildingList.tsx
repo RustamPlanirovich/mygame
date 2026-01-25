@@ -4,8 +4,9 @@ import type { Building, ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { isBuildingUnlocked, getTechnologyForBuilding } from '../../core/constants/technologies';
-import { X, Lock, Search, Filter } from 'lucide-react';
+import { X, Lock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ResourceProductionChain } from './ResourceProductionChain';
 
 const requiredDepositForBuilding = (buildingId: string) => {
   if (buildingId === 'miner_mk1') return 'ore';
@@ -52,15 +53,28 @@ function buildTitle(building: Building) {
 export function BuildingList() {
   const buildings = useGameStore((s) => s.buildings);
   const selectedBuildId = useGameStore((s) => s.grid.selectedBuildId);
+  const highlightedBuildingId = useGameStore((s) => s.grid.highlightedBuildingId);
   const selectBuild = useGameStore((s) => s.selectBuild);
+  const setHighlightedBuilding = useGameStore((s) => s.setHighlightedBuilding);
   const resources = useGameStore((s) => s.resources);
   const currency = useGameStore((s) => s.currency);
   const research = useGameStore((s) => s.research);
+  const gridTiles = useGameStore((s) => s.grid.tiles);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyAffordable, setShowOnlyAffordable] = useState(false);
   const [showOnlyUnlocked, setShowOnlyUnlocked] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'cost' | 'level'>('name');
+  const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
+
+  // Подсчитываем количество зданий каждого типа на карте
+  const buildingCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    Object.values(gridTiles).forEach((buildingId) => {
+      counts[buildingId] = (counts[buildingId] || 0) + 1;
+    });
+    return counts;
+  }, [gridTiles]);
 
   const affordability = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -94,11 +108,47 @@ export function BuildingList() {
   const filteredBuildings = useMemo(() => {
     let filtered = buildings;
 
-    // Поиск по названию
+    // Поиск по названию или по производимым/потребляемым ресурсам
     if (searchQuery) {
-      filtered = filtered.filter(b => 
-        b.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(b => {
+        // Поиск по названию здания
+        if (b.name.toLowerCase().includes(query)) {
+          return true;
+        }
+
+        // Поиск по производимым ресурсам
+        if (b.production) {
+          for (const res of Object.keys(b.production)) {
+            const resLabel = RESOURCE_LABEL[res as ResourceType]?.toLowerCase() || res.toLowerCase();
+            if (resLabel.includes(query) || res.toLowerCase().includes(query)) {
+              return true;
+            }
+          }
+        }
+
+        // Поиск по потребляемым ресурсам
+        if (b.consumption) {
+          for (const res of Object.keys(b.consumption)) {
+            const resLabel = RESOURCE_LABEL[res as ResourceType]?.toLowerCase() || res.toLowerCase();
+            if (resLabel.includes(query) || res.toLowerCase().includes(query)) {
+              return true;
+            }
+          }
+        }
+
+        // Поиск по стоимости строительства
+        if (b.baseCost) {
+          for (const res of Object.keys(b.baseCost)) {
+            const resLabel = RESOURCE_LABEL[res as ResourceType]?.toLowerCase() || res.toLowerCase();
+            if (resLabel.includes(query) || res.toLowerCase().includes(query)) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      });
     }
 
     // Фильтр: только доступные
@@ -130,6 +180,32 @@ export function BuildingList() {
     return sorted;
   }, [buildings, searchQuery, showOnlyAffordable, showOnlyUnlocked, sortBy, affordability, research.technologies]);
 
+  // Определяем, ищет ли пользователь конкретный ресурс
+  const searchedResource = useMemo<ResourceType | null>(() => {
+    if (!searchQuery) return null;
+
+    const query = searchQuery.toLowerCase();
+    
+    // Проверяем все ресурсы
+    for (const [resKey, resLabel] of Object.entries(RESOURCE_LABEL)) {
+      if (resLabel.toLowerCase().includes(query) || resKey.toLowerCase().includes(query)) {
+        return resKey as ResourceType;
+      }
+    }
+
+    return null;
+  }, [searchQuery]);
+
+  const toggleChainExpansion = (buildingId: string) => {
+    const newExpanded = new Set(expandedChains);
+    if (newExpanded.has(buildingId)) {
+      newExpanded.delete(buildingId);
+    } else {
+      newExpanded.add(buildingId);
+    }
+    setExpandedChains(newExpanded);
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Фильтры и поиск */}
@@ -139,7 +215,7 @@ export function BuildingList() {
           <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-cyber-text-dim" />
           <input
             type="text"
-            placeholder="Поиск зданий..."
+            placeholder="Поиск зданий или ресурсов..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-cyber-black border border-cyber-gray rounded pl-8 pr-3 py-1.5 text-xs text-cyber-text placeholder-cyber-text-dim focus:outline-none focus:border-cyber-green"
@@ -192,30 +268,72 @@ export function BuildingList() {
       {/* Список зданий */}
       <div className="flex-1 overflow-y-auto p-3">
         <div className="space-y-2">
+          {/* Показываем производственную цепочку для искомого ресурса */}
+          {searchedResource && (
+            <div className="mb-3 p-3 bg-cyber-blue/5 border border-cyber-blue/30 rounded">
+              <div className="text-xs font-medium text-cyber-blue mb-2">
+                📊 Ищете: {RESOURCE_LABEL[searchedResource]}
+              </div>
+              <ResourceProductionChain 
+                resource={searchedResource} 
+                buildings={buildings}
+              />
+            </div>
+          )}
+
           {filteredBuildings.map((b) => {
           const Icon = getBuildingIcon(b.id);
           const isSelected = selectedBuildId === b.id;
+          const isHighlighted = highlightedBuildingId === b.id;
           const isUnlocked = isBuildingUnlocked(b.id, research.technologies);
           const canAfford = affordability[b.id];
           const cost = calculateCost(b);
           const req = requiredDepositForBuilding(b.id);
           const requiredTech = !isUnlocked ? getTechnologyForBuilding(b.id) : null;
+          const placedCount = buildingCounts[b.id] || 0;
+
+          const handleClick = () => {
+            if (!isUnlocked) return;
+            
+            // Переключаем режим строительства
+            selectBuild(isSelected ? null : b.id);
+            
+            // Устанавливаем подсветку для этого типа зданий
+            setHighlightedBuilding(isHighlighted ? null : b.id);
+          };
+
+          const handleMouseEnter = () => {
+            if (!isUnlocked) return;
+            // При наведении подсвечиваем здания этого типа на карте
+            setHighlightedBuilding(b.id);
+          };
+
+          const handleMouseLeave = () => {
+            // Убираем подсветку только если здание не выбрано
+            if (selectedBuildId !== b.id) {
+              setHighlightedBuilding(null);
+            }
+          };
 
           return (
             <button
               key={b.id}
               type="button"
               title={buildTitle(b)}
-              onClick={() => isUnlocked && selectBuild(isSelected ? null : b.id)}
+              onClick={handleClick}
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
               className={
                 `w-full flex flex-col gap-1.5 p-2.5 rounded transition-all border ` +
                 (!isUnlocked
                   ? 'bg-cyber-gray/5 border-cyber-gray/20 opacity-40 cursor-not-allowed text-cyber-text-dim'
                   : isSelected 
                     ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
-                    : canAfford 
-                      ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
-                      : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
+                    : isHighlighted
+                      ? 'bg-cyber-yellow/10 border-cyber-yellow text-cyber-yellow'
+                      : canAfford 
+                        ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
+                        : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
               }
               disabled={!isUnlocked || (!canAfford && !isSelected)}
             >
@@ -223,13 +341,19 @@ export function BuildingList() {
                 {!isUnlocked ? (
                   <Lock size={18} className="text-cyber-gray" />
                 ) : (
-                  <Icon size={18} className={isSelected ? 'text-cyber-green' : 'text-cyber-blue'} />
+                  <Icon size={18} className={isSelected ? 'text-cyber-green' : isHighlighted ? 'text-cyber-yellow' : 'text-cyber-blue'} />
                 )}
                 <div className="flex-1 text-left">
                   <div className="text-xs font-medium">{b.name}</div>
                   <div className="text-[10px] text-cyber-text-dim">
                     {!isUnlocked && requiredTech ? `🔒 ${requiredTech.name}` : `Уровень ${b.count}`}
                   </div>
+                  {/* Отображаем количество построенных зданий */}
+                  {isUnlocked && placedCount > 0 && (
+                    <div className="text-[10px] text-cyber-blue mt-0.5">
+                      📍 Построено: {placedCount}
+                    </div>
+                  )}
                 </div>
                 {isSelected && (
                   <X size={14} className="text-cyber-green" />
@@ -276,12 +400,47 @@ export function BuildingList() {
 
               {/* Производство */}
               {Object.keys(b.production).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 text-[10px]">
-                  <span className="text-cyber-text-dim">+</span>
-                  {Object.entries(b.production).map(([res, amt]) => (
-                    <span key={res} className="text-cyber-blue">
-                      {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
-                    </span>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap gap-1.5 text-[10px] items-center">
+                    <span className="text-cyber-text-dim">+</span>
+                    {Object.entries(b.production).map(([res, amt]) => (
+                      <span key={res} className="text-cyber-blue">
+                        {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
+                      </span>
+                    ))}
+                    
+                    {/* Кнопка показать цепочку */}
+                    {Object.keys(b.production).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleChainExpansion(b.id);
+                        }}
+                        className="ml-auto flex items-center gap-0.5 text-[9px] text-cyber-blue hover:text-cyber-green transition-colors"
+                      >
+                        {expandedChains.has(b.id) ? (
+                          <>
+                            <ChevronUp size={10} />
+                            <span>Скрыть цепочку</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown size={10} />
+                            <span>Показать цепочку</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Производственная цепочка */}
+                  {expandedChains.has(b.id) && Object.keys(b.production).map((res) => (
+                    <ResourceProductionChain
+                      key={res}
+                      resource={res as ResourceType}
+                      buildings={buildings}
+                    />
                   ))}
                 </div>
               )}

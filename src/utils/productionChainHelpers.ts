@@ -405,3 +405,121 @@ export function getRelatedResources(
 
   return { inputs, outputs };
 }
+
+/**
+ * Информация о шаге в производственной цепочке
+ */
+export interface ProductionChainStep {
+  resource: ResourceType;
+  buildings: string[]; // ID зданий, которые производят этот ресурс
+  isProducing: boolean; // Производится ли сейчас
+  inputs?: ProductionChainStep[]; // Требуемые входные ресурсы
+}
+
+/**
+ * Строит полную производственную цепочку для ресурса
+ * Показывает какие здания и материалы нужны для производства
+ */
+export function getResourceProductionChain(
+  targetResource: ResourceType,
+  buildings: Building[]
+): ProductionChainStep | null {
+  const visited = new Set<ResourceType>();
+
+  function buildChainRecursive(resource: ResourceType): ProductionChainStep | null {
+    // Предотвращаем циклы
+    if (visited.has(resource)) {
+      return null;
+    }
+    visited.add(resource);
+
+    // Находим здания, которые производят этот ресурс
+    const producers = buildings.filter(b => 
+      b.production && resource in b.production
+    );
+
+    const producerIds = producers.map(b => b.id);
+    const isProducing = producers.some(b => b.count > 0);
+
+    // Если это базовый ресурс (добывается, а не производится)
+    if (producers.length === 0) {
+      return {
+        resource,
+        buildings: [],
+        isProducing: false,
+        inputs: undefined,
+      };
+    }
+
+    // Находим все входные ресурсы для производителей
+    const inputResources = new Set<ResourceType>();
+    for (const producer of producers) {
+      if (producer.consumption) {
+        for (const inputRes of Object.keys(producer.consumption)) {
+          inputResources.add(inputRes as ResourceType);
+        }
+      }
+      // Также учитываем стоимость строительства как "входные ресурсы"
+      if (producer.baseCost) {
+        for (const costRes of Object.keys(producer.baseCost)) {
+          if (costRes !== 'energy') { // Энергию не считаем материалом
+            inputResources.add(costRes as ResourceType);
+          }
+        }
+      }
+    }
+
+    // Рекурсивно строим цепочки для входных ресурсов
+    const inputs: ProductionChainStep[] = [];
+    for (const inputRes of inputResources) {
+      const inputChain = buildChainRecursive(inputRes);
+      if (inputChain) {
+        inputs.push(inputChain);
+      }
+    }
+
+    visited.delete(resource);
+
+    return {
+      resource,
+      buildings: producerIds,
+      isProducing,
+      inputs: inputs.length > 0 ? inputs : undefined,
+    };
+  }
+
+  return buildChainRecursive(targetResource);
+}
+
+/**
+ * Собирает плоский список всех ресурсов и зданий в цепочке
+ */
+export function flattenProductionChain(
+  chain: ProductionChainStep | null
+): Array<{ resource: ResourceType; buildings: string[]; isProducing: boolean; level: number }> {
+  if (!chain) return [];
+
+  const result: Array<{ resource: ResourceType; buildings: string[]; isProducing: boolean; level: number }> = [];
+  const visited = new Set<ResourceType>();
+
+  function traverse(step: ProductionChainStep, level: number) {
+    if (visited.has(step.resource)) return;
+    visited.add(step.resource);
+
+    result.push({
+      resource: step.resource,
+      buildings: step.buildings,
+      isProducing: step.isProducing,
+      level,
+    });
+
+    if (step.inputs) {
+      for (const input of step.inputs) {
+        traverse(input, level + 1);
+      }
+    }
+  }
+
+  traverse(chain, 0);
+  return result;
+}
