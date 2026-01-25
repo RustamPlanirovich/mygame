@@ -24,7 +24,6 @@ import { QuestsPanel } from './QuestsPanel';
 import { HelpPanel } from './HelpPanel';
 import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Gift, CalendarDays, Network } from 'lucide-react';
 import type { DepositType } from '../../core/gameTypes';
-import { STARTER_QUESTS } from '../../core/constants/quests';
 
 type TabId =
   | 'inspector'
@@ -59,6 +58,10 @@ export function SidePanelTabs() {
     return s.achievements.recentlyUnlocked.filter(a => now - a.unlockedAt < 10000).length;
   });
   
+  // Получаем квесты из стора
+  const quests = useGameStore(s => s.quests.activeQuests);
+  const claimQuestReward = useGameStore(s => s.claimQuestReward);
+  
   // Определяем тип выбранной клетки
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
@@ -69,7 +72,7 @@ export function SidePanelTabs() {
       [
         { id: 'building' as const, label: 'Строительство', icon: Hammer, Node: <BuildingList /> },
         { id: 'inspector' as const, label: 'Инспектор', icon: Search, Node: <TileInspector /> },
-        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Node: <QuestsPanel quests={STARTER_QUESTS} /> },
+        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Node: <QuestsPanel quests={quests} onClaimReward={claimQuestReward} /> },
         { id: 'combat' as const, label: 'Бой', icon: Swords, Node: <CombatPanel /> },
         { id: 'market' as const, label: 'Рынок', icon: Store, Node: <MarketPanel /> },
         { id: 'research' as const, label: 'Исследования', icon: FlaskConical, Node: <ResearchPanel /> },
@@ -89,7 +92,7 @@ export function SidePanelTabs() {
         { id: 'chains' as const, label: 'Цепочки', icon: Network, Node: <ProductionChainVisualizer /> },
         { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Node: <ExpeditionPanel /> },
       ],
-    [],
+    [quests, claimQuestReward],
   );
 
   const [active, setActive] = useState<TabId | null>(null);

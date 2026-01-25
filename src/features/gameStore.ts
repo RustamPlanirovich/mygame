@@ -108,6 +108,7 @@ import {
   getAscensionUnlocks
 } from '../core/constants/ascension';
 import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, getUpgradeCost, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
+import { STARTER_QUESTS } from '../core/constants/quests';
 import { getTotalRepeatableBonuses, isExoticResource, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
 import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredBoosts, isSignalExpired, getSignalRewardDescription, createBoostFromReward } from '../utils/signalHelpers';
 import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
@@ -467,6 +468,7 @@ const INITIAL_RETENTION: import('../core/gameTypes').RetentionState = {
 };
 
 // Signal Interception - Initial State (infinitely.md - Active Play Bonuses)
+// Signal Interception - Initial State (infinitely.md - Active Play Bonuses)
 // ============================================================================
 const INITIAL_SIGNAL_INTERCEPTION: import('../core/gameTypes').SignalInterceptionState = {
   activeSignal: null,
@@ -476,6 +478,13 @@ const INITIAL_SIGNAL_INTERCEPTION: import('../core/gameTypes').SignalInterceptio
   totalSignalsMissed: 0,
   signalFrequency: 3.5, // Среднее между 2 и 5 минутами
   signalsEnabled: true,
+};
+
+// Quests - Initial State
+// ============================================================================
+const INITIAL_QUESTS: import('../core/gameTypes.tutorial').QuestState = {
+  activeQuests: [...STARTER_QUESTS],
+  completedQuests: [],
 };
 
 const pickMaxHpEnemyIndex = (enemies: Enemy[]) => {
@@ -2081,6 +2090,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   artifacts: INITIAL_ARTIFACTS,
   retention: INITIAL_RETENTION,
   signalInterception: INITIAL_SIGNAL_INTERCEPTION,
+  quests: {
+    activeQuests: [...STARTER_QUESTS],
+    completedQuests: [],
+  },
   lastTick: Date.now(),
   
   // Energy balance telemetry
@@ -2258,9 +2271,34 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
       const nextTileEvolutionLevels = { ...tileEvolutionLevels, [k]: 0 };
 
+      // Обновляем прогресс квестов
+      const updatedQuests = {
+        ...state.quests,
+        activeQuests: state.quests.activeQuests.map(quest => {
+          if (quest.isCompleted) return quest;
+          
+          // Квесты на постройку конкретного здания
+          if (quest.type === 'build' && quest.target === buildId) {
+            const newAmount = (quest.currentAmount || 0) + 1;
+            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+            return { ...quest, currentAmount: newAmount, isCompleted };
+          }
+          
+          // Квесты на постройку любого здания
+          if (quest.type === 'build' && quest.target === 'any') {
+            const newAmount = (quest.currentAmount || 0) + 1;
+            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+            return { ...quest, currentAmount: newAmount, isCompleted };
+          }
+          
+          return quest;
+        }),
+      };
+
       return {
         resources: capped,
         buildings: newBuildings,
+        quests: updatedQuests,
         grid: {
           ...state.grid,
           buffers: nextBuffers,
@@ -2369,10 +2407,28 @@ export const useGameStore = create<GameState>((set, get) => ({
         credits: state.currency.credits.add(earned)
       };
 
+      // Обновляем прогресс квестов на продажу ресурсов
+      const updatedQuests = {
+        ...state.quests,
+        activeQuests: state.quests.activeQuests.map(quest => {
+          if (quest.isCompleted) return quest;
+          
+          // Квесты на продажу на рынке
+          if (quest.type === 'produce' && quest.target === 'market_sale') {
+            const newAmount = (quest.currentAmount || 0) + 1;
+            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+            return { ...quest, currentAmount: newAmount, isCompleted };
+          }
+          
+          return quest;
+        }),
+      };
+
       return { 
         resources: nextResources, 
         grid: { ...state.grid, buffers: nextBuffers },
-        currency: nextCurrency
+        currency: nextCurrency,
+        quests: updatedQuests,
       };
     });
   },
@@ -2693,6 +2749,30 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Unlock technology
       const technologies = { ...state.research.technologies, [id]: true };
       
+      // Обновляем прогресс квестов
+      const updatedQuests = {
+        ...state.quests,
+        activeQuests: state.quests.activeQuests.map(quest => {
+          if (quest.isCompleted) return quest;
+          
+          // Квесты на исследование конкретной технологии
+          if (quest.type === 'research' && quest.target === id) {
+            const newAmount = (quest.currentAmount || 0) + 1;
+            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+            return { ...quest, currentAmount: newAmount, isCompleted };
+          }
+          
+          // Квесты на исследование любой технологии
+          if (quest.type === 'research' && quest.target === 'any') {
+            const newAmount = (quest.currentAmount || 0) + 1;
+            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+            return { ...quest, currentAmount: newAmount, isCompleted };
+          }
+          
+          return quest;
+        }),
+      };
+      
       return {
         currency: {
           ...state.currency,
@@ -2702,6 +2782,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           ...state.research,
           technologies,
         },
+        quests: updatedQuests,
       };
     });
   },
@@ -4559,7 +4640,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
 
       // Auto-transport resources from platforms to main station
-      let nextGalaxies = { ...state.galaxies };
+      let nextGalaxies = { 
+        ...state.galaxies,
+        fuelReserve: D(state.galaxies.fuelReserve),
+      };
       if (state.galaxies.autoTransportEnabled && updatedPlatforms.length > 0) {
         const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
         const totalTransportCost = transportCostPerPlatform.mul(updatedPlatforms.length).mul(dt);
@@ -4600,7 +4684,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Фаза 8.1: Pollution system
-      let nextPollution = { ...state.pollution };
+      let nextPollution = { 
+        ...state.pollution,
+        wasteAmount: D(state.pollution.wasteAmount),
+        radioactiveWasteAmount: D(state.pollution.radioactiveWasteAmount),
+      };
       
       // Generate waste from production buildings
       let wasteGenerated = D(0);
@@ -5367,19 +5455,62 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? { ...state.ship, ...save.ship }
           : state.ship;
 
-        const loadedCombat: CombatState = save.combat
-          ? { ...state.combat, ...save.combat }
+        const loadedCombat: CombatState = save.combat && typeof save.combat === 'object'
+          ? {
+              baseMaxHp: D(save.combat.baseMaxHp ?? state.combat.baseMaxHp),
+              baseHp: D(save.combat.baseHp ?? state.combat.baseHp),
+              shieldMaxHp: D(save.combat.shieldMaxHp ?? state.combat.shieldMaxHp),
+              shieldHp: D(save.combat.shieldHp ?? state.combat.shieldHp),
+              enemies: Array.isArray(save.combat.enemies) 
+                ? save.combat.enemies.map((e: any) => ({
+                    ...e,
+                    hp: D(e.hp ?? 0),
+                    maxHp: D(e.maxHp ?? 0),
+                  }))
+                : state.combat.enemies,
+              nextWaveAt: typeof save.combat.nextWaveAt === 'number' ? save.combat.nextWaveAt : state.combat.nextWaveAt,
+              waveEndsAt: typeof save.combat.waveEndsAt === 'number' ? save.combat.waveEndsAt : state.combat.waveEndsAt,
+              nextSpawnAt: typeof save.combat.nextSpawnAt === 'number' ? save.combat.nextSpawnAt : state.combat.nextSpawnAt,
+              defenseEnergyNeedPerSecond: D(save.combat.defenseEnergyNeedPerSecond ?? 0),
+              defenseEnergyUsedPerSecond: D(save.combat.defenseEnergyUsedPerSecond ?? 0),
+              defenseFireRatio: D(save.combat.defenseFireRatio ?? 0),
+              baseDamageTakenPerSecond: D(save.combat.baseDamageTakenPerSecond ?? 0),
+              shieldEnergyNeedPerSecond: D(save.combat.shieldEnergyNeedPerSecond ?? 0),
+              shieldEnergyUsedPerSecond: D(save.combat.shieldEnergyUsedPerSecond ?? 0),
+              shieldRegenPerSecond: D(save.combat.shieldRegenPerSecond ?? 0),
+              shieldAbsorbedPerSecond: D(save.combat.shieldAbsorbedPerSecond ?? 0),
+              enemyPressurePerSecond: D(save.combat.enemyPressurePerSecond ?? 0),
+              enemyPressurePotentialPerSecond: D(save.combat.enemyPressurePotentialPerSecond ?? 0),
+            }
           : state.combat;
 
-        const loadedAegis: AegisState = save.aegis
-          ? { ...state.aegis, ...save.aegis }
+        const loadedAegis: AegisState = save.aegis && typeof save.aegis === 'object'
+          ? {
+              levels: {
+                smart_targeting: typeof save.aegis.levels?.smart_targeting === 'number'
+                  ? Math.max(0, save.aegis.levels.smart_targeting)
+                  : state.aegis.levels.smart_targeting,
+                encryption: typeof save.aegis.levels?.encryption === 'number'
+                  ? Math.max(0, save.aegis.levels.encryption)
+                  : state.aegis.levels.encryption,
+              },
+            }
           : state.aegis;
 
-        const loadedStarChart: StarChartState = save.starChart
-          ? { ...state.starChart, ...save.starChart }
+        const loadedStarChart: StarChartState = save.starChart && typeof save.starChart === 'object'
+          ? {
+              levels: {
+                subspace: typeof save.starChart.levels?.subspace === 'number'
+                  ? Math.max(0, save.starChart.levels.subspace)
+                  : state.starChart.levels.subspace,
+                anomaly: typeof save.starChart.levels?.anomaly === 'number'
+                  ? Math.max(0, save.starChart.levels.anomaly)
+                  : state.starChart.levels.anomaly,
+              },
+            }
           : state.starChart;
 
-        const loadedPolitics: PoliticsState = save.politics
+        const loadedPolitics: PoliticsState = save.politics && typeof save.politics === 'object'
           ? { ...state.politics, ...save.politics }
           : state.politics;
 
@@ -5943,6 +6074,17 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           : INITIAL_ACHIEVEMENTS;
 
+        const loadedQuests: import('../core/gameTypes.tutorial').QuestState = save.quests && typeof save.quests === 'object'
+          ? {
+              activeQuests: Array.isArray(save.quests.activeQuests) ? save.quests.activeQuests : [],
+              completedQuests: Array.isArray(save.quests.completedQuests) ? save.quests.completedQuests : [],
+            }
+          : {
+              // Если нет сохраненных квестов, инициализируем стартовые квесты
+              activeQuests: [...STARTER_QUESTS],
+              completedQuests: [],
+            };
+
         const loadedExpedition: ExpeditionState = save.expedition && typeof save.expedition === 'object'
           ? {
               active: Boolean(save.expedition.active),
@@ -6372,6 +6514,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           intergalacticLogistics: loadedIntergalacticLogistics,
           randomEvents: loadedRandomEvents,
           achievements: loadedAchievements,
+          quests: loadedQuests,
           lastTick: Date.now(),
         };
       });
@@ -7570,6 +7713,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
       randomEvents: INITIAL_RANDOM_EVENTS,
       achievements: INITIAL_ACHIEVEMENTS,
+      quests: {
+        activeQuests: [...STARTER_QUESTS],
+        completedQuests: [],
+      },
       lastTick: now,
     });
   },
@@ -9169,6 +9316,106 @@ export const useGameStore = create<GameState>((set, get) => ({
         signalsEnabled: enabled,
       },
     }));
+  },
+
+  // =======================================
+  // Quest System
+  // =======================================
+  
+  updateQuestProgress: (questId: string, amount: number) => {
+    set((state) => {
+      const quest = state.quests.activeQuests.find(q => q.id === questId);
+      if (!quest || quest.isCompleted) return state;
+      
+      const newCurrentAmount = (quest.currentAmount || 0) + amount;
+      const isNowCompleted = quest.targetAmount ? newCurrentAmount >= quest.targetAmount : newCurrentAmount >= 1;
+      
+      return {
+        quests: {
+          ...state.quests,
+          activeQuests: state.quests.activeQuests.map(q => 
+            q.id === questId
+              ? { ...q, currentAmount: newCurrentAmount, isCompleted: isNowCompleted }
+              : q
+          ),
+        },
+      };
+    });
+  },
+
+  claimQuestReward: (questId: string) => {
+    set((state) => {
+      const quest = state.quests.activeQuests.find(q => q.id === questId);
+      if (!quest || !quest.isCompleted) return state;
+      
+      // Выдаем награды
+      let newState = { ...state };
+      
+      if (quest.reward.credits) {
+        newState.currency = {
+          ...newState.currency,
+          credits: newState.currency.credits.add(D(quest.reward.credits)),
+        };
+      }
+      
+      if (quest.reward.researchPoints) {
+        newState.currency = {
+          ...newState.currency,
+          researchPoints: newState.currency.researchPoints.add(D(quest.reward.researchPoints)),
+        };
+      }
+      
+      if (quest.reward.influence) {
+        newState.currency = {
+          ...newState.currency,
+          influence: newState.currency.influence.add(D(quest.reward.influence)),
+        };
+      }
+      
+      if (quest.reward.resources) {
+        for (const [resType, amount] of Object.entries(quest.reward.resources)) {
+          const type = resType as ResourceType;
+          const res = newState.resources[type];
+          const cur = getBuf(newState.grid.buffers, 'base', type);
+          const cappedNext = cur.add(D(amount)).min(res.max);
+          const nextBuffers = setBuf(newState.grid.buffers, 'base', type, cappedNext);
+          
+          newState = {
+            ...newState,
+            grid: { ...newState.grid, buffers: nextBuffers },
+            resources: {
+              ...newState.resources,
+              [type]: { ...res, amount: cappedNext },
+            },
+          };
+        }
+      }
+      
+      // Убираем квест из активных и добавляем в завершенные
+      return {
+        ...newState,
+        quests: {
+          activeQuests: newState.quests.activeQuests.filter(q => q.id !== questId),
+          completedQuests: [...newState.quests.completedQuests, questId],
+        },
+      };
+    });
+  },
+
+  activateQuest: (questId: string) => {
+    set((state) => {
+      const quest = state.quests.activeQuests.find(q => q.id === questId);
+      if (!quest) return state;
+      
+      return {
+        quests: {
+          ...state.quests,
+          activeQuests: state.quests.activeQuests.map(q =>
+            q.id === questId ? { ...q, isActive: true } : q
+          ),
+        },
+      };
+    });
   },
 }));
 

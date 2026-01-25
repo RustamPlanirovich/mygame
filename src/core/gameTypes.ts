@@ -1019,6 +1019,7 @@ export interface GameState {
   artifacts: ArtifactState; // New: Artifacts system (Phase 6 - infinitely.md)
   retention: RetentionState; // New: Daily rewards & retention mechanics (infinitely.md)
   signalInterception: SignalInterceptionState; // New: Active play bonuses (infinitely.md)
+  quests: import('./gameTypes.tutorial').QuestState; // New: Quests system
   lastTick: number;
   
   // Energy balance telemetry
@@ -1138,6 +1139,10 @@ export interface GameState {
   claimSignal: (signalId: string) => void;
   updateSignals: () => void;
   toggleSignals: (enabled: boolean) => void;
+  // Quest system
+  updateQuestProgress: (questId: string, amount: number) => void;
+  claimQuestReward: (questId: string) => void;
+  activateQuest: (questId: string) => void;
 }
 
 // Фаза 8.7: Система достижений

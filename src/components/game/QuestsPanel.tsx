@@ -8,7 +8,7 @@ interface QuestsPanelProps {
   onClaimReward?: (questId: string) => void;
 }
 
-export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests }) => {
+export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward }) => {
   const activeQuests = quests.filter(q => q.isActive && !q.isCompleted);
   const completedQuests = quests.filter(q => q.isCompleted);
 
@@ -99,7 +99,16 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests }) => {
                     </div>
 
                     <div className="shrink-0">
-                      <Circle size={20} className="text-cyber-gray" />
+                      {quest.isCompleted && onClaimReward ? (
+                        <button
+                          onClick={() => onClaimReward(quest.id)}
+                          className="px-3 py-1.5 bg-cyber-green text-cyber-darker font-bold text-xs rounded hover:bg-cyber-green/80 transition-colors"
+                        >
+                          Забрать
+                        </button>
+                      ) : (
+                        <Circle size={20} className="text-cyber-gray" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -108,39 +117,10 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests }) => {
           </div>
         )}
 
-        {/* Completed Quests */}
-        {completedQuests.length > 0 && (
-          <div>
-            <h3 className="text-sm font-bold text-cyber-green mb-2">
-              Завершено ({completedQuests.length})
-            </h3>
-            <div className="space-y-2">
-              {completedQuests.map((quest) => (
-                <div
-                  key={quest.id}
-                  className="bg-cyber-dark/50 border border-cyber-green/30 rounded-lg p-3 opacity-75"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="text-2xl opacity-50">{getQuestIcon(quest.type)}</div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-cyber-text text-sm line-through">
-                        {quest.title}
-                      </h4>
-                      <p className="text-xs text-cyber-green mt-1">
-                        ✓ Завершено
-                      </p>
-                    </div>
-                    <div className="shrink-0">
-                      <CheckCircle2 size={20} className="text-cyber-green" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Completed and Claimed Quests - remove from active list after claiming */}
+        {/* No longer showing already claimed quests */}
 
-        {activeQuests.length === 0 && completedQuests.length === 0 && (
+        {activeQuests.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="text-6xl mb-4">📋</div>
             <p className="text-cyber-text-dim">
