@@ -83,16 +83,16 @@ export function PlatformsPanel() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">🛰️ Космические Платформы</h2>
-          <p className="text-sm text-gray-400 mt-1">Галактика: {currentGalaxy.name}</p>
+          <h2 className="text-xl font-bold text-white">🛰️ Платформы</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Галактика: {currentGalaxy.name}</p>
         </div>
-        <div className="text-right text-sm">
-          <div className="text-gray-400">Платформ в галактике:</div>
-          <div className="text-xl font-bold text-cyan-400">{platformsInCurrentGalaxy.length}</div>
+        <div className="text-right text-xs">
+          <div className="text-gray-400">Платформ:</div>
+          <div className="text-lg font-bold text-cyan-400">{platformsInCurrentGalaxy.length}</div>
         </div>
       </div>
 

@@ -69,43 +69,43 @@ export function FleetPanel() {
   }), { dps: D(0), hp: D(0), maxHp: D(0) });
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 space-y-2.5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">🚀 Космический Флот</h2>
-          <p className="text-sm text-gray-400 mt-1">Управление боевыми кораблями</p>
+          <h2 className="text-lg font-bold text-white">🚀 Флот</h2>
+          <p className="text-[10px] text-gray-400">Управление кораблями</p>
         </div>
         <div className="text-right">
-          <div className="text-gray-400 text-sm">Кораблей:</div>
-          <div className="text-xl font-bold text-cyan-400">{ships.length}</div>
+          <div className="text-gray-400 text-[10px]">Кораблей:</div>
+          <div className="text-base font-bold text-cyan-400">{ships.length}</div>
         </div>
       </div>
 
       {/* Fleet Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-red-900/30 to-red-800/20 rounded-lg p-4 border border-red-700/50">
-          <div className="flex items-center gap-2 text-red-400 mb-2">
-            <Sword size={18} />
-            <span className="text-sm font-semibold">Общий DPS</span>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-gradient-to-br from-red-900/30 to-red-800/20 rounded-lg p-2.5 border border-red-700/50">
+          <div className="flex items-center gap-1.5 text-red-400 mb-1">
+            <Sword size={14} />
+            <span className="text-[10px] font-semibold">Общий DPS</span>
           </div>
-          <div className="text-2xl font-bold text-white">{formatNumber(totalFleetStats.dps)}</div>
+          <div className="text-lg font-bold text-white">{formatNumber(totalFleetStats.dps)}</div>
         </div>
-        <div className="bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg p-4 border border-green-700/50">
-          <div className="flex items-center gap-2 text-green-400 mb-2">
-            <Heart size={18} />
-            <span className="text-sm font-semibold">Общее HP</span>
+        <div className="bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg p-2.5 border border-green-700/50">
+          <div className="flex items-center gap-1.5 text-green-400 mb-1">
+            <Heart size={14} />
+            <span className="text-[10px] font-semibold">HP</span>
           </div>
-          <div className="text-2xl font-bold text-white">{formatNumber(totalFleetStats.hp)} / {formatNumber(totalFleetStats.maxHp)}</div>
+          <div className="text-lg font-bold text-white truncate" title={`${formatNumber(totalFleetStats.hp)} / ${formatNumber(totalFleetStats.maxHp)}`}>{formatNumber(totalFleetStats.hp)}</div>
         </div>
-        <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/20 rounded-lg p-4 border border-blue-700/50">
-          <div className="flex items-center gap-2 text-blue-400 mb-2">
-            <Shield size={18} />
-            <span className="text-sm font-semibold">Автозащита</span>
+        <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/20 rounded-lg p-2.5 border border-blue-700/50">
+          <div className="flex items-center gap-1.5 text-blue-400 mb-1">
+            <Shield size={14} />
+            <span className="text-[10px] font-semibold">Автозащита</span>
           </div>
           <button
             onClick={toggleAutoDefend}
-            className={`text-sm font-bold px-3 py-1 rounded ${
+            className={`text-[11px] font-bold px-2 py-0.5 rounded ${
               autoDefend
                 ? 'bg-green-600 text-white'
                 : 'bg-gray-600 text-gray-300'
@@ -117,12 +117,12 @@ export function FleetPanel() {
       </div>
 
       {/* Build Ships */}
-      <div className="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
-        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <Settings size={18} className="text-cyan-400" />
+      <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+        <h3 className="text-base font-bold text-white mb-2 flex items-center gap-1.5">
+          <Settings size={14} className="text-cyan-400" />
           Постройка кораблей
         </h3>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="space-y-1.5">
           {(Object.keys(SHIP_DEFINITIONS) as ShipType[]).map((type) => {
             const def = SHIP_DEFINITIONS[type];
             const canAfford = canAffordShip(type);
@@ -134,26 +134,27 @@ export function FleetPanel() {
                 onClick={() => handleBuildShip(type)}
                 disabled={!canAfford}
                 className={`
-                  p-4 rounded-lg border-2 transition-all text-left
+                  w-full p-2 rounded-lg border transition-all flex items-center gap-2
                   ${canAfford
-                    ? 'border-cyan-600 hover:border-cyan-400 bg-cyan-900/20 hover:bg-cyan-800/30'
+                    ? 'border-cyan-600/50 hover:border-cyan-400 bg-cyan-900/20 hover:bg-cyan-800/30'
                     : 'border-gray-700 bg-gray-800/30 opacity-50 cursor-not-allowed'
                   }
                 `}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-2xl">{def.icon}</span>
-                  <span className="text-xs text-gray-400">x{count}</span>
-                </div>
-                <div className="text-white font-semibold mb-1">{def.name}</div>
-                <div className="text-xs text-gray-400 mb-3">{def.description}</div>
-                <div className="space-y-1 text-xs">
-                  {Object.entries(def.buildCost).map(([res, cost]) => (
-                    <div key={res} className="flex items-center justify-between text-gray-300">
-                      <span>{res === 'credits' ? '💰' : res}:</span>
-                      <span>{formatNumber(cost)}</span>
-                    </div>
-                  ))}
+                <span className="text-xl flex-shrink-0">{def.icon}</span>
+                <div className="flex-1 text-left min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-sm font-semibold text-white truncate">{def.name}</span>
+                    <span className="text-[10px] text-gray-400 flex-shrink-0">×{count}</span>
+                  </div>
+                  <div className="text-[10px] text-gray-400 truncate">{def.description}</div>
+                  <div className="flex gap-2 mt-1 text-[10px] text-gray-300 flex-wrap">
+                    {Object.entries(def.buildCost).map(([res, cost]) => (
+                      <span key={res} className="whitespace-nowrap">
+                        {res === 'credits' ? '💰' : res}: {formatNumber(cost)}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </button>
             );
@@ -163,17 +164,17 @@ export function FleetPanel() {
 
       {/* Ships List */}
       {ships.length === 0 ? (
-        <div className="bg-gray-800/30 rounded-lg p-8 text-center border border-gray-700">
-          <div className="text-4xl mb-3">🛸</div>
-          <div className="text-gray-400 mb-2">Флот пуст</div>
-          <div className="text-sm text-gray-500">
+        <div className="bg-gray-800/30 rounded-lg p-6 text-center border border-gray-700">
+          <div className="text-3xl mb-2">🛸</div>
+          <div className="text-gray-400 text-sm mb-1">Флот пуст</div>
+          <div className="text-[11px] text-gray-500">
             Постройте первый корабль для защиты баз и атак
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <Anchor size={18} className="text-cyan-400" />
+        <div className="space-y-2">
+          <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+            <Anchor size={14} className="text-cyan-400" />
             Корабли ({ships.length})
           </h3>
           {ships.map((ship) => (
@@ -192,10 +193,10 @@ export function FleetPanel() {
       )}
 
       {/* Info */}
-      <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
+      <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-2.5">
         <div className="text-sm text-blue-300">
-          <div className="font-semibold mb-2">ℹ️ Информация о флоте</div>
-          <ul className="space-y-1 text-xs text-blue-200/80">
+          <div className="font-semibold mb-1.5 text-[11px]">ℹ️ Информация о флоте</div>
+          <ul className="space-y-0.5 text-[10px] text-blue-200/80">
             <li>• Корабли защищают базы от вражеских атак</li>
             <li>• Автозащита автоматически направляет корабли на защиту атакуемых платформ</li>
             <li>• Улучшение кораблей увеличивает их характеристики</li>
@@ -247,66 +248,44 @@ function ShipCard({ ship, canAffordUpgrade, onUpgrade, onAssign, onRepair, onScr
   };
 
   return (
-    <div className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 rounded-lg p-5 border border-gray-700 hover:border-gray-600 transition-all">
+    <div className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 rounded-lg p-2.5 border border-gray-700 hover:border-gray-600 transition-all">
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <span className="text-3xl">{def.icon}</span>
-          <div>
-            <h4 className="text-lg font-bold text-white">{ship.name}</h4>
-            <div className="text-sm text-gray-400">
-              {def.name} • Ур. {ship.level}
-              {ship.upgradeLevel > 0 && <span className="text-cyan-400"> +{ship.upgradeLevel}</span>}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="text-xl flex-shrink-0">{def.icon}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-white truncate">{ship.name}</h4>
+              <span className="text-[10px] text-gray-400 flex-shrink-0">Ур.{ship.level}{ship.upgradeLevel > 0 && <span className="text-cyan-400">+{ship.upgradeLevel}</span>}</span>
             </div>
-            <div className={`text-xs ${getStatusColor(ship.status)} font-semibold`}>
+            <div className={`text-[10px] ${getStatusColor(ship.status)} font-semibold`}>
               {getStatusLabel(ship.status)}
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1 flex-shrink-0">
           {isDamaged && (
             <button
               onClick={onRepair}
-              className="p-2 bg-green-700 hover:bg-green-600 text-white rounded transition-all"
+              className="p-1.5 bg-green-700 hover:bg-green-600 text-white rounded transition-all"
               title="Отремонтировать"
             >
-              <Wrench size={16} />
+              <Wrench size={12} />
             </button>
           )}
           <button
             onClick={onScrap}
-            className="p-2 bg-red-700 hover:bg-red-600 text-white rounded transition-all"
+            className="p-1.5 bg-red-700 hover:bg-red-600 text-white rounded transition-all"
             title="Утилизировать"
           >
-            <Trash2 size={16} />
+            <Trash2 size={12} />
           </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <div className="bg-gray-700/50 rounded p-2 text-center">
-          <div className="text-xs text-gray-400">HP</div>
-          <div className="text-sm font-bold text-white">{formatNumber(ship.hp)}</div>
-          <div className="text-xs text-gray-500">/ {formatNumber(ship.maxHp)}</div>
-        </div>
-        <div className="bg-gray-700/50 rounded p-2 text-center">
-          <div className="text-xs text-gray-400">DPS</div>
-          <div className="text-sm font-bold text-red-400">{formatNumber(ship.dps)}</div>
-        </div>
-        <div className="bg-gray-700/50 rounded p-2 text-center">
-          <div className="text-xs text-gray-400">Броня</div>
-          <div className="text-sm font-bold text-orange-400">{formatNumber(ship.armor)}</div>
-        </div>
-        <div className="bg-gray-700/50 rounded p-2 text-center">
-          <div className="text-xs text-gray-400">Скорость</div>
-          <div className="text-sm font-bold text-cyan-400">{(ship.speed * 100).toFixed(0)}%</div>
-        </div>
-      </div>
-
       {/* HP Bar */}
-      <div className="mb-4">
-        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+      <div className="mb-2">
+        <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full transition-all ${
               hpPercent > 75
@@ -320,26 +299,42 @@ function ShipCard({ ship, canAffordUpgrade, onUpgrade, onAssign, onRepair, onScr
         </div>
       </div>
 
+      {/* Stats - inline badges */}
+      <div className="flex gap-1.5 mb-2 text-[10px] flex-wrap">
+        <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-white">
+          ❤️ {formatNumber(ship.hp)}/{formatNumber(ship.maxHp)}
+        </span>
+        <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-red-400">
+          ⚔️ {formatNumber(ship.dps)}
+        </span>
+        <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-orange-400">
+          🛡️ {formatNumber(ship.armor)}
+        </span>
+        <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-cyan-400">
+          ⚡ {(ship.speed * 100).toFixed(0)}%
+        </span>
+      </div>
+
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         <button
           onClick={onUpgrade}
           disabled={!canAffordUpgrade}
           className={`
-            flex-1 py-2 px-4 rounded font-semibold text-sm transition-all
+            flex-1 py-1.5 px-2 rounded font-semibold text-[11px] transition-all
             ${canAffordUpgrade
               ? 'bg-cyan-700 hover:bg-cyan-600 text-white'
               : 'bg-gray-700 text-gray-500 cursor-not-allowed'
             }
           `}
         >
-          <Award className="inline mr-1" size={14} />
+          <Award className="inline mr-0.5" size={11} />
           Улучшить
         </button>
         <select
           value={ship.assignedTo || ''}
           onChange={(e) => onAssign(e.target.value)}
-          className="flex-1 py-2 px-4 bg-gray-700 text-white rounded text-sm"
+          className="flex-1 py-1.5 px-2 bg-gray-700 text-white rounded text-[11px]"
         >
           <option value="">Без назначения</option>
           <option value="main_base">Главная база</option>

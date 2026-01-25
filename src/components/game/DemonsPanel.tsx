@@ -21,16 +21,16 @@ export function DemonsPanel() {
   }, [demons.oracleRecommendationId, demons.oracleRecommendationRoiSeconds, buildings]);
 
   return (
-    <div className="p-4 border-b border-cyber-gray">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
-          <Skull size={18} className="text-cyber-green" />
+    <div className="p-3 border-b border-cyber-gray">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg text-cyber-green uppercase tracking-wide flex items-center gap-1.5">
+          <Skull size={16} className="text-cyber-green" />
           <span>Демоны</span>
         </h2>
-        <div className="text-xs text-cyber-text-dim">аренда за ⚡/с</div>
+        <div className="text-[10px] text-cyber-text-dim">аренда за ⚡/с</div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {ORDER.map((id) => {
           const def = DEMON_DEFS[id];
           const active = Boolean(demons.active[id]);
@@ -38,29 +38,27 @@ export function DemonsPanel() {
           const effective = active && paid;
 
           return (
-            <div key={id} className={`cyber-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-cyber-blue transition-colors ${active ? (paid ? 'border-cyber-green' : 'border-cyber-red') : ''}`}>
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="text-cyber-blue font-bold">{def.name}</div>
-                  {active && !paid && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyber-red/20 text-cyber-red border border-cyber-red/50">НЕ ОПЛАЧЕНО</span>}
+            <div key={id} className={`cyber-panel p-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:border-cyber-blue transition-colors ${active ? (paid ? 'border-cyber-green' : 'border-cyber-red') : ''}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <div className="text-sm text-cyber-blue font-semibold truncate">{def.name}</div>
+                  {active && !paid && <span className="text-[9px] px-1 py-0.5 rounded bg-cyber-red/20 text-cyber-red border border-cyber-red/50 shrink-0">НЕ ОПЛ.</span>}
                 </div>
-                <div className="text-xs text-cyber-text-dim">{def.description}</div>
-                <div className="text-xs text-cyber-text-dim mt-1">
-                  Аренда: <span className="text-cyber-text">{formatNumber(def.energyPerSecond)}⚡/с</span>
-                  <span className="text-cyber-gray-light"> · Статус: {active ? 'ВКЛ' : 'ВЫКЛ'}</span>
-                  {active ? (
+                <div className="text-[10px] text-cyber-text-dim mt-0.5">
+                  {formatNumber(def.energyPerSecond)}⚡/с
+                  <span className="text-cyber-gray-light"> · {active ? (
                     <span className={effective ? 'text-cyber-green' : 'text-cyber-red'}>
-                      {' '}· {effective ? '✓ оплачено' : '✗ недостаточно энергии'}
+                      {effective ? '✓ опл.' : '✗ не опл.'}
                     </span>
-                  ) : null}
+                  ) : 'ВЫКЛ'}</span>
                 </div>
               </div>
 
               <button
-                className="cyber-button text-sm py-2 px-4 w-full sm:w-auto sm:min-w-[160px]"
+                className="cyber-button text-[11px] py-1.5 px-3 w-full sm:w-auto sm:min-w-[100px] shrink-0"
                 onClick={() => toggleDemon(id)}
               >
-                {active ? 'ОТКЛЮЧИТЬ' : 'ВКЛЮЧИТЬ'}
+                {active ? 'ВЫКЛ' : 'ВКЛ'}
               </button>
             </div>
           );
@@ -68,17 +66,14 @@ export function DemonsPanel() {
       </div>
 
       {oracleHint ? (
-        <div className="text-xs text-cyber-text-dim mt-3">
-          Oracle: выгоднее всего сейчас <span className="text-cyber-text">{oracleHint.name}</span>
+        <div className="text-[10px] text-cyber-text-dim mt-2">
+          🔮 Oracle: <span className="text-cyber-text">{oracleHint.name}</span>
           <span className="text-cyber-gray-light"> · ROI ≈ {oracleHint.roi}с</span>
         </div>
       ) : null}
       
-      <div className="text-xs text-cyber-text-dim mt-3">
-        <div>💡 Эффекты демонов работают только если аренда оплачена (хватает ⚡ на базе).</div>
-        <div className="text-[10px] text-cyber-gray-light mt-1 italic">
-          ⚠️ Smart Broker не продаёт ресурсы если энергия {'>'} 85% (чтобы не терять прибыль)
-        </div>
+      <div className="text-[10px] text-cyber-text-dim mt-2">
+        💡 Эффекты работают только при оплате (хватает ⚡).
       </div>
     </div>
   );

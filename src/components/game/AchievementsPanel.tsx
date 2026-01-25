@@ -14,13 +14,13 @@ const CATEGORY_NAMES: Record<AchievementCategory, string> = {
 };
 
 const CATEGORY_COLORS: Record<AchievementCategory, string> = {
-  construction: 'from-amber-500 to-orange-500',
-  production: 'from-green-500 to-emerald-500',
-  research: 'from-blue-500 to-cyan-500',
-  combat: 'from-red-500 to-rose-500',
-  exploration: 'from-purple-500 to-pink-500',
-  economy: 'from-yellow-500 to-amber-500',
-  special: 'from-indigo-500 to-violet-500',
+  construction: 'from-amber-600/40 to-orange-700/40',
+  production: 'from-green-600/40 to-emerald-700/40',
+  research: 'from-blue-600/40 to-cyan-700/40',
+  combat: 'from-red-600/40 to-rose-700/40',
+  exploration: 'from-purple-600/40 to-pink-700/40',
+  economy: 'from-yellow-600/40 to-amber-700/40',
+  special: 'from-indigo-600/40 to-violet-700/40',
 };
 
 export default function AchievementsPanel() {

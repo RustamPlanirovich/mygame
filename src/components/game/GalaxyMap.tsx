@@ -81,27 +81,27 @@ export function GalaxyMap() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">🌌 Карта Галактик</h2>
-        <div className="text-sm text-gray-400">
+        <h2 className="text-xl font-bold text-white">🌌 Карта Галактик</h2>
+        <div className="text-xs text-gray-400">
           Открыто: {unlockedGalaxies.length}/{galaxyEntries.length}
         </div>
       </div>
 
       {/* Current Galaxy Info */}
-      <div className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-lg p-4 border border-blue-500/30">
-        <div className="text-sm text-gray-400 mb-1">Текущая галактика</div>
-        <div className="text-xl font-bold text-white">
+      <div className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 rounded-lg p-3 border border-blue-500/30">
+        <div className="text-[10px] text-gray-400 mb-1">Текущая галактика</div>
+        <div className="text-lg font-bold text-white">
           {GALAXIES[currentGalaxyId].name}
         </div>
-        <div className="text-sm text-gray-300 mt-1">
+        <div className="text-xs text-gray-300 mt-1">
           {GALAXIES[currentGalaxyId].description}
         </div>
       </div>
 
       {/* Galaxy Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="space-y-2">
         {galaxyEntries.map(([galaxyId, galaxy]) => {
           const isUnlocked = unlockedGalaxies.includes(galaxyId);
           const isCurrent = currentGalaxyId === galaxyId;
@@ -113,7 +113,7 @@ export function GalaxyMap() {
               onClick={() => handleGalaxyClick(galaxyId)}
               disabled={!isUnlocked && !canUnlock}
               className={`
-                relative p-4 rounded-lg border-2 text-left transition-all
+                w-full p-3 rounded-lg border-2 text-left transition-all
                 ${isCurrent 
                   ? 'border-cyan-400 bg-cyan-900/30 shadow-lg shadow-cyan-500/20' 
                   : isUnlocked
@@ -123,82 +123,76 @@ export function GalaxyMap() {
                   : 'border-gray-800 bg-gray-900/20 opacity-50 cursor-not-allowed'
                 }
               `}
-              style={
-                isUnlocked ? {
-                  backgroundColor: galaxy.theme?.backgroundColor || undefined,
-                } : undefined
-              }
             >
-              {/* Lock Icon for locked galaxies */}
-              {!isUnlocked && (
-                <div className="absolute top-2 right-2">
-                  <span className="text-2xl">🔒</span>
+              <div className="flex items-start gap-3">
+                {/* Icon/Status */}
+                <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center text-2xl">
+                  {!isUnlocked ? '🔒' : isCurrent ? '✓' : '🌌'}
                 </div>
-              )}
 
-              {/* Current Badge */}
-              {isCurrent && (
-                <div className="absolute top-2 right-2 bg-cyan-500 text-white text-xs px-2 py-1 rounded">
-                  Активна
-                </div>
-              )}
-
-              <div className="text-2xl mb-2">{galaxy.name}</div>
-              
-              <div className="text-sm text-gray-300 mb-3 line-clamp-2">
-                {galaxy.description}
-              </div>
-
-              {/* Danger Level */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-400">Опасность:</span>
-                <span 
-                  className="text-xs font-semibold px-2 py-0.5 rounded"
-                  style={{ 
-                    backgroundColor: getDangerColor(galaxy.dangerLevel) + '20',
-                    color: getDangerColor(galaxy.dangerLevel)
-                  }}
-                >
-                  {getDangerLabel(galaxy.dangerLevel)}
-                </span>
-              </div>
-
-              {/* Platforms Count */}
-              {isUnlocked && platformCounts[galaxyId] > 0 && (
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-400">Платформы:</span>
-                  <span className="text-xs font-semibold text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded">
-                    🛰️ {platformCounts[galaxyId]}
-                  </span>
-                </div>
-              )}
-
-              {/* Resource Bonuses */}
-              {galaxy.resourceBonuses && Object.keys(galaxy.resourceBonuses).length > 0 && (
-                <div className="text-xs text-gray-400 mb-2">
-                  <span className="font-semibold">Бонусы:</span>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {Object.entries(galaxy.resourceBonuses).slice(0, 3).map(([res, mult]) => (
-                      <span key={res} className="bg-green-900/30 text-green-400 px-1.5 py-0.5 rounded">
-                        {res.replace('_', ' ')}: +{((mult - 1) * 100).toFixed(0)}%
+                {/* Main Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-base font-bold text-white truncate">{galaxy.name}</h3>
+                    {isCurrent && (
+                      <span className="flex-shrink-0 bg-cyan-500 text-white text-[10px] px-1.5 py-0.5 rounded">
+                        АКТИВНА
                       </span>
-                    ))}
+                    )}
+                  </div>
+                  
+                  <p className="text-xs text-gray-400 mb-2 line-clamp-1">
+                    {galaxy.description}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                    {/* Danger Level */}
+                    <span 
+                      className="px-1.5 py-0.5 rounded font-semibold"
+                      style={{ 
+                        backgroundColor: getDangerColor(galaxy.dangerLevel) + '20',
+                        color: getDangerColor(galaxy.dangerLevel)
+                      }}
+                    >
+                      ⚠️ {getDangerLabel(galaxy.dangerLevel)}
+                    </span>
+
+                    {/* Platforms Count */}
+                    {isUnlocked && platformCounts[galaxyId] > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400">
+                        🛰️ {platformCounts[galaxyId]}
+                      </span>
+                    )}
+
+                    {/* Resource Bonuses */}
+                    {galaxy.resourceBonuses && Object.keys(galaxy.resourceBonuses).length > 0 && (
+                      <>
+                        {Object.entries(galaxy.resourceBonuses).slice(0, 2).map(([res, mult]) => (
+                          <span key={res} className="px-1.5 py-0.5 rounded bg-green-900/30 text-green-400">
+                            {res}: +{((mult - 1) * 100).toFixed(0)}%
+                          </span>
+                        ))}
+                        {Object.keys(galaxy.resourceBonuses).length > 2 && (
+                          <span className="text-gray-500">+{Object.keys(galaxy.resourceBonuses).length - 2}</span>
+                        )}
+                      </>
+                    )}
+
+                    {/* Unlock Requirement */}
+                    {!isUnlocked && galaxy.unlockRequirement && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
+                        🔬 {galaxy.unlockRequirement}
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {/* Unlock Requirement */}
-              {!isUnlocked && galaxy.unlockRequirement && (
-                <div className="text-xs text-amber-400 mt-2 flex items-center gap-1">
-                  <span>🔬</span>
-                  <span>Требуется: {galaxy.unlockRequirement}</span>
-                </div>
-              )}
-
-              {/* Available Deposits */}
-              <div className="text-xs text-gray-500 mt-2">
-                Доступные ресурсы: {galaxy.availableDeposits.slice(0, 4).join(', ')}
-                {galaxy.availableDeposits.length > 4 && '...'}
+                {/* Arrow/Action Indicator */}
+                {(isUnlocked || canUnlock) && (
+                  <div className="flex-shrink-0 text-gray-400">
+                    →
+                  </div>
+                )}
               </div>
             </button>
           );
@@ -206,63 +200,62 @@ export function GalaxyMap() {
       </div>
 
       {/* Legend */}
-      <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
-        <div className="text-sm font-semibold text-white mb-2">Легенда</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-cyan-500"></div>
-            <span className="text-gray-400">Активная галактика</span>
+      <div className="bg-gray-800/30 rounded-lg p-3 border border-gray-700">
+        <div className="text-xs font-semibold text-white mb-1.5">💡 Подсказка</div>
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-cyan-400">✓</span>
+            <span className="text-gray-400">Активная</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-gray-600"></div>
-            <span className="text-gray-400">Открытая галактика</span>
+          <div className="flex items-center gap-1.5">
+            <span>🌌</span>
+            <span className="text-gray-400">Открытая</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🔒</span>
-            <span className="text-gray-400">Требуется исследование</span>
+          <div className="flex items-center gap-1.5">
+            <span>🔒</span>
+            <span className="text-gray-400">Заблокирована</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⭐</span>
-            <span className="text-gray-400">Бонусы к ресурсам</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-green-400">⭐</span>
+            <span className="text-gray-400">Есть бонусы</span>
           </div>
         </div>
       </div>
 
       {/* Procedural Galaxies Section */}
       {proceduralUnlocked && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-white">🌠 Процедурные Галактики</h2>
-            <div className="text-sm text-gray-400">
+            <h3 className="text-lg font-bold text-white">🌠 Процедурные Галактики</h3>
+            <div className="text-[10px] text-gray-400">
               Открыто: {proceduralGalaxies.filter(g => g.discovered).length}/{proceduralGalaxies.length}
             </div>
           </div>
 
           {/* Info Banner */}
-          <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-lg p-4 border border-purple-500/30">
-            <div className="text-sm text-gray-300">
-              🌌 Процедурные галактики - это бесконечные случайно генерируемые миры с уникальными свойствами и наградами.
-              Каждая галактика создается с помощью детерминированного алгоритма и будет одинаковой при перезагрузке игры.
+          <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-lg p-3 border border-purple-500/30">
+            <div className="text-[10px] text-gray-300">
+              🌌 Бесконечные процедурно генерируемые миры с уникальными свойствами и наградами.
             </div>
           </div>
 
           {/* Generate New Galaxy Button */}
           {proceduralGalaxies.length === 0 || proceduralGalaxies[proceduralGalaxies.length - 1].discovered ? (
-            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-white font-semibold mb-1">
-                    Сгенерировать новую галактику #{8 + proceduralGalaxies.length}
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-white font-semibold mb-0.5">
+                    Сгенерировать #{8 + proceduralGalaxies.length}
                   </div>
-                  <div className="text-sm text-gray-400">
-                    Стоимость: {formatNumber(getDiscoveryCost(8 + proceduralGalaxies.length))} кредитов
+                  <div className="text-[10px] text-gray-400">
+                    Стоимость: {formatNumber(getDiscoveryCost(8 + proceduralGalaxies.length))} 💰
                   </div>
                 </div>
                 <button
                   onClick={generateProceduralGalaxy}
                   disabled={credits.lt(getDiscoveryCost(8 + proceduralGalaxies.length))}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 
-                           disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 
+                           disabled:cursor-not-allowed text-white text-xs rounded-lg transition-colors flex-shrink-0"
                 >
                   Генерировать
                 </button>
@@ -270,9 +263,9 @@ export function GalaxyMap() {
             </div>
           ) : null}
 
-          {/* Procedural Galaxies Grid */}
+          {/* Procedural Galaxies List */}
           {proceduralGalaxies.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-2">
               {proceduralGalaxies.map((galaxy) => {
                 const isDiscovered = galaxy.discovered;
                 const featureColor = getSpecialFeatureColor(galaxy.generated.specialFeature);
@@ -281,7 +274,7 @@ export function GalaxyMap() {
                   <div
                     key={galaxy.galaxyNumber}
                     className={`
-                      relative p-4 rounded-lg border-2 transition-all
+                      p-3 rounded-lg border-2 transition-all
                       ${isDiscovered
                         ? 'border-purple-500 bg-purple-900/20'
                         : 'border-gray-700 bg-gray-800/30'
@@ -289,110 +282,110 @@ export function GalaxyMap() {
                     `}
                     style={isDiscovered ? {
                       borderColor: featureColor,
-                      boxShadow: `0 0 20px ${featureColor}40`,
                     } : undefined}
                   >
-                    {/* Galaxy Number Badge */}
-                    <div className="absolute top-2 right-2 bg-gray-900/80 text-white text-xs px-2 py-1 rounded">
-                      #{galaxy.galaxyNumber}
-                    </div>
-
-                    {/* Lock Icon */}
-                    {!isDiscovered && (
-                      <div className="absolute top-2 left-2">
-                        <span className="text-2xl">🔒</span>
+                    <div className="flex items-start gap-3">
+                      {/* Icon */}
+                      <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center text-2xl">
+                        {!isDiscovered ? '🔒' : galaxy.completed ? '✓' : '🌠'}
                       </div>
-                    )}
 
-                    <div className="text-2xl mb-2">{galaxy.generated.name}</div>
-
-                    {/* Special Feature */}
-                    {galaxy.generated.specialFeature && (
-                      <div 
-                        className="text-sm font-semibold px-2 py-1 rounded mb-2 inline-block"
-                        style={{
-                          backgroundColor: featureColor + '20',
-                          color: featureColor,
-                        }}
-                      >
-                        {galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}
-                        {galaxy.generated.specialFeature === 'nebula' && '☁️ Туманность'}
-                        {galaxy.generated.specialFeature === 'quasar' && '💫 Квазар'}
-                        {galaxy.generated.specialFeature === 'ruins' && '🏛️ Руины'}
-                      </div>
-                    )}
-
-                    {/* Difficulty */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-gray-400">Сложность:</span>
-                      <span className="text-xs font-semibold text-red-400">
-                        ×{galaxy.generated.difficulty.toFixed(1)}
-                      </span>
-                    </div>
-
-                    {/* Resource Modifiers (only if discovered) */}
-                    {isDiscovered && Object.keys(galaxy.generated.resourceModifiers).length > 0 && (
-                      <div className="text-xs text-gray-400 mb-2">
-                        <span className="font-semibold">Бонусы к ресурсам:</span>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {Object.entries(galaxy.generated.resourceModifiers)
-                            .slice(0, 3)
-                            .map(([res, mult]) => (
-                              <span 
-                                key={res} 
-                                className={`px-1.5 py-0.5 rounded ${
-                                  mult > 1 
-                                    ? 'bg-green-900/30 text-green-400' 
-                                    : 'bg-red-900/30 text-red-400'
-                                }`}
-                              >
-                                {res}: {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
-                              </span>
-                            ))}
+                      {/* Main Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="text-base font-bold text-white truncate">
+                            #{galaxy.galaxyNumber} {galaxy.generated.name}
+                          </h4>
+                          {galaxy.completed && (
+                            <span className="flex-shrink-0 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded">
+                              ЗАВЕРШЕНА
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    )}
 
-                    {/* Rewards (only if discovered) */}
-                    {isDiscovered && galaxy.rewards.uniqueBonus && (
-                      <div className="text-xs text-amber-400 mb-2 flex items-center gap-1">
-                        <span>🎁</span>
-                        <span>{galaxy.rewards.uniqueBonus}</span>
-                      </div>
-                    )}
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] mb-2">
+                          {/* Special Feature */}
+                          {galaxy.generated.specialFeature && (
+                            <span 
+                              className="px-1.5 py-0.5 rounded font-semibold"
+                              style={{
+                                backgroundColor: featureColor + '20',
+                                color: featureColor,
+                              }}
+                            >
+                              {galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}
+                              {galaxy.generated.specialFeature === 'nebula' && '☁️ Туманность'}
+                              {galaxy.generated.specialFeature === 'quasar' && '💫 Квазар'}
+                              {galaxy.generated.specialFeature === 'ruins' && '🏛️ Руины'}
+                            </span>
+                          )}
 
-                    {/* Artifact (only if discovered and has artifact) */}
-                    {isDiscovered && galaxy.rewards.artifactId && (
-                      <div className="text-xs text-purple-400 mb-2 flex items-center gap-1">
-                        <span>💎</span>
-                        <span>Артефакт: {galaxy.rewards.artifactId}</span>
-                      </div>
-                    )}
+                          {/* Difficulty */}
+                          <span className="px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
+                            ⚔️ ×{galaxy.generated.difficulty.toFixed(1)}
+                          </span>
 
-                    {/* Description (only if discovered) */}
-                    {isDiscovered && galaxy.generated.specialFeature && (
-                      <div className="text-xs text-gray-400 mt-2 italic">
-                        {getSpecialFeatureDescription(galaxy.generated.specialFeature)}
-                      </div>
-                    )}
+                          {/* Resource Modifiers (only if discovered) */}
+                          {isDiscovered && Object.keys(galaxy.generated.resourceModifiers).length > 0 && (
+                            <>
+                              {Object.entries(galaxy.generated.resourceModifiers)
+                                .slice(0, 2)
+                                .map(([res, mult]) => (
+                                  <span 
+                                    key={res} 
+                                    className={`px-1.5 py-0.5 rounded ${
+                                      mult > 1 
+                                        ? 'bg-green-900/30 text-green-400' 
+                                        : 'bg-red-900/30 text-red-400'
+                                    }`}
+                                  >
+                                    {res}: {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
+                                  </span>
+                                ))}
+                              {Object.keys(galaxy.generated.resourceModifiers).length > 2 && (
+                                <span className="text-gray-500">+{Object.keys(galaxy.generated.resourceModifiers).length - 2}</span>
+                              )}
+                            </>
+                          )}
 
-                    {/* Explore Button */}
-                    {!isDiscovered && (
-                      <button
-                        onClick={() => exploreProceduralGalaxy(galaxy.galaxyNumber)}
-                        className="w-full mt-3 px-3 py-2 bg-purple-600 hover:bg-purple-700 
-                                 text-white text-sm rounded-lg transition-colors"
-                      >
-                        Исследовать галактику
-                      </button>
-                    )}
+                          {/* Rewards (only if discovered) */}
+                          {isDiscovered && galaxy.rewards.uniqueBonus && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
+                              🎁 {galaxy.rewards.uniqueBonus}
+                            </span>
+                          )}
 
-                    {/* Status Badge */}
-                    {galaxy.completed && (
-                      <div className="absolute bottom-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
-                        ✓ Завершена
+                          {/* Artifact (only if discovered) */}
+                          {isDiscovered && galaxy.rewards.artifactId && (
+                            <span className="px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">
+                              💎 Артефакт
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Description (only if discovered) */}
+                        {isDiscovered && galaxy.generated.specialFeature && (
+                          <p className="text-[10px] text-gray-400 italic line-clamp-1">
+                            {getSpecialFeatureDescription(galaxy.generated.specialFeature)}
+                          </p>
+                        )}
                       </div>
-                    )}
+
+                      {/* Explore Button or Arrow */}
+                      <div className="flex-shrink-0">
+                        {!isDiscovered ? (
+                          <button
+                            onClick={() => exploreProceduralGalaxy(galaxy.galaxyNumber)}
+                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 
+                                     text-white text-xs rounded-lg transition-colors"
+                          >
+                            Исследовать
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">→</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })}

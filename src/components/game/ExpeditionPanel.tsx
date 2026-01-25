@@ -66,36 +66,35 @@ export function ExpeditionPanel() {
   }, [ship.installed, ship.unlocked, starChart.levels.subspace, starChart.levels.anomaly]);
 
   return (
-    <div className="p-4 border-b border-cyber-gray">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
-          <Rocket size={18} className="text-cyber-green" />
+    <div className="p-3 border-b border-cyber-gray">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg text-cyber-green uppercase tracking-wide flex items-center gap-1.5">
+          <Rocket size={16} className="text-cyber-green" />
           <span>Экспедиции</span>
         </h2>
-        <div className="text-xs text-cyber-text-dim">
-          Статус: <span className="text-cyber-text">{active ? 'в полёте' : 'готово'}</span>
-          {active ? <span className="text-cyber-text-dim"> · {secondsLeft}с</span> : null}
-          <span className="text-cyber-text-dim"> · Чертежи: {formatNumber(blueprints)}</span>
+        <div className="text-[10px] text-cyber-text-dim">
+          {active ? `🚀 ${secondsLeft}с` : '✓ готово'}
+          <span className="text-cyber-text-dim"> · 📐 {formatNumber(blueprints)}</span>
         </div>
       </div>
 
-      <div className="cyber-panel">
+      <div className="cyber-panel p-2">
         {active ? (
-          <div className="text-xs text-cyber-text-dim">
+          <div className="text-[10px] text-cyber-text-dim">
             Экспедиция в пути… <span className="text-cyber-text">{secondsLeft}с</span>
           </div>
         ) : (
-          <div className="text-xs text-cyber-text-dim">
+          <div className="text-[10px] text-cyber-text-dim">
             Готово к запуску.
           </div>
         )}
 
         {expedition.lastReport ? (
-          <div className="text-xs text-cyber-gray-light mt-2">{expedition.lastReport}</div>
+          <div className="text-[10px] text-cyber-gray-light mt-1">{expedition.lastReport}</div>
         ) : null}
 
-        <div className="mt-4 border-t border-cyber-gray/40 pt-3">
-          <div className="text-xs text-cyber-text-dim mb-2">Корабль</div>
+        <div className="mt-2 border-t border-cyber-gray/40 pt-2">
+          <div className="text-[10px] text-cyber-text-dim mb-1.5">Корабль</div>
 
           <div className="grid gap-2">
             {(['hull', 'engine', 'cargo'] as ShipSlot[]).map((slot) => {

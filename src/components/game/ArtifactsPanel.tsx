@@ -193,11 +193,11 @@ export function ArtifactsPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col gap-4 p-4 bg-gray-900/50 rounded-lg overflow-y-auto">
+    <div className="h-full flex flex-col gap-3 p-3 bg-gray-900/50 rounded-lg overflow-y-auto">
       {/* Заголовок */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-purple-400 flex items-center gap-2">
-          <Sparkles size={24} />
+        <h2 className="text-lg font-bold text-purple-400 flex items-center gap-1.5">
+          <Sparkles size={18} />
           Артефакты
         </h2>
         <div className="text-right">

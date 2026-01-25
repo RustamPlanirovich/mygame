@@ -68,24 +68,24 @@ export function PoliticsPanel() {
   return (
     <div className="h-full flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700 bg-slate-800/50">
-        <div className="flex items-center gap-3 mb-3">
-          <Landmark className="w-6 h-6 text-purple-400" />
-          <h2 className="text-xl font-bold text-white">Политический Центр</h2>
+      <div className="p-3 border-b border-slate-700 bg-slate-800/50">
+        <div className="flex items-center gap-2 mb-2">
+          <Landmark className="w-5 h-5 text-purple-400" />
+          <h2 className="text-lg font-bold text-white">Политика</h2>
         </div>
         
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 text-sm">
-          <div className="bg-slate-700/50 rounded px-3 py-2">
-            <div className="text-slate-400 text-xs">Влияние</div>
+        <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+          <div className="bg-slate-700/50 rounded px-2 py-1.5">
+            <div className="text-slate-400">Влияние</div>
             <div className="text-purple-300 font-bold">{formatNumber(influence)}</div>
           </div>
-          <div className="bg-slate-700/50 rounded px-3 py-2">
-            <div className="text-slate-400 text-xs">Активных политик</div>
+          <div className="bg-slate-700/50 rounded px-2 py-1.5">
+            <div className="text-slate-400">Активных</div>
             <div className="text-blue-300 font-bold">{politics.activePolicies.length} / {politics.maxActivePolicies}</div>
           </div>
-          <div className="bg-slate-700/50 rounded px-3 py-2">
-            <div className="text-slate-400 text-xs">Расход/сек</div>
+          <div className="bg-slate-700/50 rounded px-2 py-1.5">
+            <div className="text-slate-400">Расход/с</div>
             <div className="text-red-300 font-bold">-{totalUpkeep.toFixed(1)}</div>
           </div>
         </div>
@@ -117,12 +117,12 @@ export function PoliticsPanel() {
       )}
 
       {/* Category Tabs */}
-      <div className="flex gap-1 p-2 bg-slate-800/50 border-b border-slate-700 overflow-x-auto">
+      <div className="flex gap-1 p-1.5 bg-slate-800/50 border-b border-slate-700 overflow-x-auto">
         {CATEGORY_ORDER.map(category => (
           <button
             key={category}
             onClick={() => setSelectedCategory(category)}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap ${
+            className={`px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap ${
               selectedCategory === category
                 ? 'bg-purple-600 text-white'
                 : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
