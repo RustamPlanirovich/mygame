@@ -11,6 +11,20 @@ import {
 } from '../core/math/proximity';
 import { detectDistricts, getDistrictBonusForBuilding } from '../core/math/districts';
 
+// Кэш для proximity вычислений
+let proximityCache: {
+  tilesHash: string;
+  result: Building[];
+} | null = null;
+
+/**
+ * Создает хэш для tiles для проверки изменений
+ */
+function createTilesHash(tiles: Record<string, string>): string {
+  const entries = Object.entries(tiles).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(entries);
+}
+
 /**
  * Парсинг ключа тайла в координаты
  */
@@ -57,11 +71,18 @@ export function getBuildingsWithCoordinates(
 /**
  * Обновить множители близости для всех зданий на сетке
  * Теперь также учитывает бонусы от производственных районов
+ * ОПТИМИЗАЦИЯ: Кэширует результаты если сетка не изменилась
  */
 export function updateAllProximityMultipliers(
   buildings: Building[],
   tiles: Record<string, string>
 ): Building[] {
+  // Проверяем кэш
+  const tilesHash = createTilesHash(tiles);
+  if (proximityCache && proximityCache.tilesHash === tilesHash) {
+    return proximityCache.result;
+  }
+  
   // Получаем здания с координатами
   const buildingsWithCoords = getBuildingsWithCoordinates(buildings, tiles);
   
@@ -113,7 +134,7 @@ export function updateAllProximityMultipliers(
   }
   
   // Возвращаем обновленные здания
-  return buildings.map(b => {
+  const updatedBuildings = buildings.map(b => {
     // Находим все тайлы с этим зданием и вычисляем средний множитель
     const buildingTiles = Object.entries(tiles)
       .filter(([_, id]) => id === b.id)
@@ -141,6 +162,14 @@ export function updateAllProximityMultipliers(
       proximityMultiplier: avgMultiplier,
     };
   });
+  
+  // Сохраняем в кэш
+  proximityCache = {
+    tilesHash,
+    result: updatedBuildings,
+  };
+  
+  return updatedBuildings;
 }
 
 /**

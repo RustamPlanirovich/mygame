@@ -14,6 +14,7 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   const accumulatedTimeRef = useRef<number>(0);
   const saveTimeRef = useRef<number>(0);
   const achievementCheckRef = useRef<number>(0);
+  const signalCheckRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const fpsRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
@@ -52,18 +53,22 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         saveTimeRef.current = 0;
       }
 
-      // Achievement checking
+      // Achievement checking - только раз в 5 секунд для снижения нагрузки
       achievementCheckRef.current += dt;
-      if (achievementCheckRef.current >= 2) {
+      if (achievementCheckRef.current >= 5) {
         const state = useGameStore.getState();
         checkAchievements(state);
         achievementCheckRef.current = 0;
       }
 
-      // Signal Interception: проверяем спавн новых сигналов
-      const signalState = useGameStore.getState();
-      signalState.spawnNewSignal();
-      signalState.updateSignals();
+      // Signal Interception: проверяем только раз в 0.5 секунды (вместо каждого кадра!)
+      signalCheckRef.current += dt;
+      if (signalCheckRef.current >= 0.5) {
+        const signalState = useGameStore.getState();
+        signalState.spawnNewSignal();
+        signalState.updateSignals();
+        signalCheckRef.current = 0;
+      }
 
       accumulatedTimeRef.current -= frameTime;
       updates++;
@@ -76,8 +81,8 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
       frameCountRef.current = 0;
       lastFpsUpdateRef.current = time;
 
-      // Логируем только если FPS низкий
-      if (fpsRef.current < targetFPS * 0.8) {
+      // Логируем только если FPS очень низкий (меньше 30) и не чаще раза в 3 секунды
+      if (fpsRef.current < 30 && time - (lastFpsUpdateRef.current - 3000) >= 3000) {
         console.warn(`[GameLoop] Low FPS: ${fpsRef.current}`);
       }
     }
