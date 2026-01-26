@@ -7892,13 +7892,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Update stats based on upgrade type
       if (upgradeType === 'defense') {
-        updatedPlatform.maxHp = platform.maxHp.mul(1.5);
-        updatedPlatform.hp = platform.hp.mul(1.5);
-        updatedPlatform.maxArmor = platform.maxArmor.mul(1.4);
-        updatedPlatform.armor = platform.armor.mul(1.4);
-        updatedPlatform.shieldMaxHp = platform.shieldMaxHp.mul(1.5);
-        updatedPlatform.shieldHp = platform.shieldHp.mul(1.5);
-        updatedPlatform.shieldRegenRate = platform.shieldRegenRate.mul(1.3);
+        updatedPlatform.maxHp = D(platform.maxHp).mul(1.5);
+        updatedPlatform.hp = D(platform.hp).mul(1.5);
+        updatedPlatform.maxArmor = D(platform.maxArmor).mul(1.4);
+        updatedPlatform.armor = D(platform.armor).mul(1.4);
+        updatedPlatform.shieldMaxHp = D(platform.shieldMaxHp).mul(1.5);
+        updatedPlatform.shieldHp = D(platform.shieldHp).mul(1.5);
+        updatedPlatform.shieldRegenRate = D(platform.shieldRegenRate || 0).mul(1.3);
       }
       
       const newPlatforms = [...state.galaxies.platforms];
