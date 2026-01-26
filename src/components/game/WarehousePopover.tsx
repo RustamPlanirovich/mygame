@@ -5,7 +5,8 @@ import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { formatNumber } from '../../core/math/format';
 import { Pin, X } from 'lucide-react';
 
-function productionTone(p: Decimal) {
+function productionTone(p: Decimal | undefined) {
+  if (!p) return 'text-cyber-text-dim';
   if (p.gt(0)) return 'text-cyber-green';
   if (p.lt(0)) return 'text-cyber-red';
   return 'text-cyber-text-dim';
@@ -103,6 +104,7 @@ export function WarehousePopover(props: {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto pr-1">
         {entries.map(({ key, amount, max, production }) => {
+          if (!amount || !max) return null;
           const full = max.gt(0) && amount.gte(max);
           const pinned = isPinned(key);
           return (
@@ -115,7 +117,7 @@ export function WarehousePopover(props: {
                     {full ? <span className="ml-2 text-[10px] text-cyber-red font-sans">ПОЛНО</span> : null}
                   </div>
                   <div className={`text-xs font-mono ${productionTone(production)}`}>
-                    {production.gt(0) ? '+' : ''}{formatNumber(production)}/с
+                    {production?.gt(0) ? '+' : ''}{formatNumber(production)}/с
                   </div>
                 </div>
 
