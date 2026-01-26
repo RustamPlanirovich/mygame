@@ -73,6 +73,68 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
   const addResearchPoints = useGameStore((state) => state.addResearchPoints);
   const addInfluence = useGameStore((state) => state.addInfluence);
 
+  const traceFlows = useGameStore((state: any) => state.debug?.traceFlows ?? false);
+  const lastFlow = useGameStore((state: any) => state.debug?.lastFlow ?? null);
+
+  const toggleAllProductionBuildingsExceptPower = (disabled: boolean) => {
+    // Это dev-only панель, поэтому делаем прямое изменение стора.
+    // Отключаем все здания, у которых есть production, кроме:
+    // - источников энергии (production.energy > 0)
+    // - конденсаторов (productionMultipliers.energy > 0)
+    useGameStore.setState((state) => {
+      const tileDisabled = { ...(state.grid.tileDisabled || {}) };
+
+      const toNumberSafe = (v: any): number => {
+        if (v == null) return 0;
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string') return Number(v);
+        if (typeof v?.toNumber === 'function') return v.toNumber();
+        if (typeof v?.toString === 'function') return Number(v.toString());
+        return Number(v);
+      };
+
+      let changed = 0;
+      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+        if (!buildingId) continue;
+        if (tileKey === 'base') continue;
+
+        const b = state.buildings.find((x) => x.id === buildingId);
+        if (!b) continue;
+
+        const prod = b.production || {};
+        const hasProduction = Object.keys(prod).length > 0;
+        if (!hasProduction) continue;
+
+        const energyProd = toNumberSafe((prod as any).energy);
+        const energyCap = toNumberSafe((b as any).productionMultipliers?.energy);
+
+        const isEnergySource = energyProd > 0;
+        const isCapacitor = energyCap > 0;
+
+        if (isEnergySource || isCapacitor) continue;
+
+        const next = disabled;
+        const prev = tileDisabled[tileKey] || false;
+        if (prev !== next) {
+          tileDisabled[tileKey] = next;
+          changed++;
+        }
+      }
+
+      if (changed > 0) {
+        console.log(`🧪 Cheat: ${disabled ? 'disabled' : 'enabled'} ${changed} production tiles (except power/capacitors)`);
+      }
+
+      return {
+        ...state,
+        grid: {
+          ...state.grid,
+          tileDisabled,
+        },
+      };
+    });
+  };
+
   const handleGiveResource = () => {
     const numAmount = parseFloat(amount);
     if (!isNaN(numAmount) && numAmount > 0) {
@@ -135,6 +197,67 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
             >
               Энергия (1M)
             </button>
+
+            <button
+              onClick={() => toggleAllProductionBuildingsExceptPower(true)}
+              className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
+              title="Отключает все здания с production, кроме источников энергии (production.energy) и конденсаторов (productionMultipliers.energy)"
+            >
+              🧪 Отключить производство
+            </button>
+            <button
+              onClick={() => toggleAllProductionBuildingsExceptPower(false)}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+              title="Включает обратно отключенные чит-кнопкой производственные здания"
+            >
+              🧪 Включить производство
+            </button>
+
+            <button
+              onClick={() => {
+                useGameStore.setState((state: any) => ({
+                  ...state,
+                  debug: {
+                    ...(state.debug || {}),
+                    traceFlows: !traceFlows,
+                  },
+                }));
+              }}
+              className={`px-4 py-2 ${traceFlows ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-gray-800 hover:bg-gray-700'} text-white rounded transition-colors`}
+              title="Собирает диагностику: расход энергии по категориям + агрегаты логистических переносов (base→тайлы и т.п.)"
+            >
+              🧭 Трассировка потоков: {traceFlows ? 'ON' : 'OFF'}
+            </button>
+
+            <button
+              onClick={() => {
+                console.log('🧭 lastFlow', lastFlow);
+                if (lastFlow?.energy) {
+                  console.group('🧭 Energy');
+                  console.log('start → end', lastFlow.energy.start, '→', lastFlow.energy.end);
+                  console.log('producedTick', lastFlow.energy.producedTick, 'consumedTick', lastFlow.energy.consumedTick);
+                  console.table(lastFlow.energy.drains);
+                  console.log('waveActive', lastFlow.energy.waveActive, 'enemies', lastFlow.energy.enemies);
+                  console.log('demonsActive', lastFlow.energy.demonsActive);
+                  console.groupEnd();
+                }
+                if (lastFlow?.transports) {
+                  console.group('🧭 Transports');
+                  console.log('count', lastFlow.transports.count);
+                  console.table(lastFlow.transports.fromBaseByResource);
+                  console.table(lastFlow.transports.totalByResource);
+                  console.table(lastFlow.transports.topDestinations);
+                  console.groupEnd();
+                }
+              }}
+              className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded transition-colors"
+              title="Печатает диагностику последнего тика в консоль"
+            >
+              🧭 Показать последний тик
+            </button>
+          </div>
+          <div className="mt-2 text-xs text-gray-400">
+            Для теста накопления энергии: отключает все производственные здания, кроме электростанций и конденсаторов.
           </div>
         </div>
 

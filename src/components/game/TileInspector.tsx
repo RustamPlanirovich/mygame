@@ -1,5 +1,11 @@
 import { useMemo } from 'react';
-import { useGameStore, calculateCost, getBasePos } from '../../features/gameStore';
+import {
+  useGameStore,
+  calculateCost,
+  getBasePos,
+  BASE_RESOURCE_MAX,
+  expandWarehouseProductionMultipliers,
+} from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
@@ -652,18 +658,33 @@ export function TileInspector() {
                       )}
                       
                       {/* Вместимость (для складов) */}
-                      {building.productionMultipliers && Object.keys(building.productionMultipliers).length > 0 && (
-                        <>
-                          <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {Object.entries(building.productionMultipliers).map(([res, amt]) => 
-                            `${RESOURCE_LABEL[res as ResourceType]} +${formatNumber(D(amt).mul(buildingLevel))}`
-                          ).join(', ')}</div>
-                          {buildingLevel < 500 && (
-                            <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {Object.entries(building.productionMultipliers).map(([res, amt]) => 
-                              `${RESOURCE_LABEL[res as ResourceType]} +${formatNumber(D(amt).mul(buildingLevel + 1))}`
-                            ).join(', ')}</div>
-                          )}
-                        </>
-                      )}
+                      {building.productionMultipliers && Object.keys(building.productionMultipliers).length > 0 && (() => {
+                        const effective = expandWarehouseProductionMultipliers(
+                          building.id,
+                          building.productionMultipliers,
+                          BASE_RESOURCE_MAX
+                        );
+                        const entries = Object.entries(effective);
+                        const LIMIT = 8;
+
+                        const fmt = (lvl: number) => {
+                          const parts = entries.map(([res, amt]) =>
+                            `${RESOURCE_LABEL[res as ResourceType]} +${formatNumber(D(amt).mul(lvl))}`
+                          );
+                          const shown = parts.slice(0, LIMIT);
+                          const more = parts.length - shown.length;
+                          return `${shown.join(', ')}${more > 0 ? `, … +ещё ${more}` : ''}`;
+                        };
+
+                        return (
+                          <>
+                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {fmt(buildingLevel)}</div>
+                            {buildingLevel < 500 && (
+                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {fmt(buildingLevel + 1)}</div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </>
                 );

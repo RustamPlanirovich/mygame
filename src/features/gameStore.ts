@@ -557,7 +557,7 @@ const INITIAL_BUILDINGS: Building[] = [
   {
     id: 'warehouse_mk1',
     name: 'Складской Модуль',
-    description: "Увеличивает вместимость центральной БАЗЫ для сырья и сплавов: руда +500, лёд +500, углерод +500, сталь +200 за уровень. Улучшает логистику в радиусе 2 клеток.",
+    description: 'Увеличивает вместимость центральной БАЗЫ для всех ресурсов за уровень (сырьё/переработка/космос/спец.). Улучшает логистику в радиусе 2 клеток.',
     baseCost: { energy: D(250), ore: D(25) },
     creditCost: D(500),
     costFactor: 1.15,
@@ -1068,7 +1068,7 @@ const INITIAL_BUILDINGS: Building[] = [
       satellite: D(0.5)
     },
     consumption: { },
-    energyConsumption: D(-60), // Производит энергию
+    energyConsumption: D(0),
     count: 0
   },
   // Фаза 2.9: Специальные здания
@@ -1402,7 +1402,7 @@ const INITIAL_RESOURCES = {
   radioactive_waste: { amount: D(0), max: D(5000), production: D(0) },
 };
 
-const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
+export const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   energy: INITIAL_RESOURCES.energy.max,
   ore: INITIAL_RESOURCES.ore.max,
   ice: INITIAL_RESOURCES.ice.max,
@@ -1453,6 +1453,31 @@ const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   // Фаза 8.1: Экология
   waste: INITIAL_RESOURCES.waste.max,
   radioactive_waste: INITIAL_RESOURCES.radioactive_waste.max,
+};
+
+export const expandWarehouseProductionMultipliers = (
+  buildingId: string,
+  productionMultipliers: Partial<Record<ResourceType, Decimal>> | undefined,
+  baseCaps: Record<ResourceType, Decimal>
+): Partial<Record<ResourceType, Decimal>> => {
+  if (!productionMultipliers) return {};
+
+  // Старый склад давал бонус только 4 ресурсам. Для остальных — автозаполнение,
+  // чтобы вместимость росла для всех ресурсов (как задумано).
+  const isWarehouse = buildingId === 'warehouse_mk1' || buildingId === 'advanced_warehouse_mk1';
+  if (!isWarehouse) return productionMultipliers;
+
+  const scale = buildingId === 'advanced_warehouse_mk1' ? D(1) : D('0.5');
+  const next: Partial<Record<ResourceType, Decimal>> = { ...productionMultipliers };
+
+  for (const r of Object.keys(baseCaps) as ResourceType[]) {
+    // Энергию держим отдельно через конденсаторы/энергохранилища.
+    if (r === 'energy') continue;
+    if (next[r]) continue;
+    next[r] = D(baseCaps[r]).mul(scale);
+  }
+
+  return next;
 };
 
 const recomputeCaps = (
@@ -1520,6 +1545,8 @@ const recomputeCaps = (
   // ФАЗА 8.5: Добавляем вместимость от зданий с учетом их уровней
   for (const b of buildings) {
     if (!b.productionMultipliers) continue;
+
+    const effectiveMultipliers = expandWarehouseProductionMultipliers(b.id, b.productionMultipliers, BASE_RESOURCE_MAX);
     
     // Находим ВСЕ здания этого типа на карте и суммируем их уровни
     for (const [tileKey, buildingId] of Object.entries(tiles)) {
@@ -1527,7 +1554,7 @@ const recomputeCaps = (
         const level = tileLevels[tileKey] || 1;
         
         // Добавляем вместимость: базовая_вместимость × уровень_здания
-        for (const [resType, amount] of Object.entries(b.productionMultipliers)) {
+        for (const [resType, amount] of Object.entries(effectiveMultipliers)) {
           const rType = resType as ResourceType;
           if (!caps[rType]) continue;
           caps[rType] = caps[rType].add(D(amount).mul(level));
@@ -2353,8 +2380,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         const newBuildings = [...state.buildings];
         newBuildings[buildingIndex] = { ...building, count: building.count + 1 };
 
+        // Создаём обновлённые tiles с новым зданием для платформы
+        const nextPlatformTiles = {
+          ...platform.grid.tiles,
+          [k]: buildId,
+        };
+
         const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-        const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
+        const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, nextPlatformTiles);
 
         // Place building on platform
         const updatedPlatforms = [...state.galaxies.platforms];
@@ -2362,10 +2395,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           ...platform,
           grid: {
             ...platform.grid,
-            tiles: {
-              ...platform.grid.tiles,
-              [k]: buildId,
-            },
+            tiles: nextPlatformTiles,
             selected: null,
             selectedBuildId: null,
           },
@@ -2430,16 +2460,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newBuildings = [...state.buildings];
       newBuildings[buildingIndex] = { ...building, count: building.count + 1 };
 
+      // ФАЗА 8.5: Инициализируем уровень здания при постройке
+      const tileLevels = state.grid.tileLevels || {};
+      const nextTileLevels = { ...tileLevels, [k]: 1 };
+
+      // Создаём обновлённые tiles с новым зданием
+      const nextTiles = { ...state.grid.tiles, [k]: buildId };
+
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
+      const capped = recomputeCaps(newResources, newBuildings, capsMult, nextTileLevels, nextTiles);
 
       // init tile buffer
       let nextBuffers = buffers;
       if (!nextBuffers[k]) nextBuffers = { ...nextBuffers, [k]: {} };
-
-      // ФАЗА 8.5: Инициализируем уровень здания при постройке
-      const tileLevels = state.grid.tileLevels || {};
-      const nextTileLevels = { ...tileLevels, [k]: 1 };
 
       // Phase 4: Инициализируем эволюцию здания при постройке
       const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
@@ -2476,7 +2509,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         grid: {
           ...state.grid,
           buffers: nextBuffers,
-          tiles: { ...state.grid.tiles, [k]: buildId },
+          tiles: nextTiles,
           tileLevels: nextTileLevels,
           tileEvolutionLevels: nextTileEvolutionLevels,
           selected: pos,
@@ -3375,6 +3408,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => {
       const now = Date.now();
 
+      const debugState = (state as any).debug as
+        | {
+            traceFlows?: boolean;
+            lastFlow?: any;
+          }
+        | undefined;
+      const traceFlows = !!debugState?.traceFlows;
+
       // Calculate artifact bonuses
       const artifactBonuses = calculateArtifactBonuses(
         state.artifacts.discovered,
@@ -3414,6 +3455,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Buffers
       let buffers = { ...state.grid.buffers };
 
+      // Track real energy flow for UI (per-tick amounts)
+      // This includes ALL drains/sources that touch base energy.
+      let energyProducedTick = D(0);
+      let energyConsumedTick = D(0);
+
+      // Optional diagnostics: break down energy drains by subsystem.
+      let energyDrainDemonsTick = D(0);
+      let energyDrainMarketImportTick = D(0);
+      let energyDrainBuildingsLegacyTick = D(0);
+      let energyDrainBuildingsConsumptionTick = D(0);
+      let energyDrainCombatShieldTick = D(0);
+      let energyDrainCombatTurretsTick = D(0);
+
+      const energyLegacyByBuilding: Record<string, Decimal> = {};
+      const energyConsumptionByBuilding: Record<string, Decimal> = {};
+
       // Ensure base buffer exists
       if (!buffers[baseKey]) buffers[baseKey] = {};
 
@@ -3435,6 +3492,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           continue;
         }
         buffers = setBuf(buffers, baseKey, 'energy', have.sub(need));
+        energyConsumedTick = energyConsumedTick.add(need);
+        energyDrainDemonsTick = energyDrainDemonsTick.add(need);
         demonsPaid[id] = true;
       }
 
@@ -3640,29 +3699,26 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Apply Energy Optimization from repeatable research (reduces consumption)
       totalEnergyConsumption = totalEnergyConsumption.mul(repeatableBonuses.energyEfficiency);
       
-      // Calculate efficiency: if consumption > production, try to use stored energy from base
+      // Calculate efficiency based on energy balance
+      // НЕ вычитаем энергию здесь - это делается в цикле производства/потребления зданий
       let energyEfficiency = 1.0;
-      let energyDeficit = D(0);
       
       if (totalEnergyConsumption.gt(totalEnergyProduction)) {
-        energyDeficit = totalEnergyConsumption.sub(totalEnergyProduction);
+        // ДЕФИЦИТ: потребление > производства
+        const energyDeficit = totalEnergyConsumption.sub(totalEnergyProduction);
         const energyDeficitForTick = energyDeficit.mul(dtFacilities);
         
         // Проверяем, есть ли запас энергии в базе для покрытия дефицита
         const availableEnergyInBase = getBuf(buffers, baseKey, 'energy');
         
         if (availableEnergyInBase.gte(energyDeficitForTick)) {
-          // Достаточно запасов - работаем на 100%, расходуем из базы
+          // Достаточно запасов - работаем на 100%
+          // Энергия будет вычтена в цикле зданий
           energyEfficiency = 1.0;
-          // Списываем недостающую энергию из базы
-          buffers = setBuf(buffers, baseKey, 'energy', availableEnergyInBase.sub(energyDeficitForTick));
         } else if (availableEnergyInBase.gt(0)) {
           // Частично покрываем дефицит из запасов
-          const coveredDeficit = availableEnergyInBase;
-          buffers = setBuf(buffers, baseKey, 'energy', D(0));
-          
           // Рассчитываем эффективность с учётом частичного покрытия
-          const totalAvailable = totalEnergyProduction.mul(dtFacilities).add(coveredDeficit);
+          const totalAvailable = totalEnergyProduction.mul(dtFacilities).add(availableEnergyInBase);
           const totalNeeded = totalEnergyConsumption.mul(dtFacilities);
           energyEfficiency = Number(totalAvailable.div(totalNeeded).toString());
           energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
@@ -3675,6 +3731,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             energyEfficiency = 0;
           }
         }
+      } else {
+        // ИЗЛИШЕК или БАЛАНС: производство >= потребления
+        // Работаем на полную мощность
+        energyEfficiency = 1.0;
       }
 
       // Produce/consume into local tile buffers
@@ -3730,10 +3790,76 @@ export const useGameStore = create<GameState>((set, get) => ({
             continue;
           }
 
+          // Если здание производственное, но его выходы уже заблокированы (переполнение),
+          // то оно не должно тратить энергию/ресурсы «вхолостую».
+          const hasProductionOutputs = !!b.production && Object.keys(b.production).length > 0;
+          if (hasProductionOutputs) {
+            let canProduceAny = false;
+            for (const [outResType, outPerSecond] of Object.entries(b.production)) {
+              const outType = outResType as ResourceType;
+              const perSec = D(outPerSecond);
+              if (perSec.lte(0)) continue;
+
+              // Если у ресурса нет caps в newResources (на всякий случай) — считаем что можно производить.
+              if (!newResources[outType]) {
+                canProduceAny = true;
+                break;
+              }
+
+              const cap = newResources[outType].max;
+              if (cap.gt(0)) {
+                const baseAmount = getBuf(buffers, baseKey, outType);
+                // Если база почти заполнена — этот выход блокируется
+                if (baseAmount.gte(cap)) {
+                  continue;
+                }
+
+                // Для энергии локальный буфер не используется
+                if (outType !== 'energy') {
+                  const localAmount = getBuf(buffers, tileKey, outType);
+                  const maxLocalBuffer = perSec.mul(20);
+                  if (localAmount.gte(maxLocalBuffer)) {
+                    continue;
+                  }
+                }
+              }
+
+              canProduceAny = true;
+              break;
+            }
+
+            if (!canProduceAny) {
+              continue;
+            }
+          }
+
           const tilePolicy = state.grid.marketPolicy?.[tileKey];
 
+          // Проверяем - не переполнены ли выходные ресурсы. Если да - здание фактически не работает,
+          // и ему не нужно ни доставлять входы, ни покупать их на рынке.
+          let outputsBlocked = false;
+          if (b.production) {
+            for (const [prodResType] of Object.entries(b.production)) {
+              const pType = prodResType as ResourceType;
+              if (newResources[pType]) {
+                const baseCap = newResources[pType].max;
+                if (baseCap.gt(0)) {
+                  const baseAmount = getBuf(buffers, baseKey, pType);
+                  const localAmount = getBuf(buffers, tileKey, pType);
+                  const productionRate = D(b.production[pType] || 0);
+                  const maxLocalBuffer = productionRate.mul(20);
+
+                  if (localAmount.gte(maxLocalBuffer) || baseAmount.gte(baseCap)) {
+                    outputsBlocked = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
           // Market Policy (import): try to top-up missing inputs from the market (tradeable only)
-          if (tilePolicy && b.consumption) {
+          if (tilePolicy && b.consumption && !outputsBlocked) {
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               if (rType === 'energy') continue;
@@ -3765,6 +3891,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
               const cost = unitCost.mul(actual);
               buffers = setBuf(buffers, baseKey, 'energy', curE.sub(cost).max(D(0)));
+              energyConsumedTick = energyConsumedTick.add(cost);
+              energyDrainMarketImportTick = energyDrainMarketImportTick.add(cost);
               const curLocal = getBuf(buffers, tileKey, rType);
               buffers = setBuf(buffers, tileKey, rType, curLocal.add(actual));
             }
@@ -3772,29 +3900,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           // АВТОМАТИЧЕСКАЯ ДОСТАВКА: Собираем ресурсы от ВСЕХ доступных источников
           if (b.consumption) {
-            // Проверяем - не переполнены ли выходные ресурсы. Если да - не доставляем входные
-            let outputsBlocked = false;
-            if (b.production) {
-              for (const [prodResType] of Object.entries(b.production)) {
-                const pType = prodResType as ResourceType;
-                if (newResources[pType]) {
-                  const baseCap = newResources[pType].max;
-                  if (baseCap.gt(0)) {
-                    const baseAmount = getBuf(buffers, baseKey, pType);
-                    const localAmount = getBuf(buffers, tileKey, pType);
-                    const productionRate = D(b.production[pType] || 0);
-                    const maxLocalBuffer = productionRate.mul(20);
-                    
-                    // Если выход переполнен - не доставляем входы
-                    if (localAmount.gte(maxLocalBuffer) || baseAmount.gte(baseCap.mul(0.98))) {
-                      outputsBlocked = true;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-            
             if (!outputsBlocked) {
               for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
@@ -3850,27 +3955,6 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
           
-          // Проверка энергии для зданий со старой системой energyConsumption
-          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
-            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-            const energyNeed = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(buildingLevel);
-            const availableEnergy = getBuf(buffers, baseKey, 'energy');
-            
-            if (availableEnergy.lte(0)) {
-              ratio = D(0);
-            } else if (energyNeed.gt(0)) {
-              ratio = ratio.min(availableEnergy.div(energyNeed));
-            }
-          }
-          
-          // Вычитаем энергию для зданий со старой системой energyConsumption
-          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
-            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-            const energyConsume = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(ratio).mul(buildingLevel);
-            const cur = getBuf(buffers, baseKey, 'energy');
-            buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsume));
-          }
-          
           if (b.consumption) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
@@ -3891,6 +3975,35 @@ export const useGameStore = create<GameState>((set, get) => ({
             ratio = ratio.max(D(0)).min(D(1));
           }
 
+          // Проверка энергии для зданий со старой системой energyConsumption (ПОСЛЕ проверки всех входов)
+          // Важно: иначе здания могли тратить энергию даже если не могут работать из-за отсутствия ресурсов.
+          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+            const energyNeed = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(buildingLevel);
+            const availableEnergy = getBuf(buffers, baseKey, 'energy');
+
+            if (availableEnergy.lte(0)) {
+              ratio = D(0);
+            } else if (energyNeed.gt(0)) {
+              ratio = ratio.min(availableEnergy.div(energyNeed));
+            }
+
+            ratio = ratio.max(D(0)).min(D(1));
+          }
+
+          // Вычитаем энергию для зданий со старой системой energyConsumption
+          if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
+            const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+            const energyConsume = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(ratio).mul(buildingLevel);
+            const cur = getBuf(buffers, baseKey, 'energy');
+            buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsume));
+            if (energyConsume.gt(0)) {
+              energyConsumedTick = energyConsumedTick.add(energyConsume);
+              energyDrainBuildingsLegacyTick = energyDrainBuildingsLegacyTick.add(energyConsume);
+              energyLegacyByBuilding[b.id] = (energyLegacyByBuilding[b.id] ?? D(0)).add(energyConsume);
+            }
+          }
+
           if (b.consumption && ratio.gt(0)) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
@@ -3901,6 +4014,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               if (rType === 'energy') {
                 const cur = getBuf(buffers, baseKey, 'energy');
                 buffers = setBuf(buffers, baseKey, 'energy', cur.sub(consume));
+                if (consume.gt(0)) {
+                  energyConsumedTick = energyConsumedTick.add(consume);
+                  energyDrainBuildingsConsumptionTick = energyDrainBuildingsConsumptionTick.add(consume);
+                  energyConsumptionByBuilding[b.id] = (energyConsumptionByBuilding[b.id] ?? D(0)).add(consume);
+                }
               } else {
                 const localCur = getBuf(buffers, tileKey, rType);
                 buffers = setBuf(buffers, tileKey, rType, localCur.sub(consume));
@@ -3912,23 +4030,33 @@ export const useGameStore = create<GameState>((set, get) => ({
             for (const [resType, perSecond] of Object.entries(b.production)) {
               const rType = resType as ResourceType;
               
-              // Проверяем переполнение с гистерезисом: останавливаем при 98%, возобновляем при <90%
+              // Проверяем переполнение: когда база (или локальный буфер) заполнены, производство не идёт
               if (newResources[rType]) {
                 const baseCap = newResources[rType].max;
                 if (baseCap.gt(0)) {
                   const baseAmount = getBuf(buffers, baseKey, rType);
-                  const localAmount = getBuf(buffers, tileKey, rType);
                   
-                  // Если уже есть локальный буфер >20 сек - не производим (переполнение)
-                  const productionRate = D(perSecond);
-                  const maxLocalBuffer = productionRate.mul(20);
-                  if (localAmount.gte(maxLocalBuffer)) {
-                    continue;
-                  }
-                  
-                  // Если база заполнена >98% - не производим
-                  if (baseAmount.gte(baseCap.mul(0.98))) {
-                    continue;
+                  // Для энергии проверяем только базу (она глобальна)
+                  if (rType === 'energy') {
+                    // Если база заполнена - не производим
+                    if (baseAmount.gte(baseCap)) {
+                      continue;
+                    }
+                  } else {
+                    // Для остальных ресурсов проверяем локальный буфер
+                    const localAmount = getBuf(buffers, tileKey, rType);
+                    
+                    // Если уже есть локальный буфер >20 сек - не производим (переполнение)
+                    const productionRate = D(perSecond);
+                    const maxLocalBuffer = productionRate.mul(20);
+                    if (localAmount.gte(maxLocalBuffer)) {
+                      continue;
+                    }
+                    
+                    // Если база заполнена - не производим
+                    if (baseAmount.gte(baseCap)) {
+                      continue;
+                    }
                   }
                 }
               }
@@ -3989,15 +4117,25 @@ export const useGameStore = create<GameState>((set, get) => ({
                 produced = produced.mul(2);
               }
               
-              // ВСЕ ресурсы производятся в локальный буфер здания
-              // Автоматическая логистика доставит их туда, где они нужны
-              const cur = getBuf(buffers, tileKey, rType);
-              buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
+              // ЭНЕРГИЯ идёт напрямую в базовый буфер (она глобальна)
+              // Остальные ресурсы производятся в локальный буфер здания
+              if (rType === 'energy') {
+                // Энергия сразу в базу
+                const curBase = getBuf(buffers, baseKey, 'energy');
+                buffers = setBuf(buffers, baseKey, 'energy', curBase.add(produced));
 
-            
-
-              if (rType === 'energy' && produced.gt(0)) {
-                lifetimeEnergyProduced = lifetimeEnergyProduced.add(produced);
+                if (produced.gt(0)) {
+                  energyProducedTick = energyProducedTick.add(produced);
+                }
+                
+                if (produced.gt(0)) {
+                  lifetimeEnergyProduced = lifetimeEnergyProduced.add(produced);
+                }
+              } else {
+                // Остальные ресурсы в локальный буфер здания
+                // Автоматическая логистика доставит их туда, где они нужны
+                const cur = getBuf(buffers, tileKey, rType);
+                buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
               }
             }
           }
@@ -4066,6 +4204,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Проходим по всем производимым ресурсам здания
         for (const [rType, prodRate] of Object.entries(building.production)) {
           const resourceType = rType as ResourceType;
+          
+          // Энергия уже добавляется напрямую в базу, пропускаем её здесь
+          if (resourceType === 'energy') continue;
           const localAmount = getBuf(buffers, tileKey, resourceType);
           if (localAmount.lte(0)) continue;
           
@@ -4077,22 +4218,18 @@ export const useGameStore = create<GameState>((set, get) => ({
             buffers = setBuf(buffers, tileKey, resourceType, localAmount.sub(toTransfer));
             const baseAmount = getBuf(buffers, baseKey, resourceType);
             buffers = setBuf(buffers, baseKey, resourceType, baseAmount.add(toTransfer));
-            
-            // ОТЛАДКА: Логируем передачу песка на базу
-            if (resourceType === 'sand') {
-              console.log(`📦 ПЕРЕДАЧА ПЕСКА НА БАЗУ с ${tileKey}:`, {
-                передано: toTransfer.toString(),
-                оставлено_локально: keepAmount.toString(),
-                база_до: baseAmount.toString(),
-                база_после: baseAmount.add(toTransfer).toString(),
-              });
-            }
           }
         }
       }
 
       // Clamp base buffer to caps to avoid hidden overflow.
+      const energyBeforeClamp = traceFlows ? getBuf(buffers, baseKey, 'energy') : null;
       buffers = clampBaseBufferToCaps(buffers, newResources);
+      const energyAfterClamp = traceFlows ? getBuf(buffers, baseKey, 'energy') : null;
+      const energyClampRemoved =
+        traceFlows && energyBeforeClamp && energyAfterClamp
+          ? energyBeforeClamp.sub(energyAfterClamp)
+          : null;
 
       // Sync global resources from base buffer (and clamp by caps)
       newResources = syncResourcesFromBase(newResources, buffers);
@@ -4437,6 +4574,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             const energyConsumed = energyNeed.mul(ratio);
             const cur = getBuf(buffers, baseKey, 'energy');
             buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsumed));
+            if (energyConsumed.gt(0)) {
+              energyConsumedTick = energyConsumedTick.add(energyConsumed);
+              energyDrainCombatShieldTick = energyDrainCombatShieldTick.add(energyConsumed);
+            }
             newResources.energy.amount = getBuf(buffers, baseKey, 'energy').min(newResources.energy.max);
 
             const regen = shieldDef.shieldRegenPerSecond.mul(combatMult).mul(shieldCount).mul(dt).mul(ratio);
@@ -4519,6 +4660,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             const energyConsumed = energyNeed.mul(ratio);
             const cur = getBuf(buffers, baseKey, 'energy');
             buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsumed));
+            if (energyConsumed.gt(0)) {
+              energyConsumedTick = energyConsumedTick.add(energyConsumed);
+              energyDrainCombatTurretsTick = energyDrainCombatTurretsTick.add(energyConsumed);
+            }
             newResources.energy.amount = getBuf(buffers, baseKey, 'energy').min(newResources.energy.max);
 
             let damage = turretCombat.dps.mul(combatMult).mul(turretCount).mul(dt).mul(ratio);
@@ -5172,15 +5317,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       nextPollution.radioactiveWasteAmount = nextPollution.radioactiveWasteAmount.add(radioactiveWasteGenerated);
       
       // Waste Recycler buildings reduce waste
-      const recyclerBuilding = buildingsWithProximity.find((b) => b.id === 'waste_recycler');
+      // NOTE: Building id is `recycler_mk1` (not `waste_recycler`).
+      const recyclerBuilding = buildingsWithProximity.find((b) => b.id === 'recycler_mk1');
       if (recyclerBuilding && recyclerBuilding.count > 0) {
-        const recyclerPower = D(2).mul(dtFacilities); // 2 waste per second per recycler
-        
+        const baseRecyclerPower = D(2).mul(dtFacilities); // 2 waste per second per recycler
+
         // Find all placed recyclers and create pollution zones
         const pollutionZones: Array<{ x: number; y: number; radius: number; intensity: number }> = [];
-        for (const [k, buildingId] of Object.entries(state.grid.tiles)) {
-          if (buildingId === 'waste_recycler') {
-            const pos = parseKey(k);
+        for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+          if (buildingId === 'recycler_mk1') {
+            const pos = parseKey(tileKey);
             if (pos) {
               pollutionZones.push({
                 x: pos.x,
@@ -5188,13 +5334,17 @@ export const useGameStore = create<GameState>((set, get) => ({
                 radius: 3,
                 intensity: 0.8, // 80% waste reduction in radius
               });
-              
+
+              const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
+              const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
+              const recyclerPower = baseRecyclerPower.mul(evolutionMult);
+
               // Recycle waste in the area
               nextPollution.wasteAmount = nextPollution.wasteAmount.sub(recyclerPower).max(D(0));
             }
           }
         }
-        
+
         nextPollution.pollutionZones = pollutionZones;
       }
       
@@ -5445,6 +5595,98 @@ export const useGameStore = create<GameState>((set, get) => ({
         built: newBuiltMegastructures,
         constructionQueue: remainingQueue,
       };
+
+      const debugLastFlow = traceFlows
+        ? (() => {
+            const basePos = getBasePos(state.grid);
+            const fromBaseByRes: Record<string, Decimal> = {};
+            const totalByRes: Record<string, Decimal> = {};
+            const toByTile: Record<string, Decimal> = {};
+
+            for (const t of activeTransports) {
+              const r = t.resource;
+              totalByRes[r] = (totalByRes[r] ?? D(0)).add(t.amount);
+
+              const toKey = `${t.to.x},${t.to.y}`;
+              toByTile[toKey] = (toByTile[toKey] ?? D(0)).add(t.amount);
+
+              if (basePos && t.from.x === basePos.x && t.from.y === basePos.y) {
+                fromBaseByRes[r] = (fromBaseByRes[r] ?? D(0)).add(t.amount);
+              }
+            }
+
+            const drainsSum = energyDrainDemonsTick
+              .add(energyDrainMarketImportTick)
+              .add(energyDrainBuildingsLegacyTick)
+              .add(energyDrainBuildingsConsumptionTick)
+              .add(energyDrainCombatShieldTick)
+              .add(energyDrainCombatTurretsTick);
+            const otherDrain = energyConsumedTick.sub(drainsSum);
+
+            const topLegacy = Object.entries(energyLegacyByBuilding)
+              .sort((a, b) => Number(b[1].toString()) - Number(a[1].toString()))
+              .slice(0, 10)
+              .map(([id, amt]) => ({ buildingId: id, energy: amt.toString() }));
+
+            const topConsumption = Object.entries(energyConsumptionByBuilding)
+              .sort((a, b) => Number(b[1].toString()) - Number(a[1].toString()))
+              .slice(0, 10)
+              .map(([id, amt]) => ({ buildingId: id, energy: amt.toString() }));
+
+
+            const topTo = Object.entries(toByTile)
+              .sort((a, b) => {
+                const av = Number(a[1].toString());
+                const bv = Number(b[1].toString());
+                return bv - av;
+              })
+              .slice(0, 8)
+              .map(([tile, amt]) => ({ tile, amount: amt.toString() }));
+
+            return {
+              at: now,
+              dtSeconds: dt,
+              energy: {
+                start: baseBefore.energy.toString(),
+                end: getBuf(buffers, baseKey, 'energy').toString(),
+                producedTick: energyProducedTick.toString(),
+                consumedTick: energyConsumedTick.toString(),
+                clampRemovedTick: energyClampRemoved ? energyClampRemoved.toString() : null,
+                drains: {
+                  demons: energyDrainDemonsTick.toString(),
+                  marketImport: energyDrainMarketImportTick.toString(),
+                  buildingsLegacy: energyDrainBuildingsLegacyTick.toString(),
+                  buildingsConsumption: energyDrainBuildingsConsumptionTick.toString(),
+                  combatShield: energyDrainCombatShieldTick.toString(),
+                  combatTurrets: energyDrainCombatTurretsTick.toString(),
+                  other: otherDrain.toString(),
+                },
+                topBuildings: {
+                  legacy: topLegacy,
+                  consumptionEnergy: topConsumption,
+                },
+                waveActive: state.combat.waveEndsAt > now,
+                enemies: state.combat.enemies.length,
+                demonsActive: Object.fromEntries(Object.entries(state.demons.active).filter(([, v]) => !!v)),
+              },
+              sim: {
+                speedMult: String(speedMult),
+                boostMult: String(boostMult),
+                interferenceMult: String(interferenceMult),
+                dtFacilities: String(dtFacilities),
+                coldFusionMult: String(coldFusionMult),
+              },
+              transports: {
+                count: activeTransports.length,
+                totalByResource: Object.fromEntries(Object.entries(totalByRes).map(([k, v]) => [k, v.toString()])),
+                fromBaseByResource: Object.fromEntries(
+                  Object.entries(fromBaseByRes).map(([k, v]) => [k, v.toString()])
+                ),
+                topDestinations: topTo,
+              },
+            };
+          })()
+        : null;
       
       // Применяем эффекты активных мегаструктур
       Object.entries(nextMegastructures.built).forEach(([id, info]) => {
@@ -5497,9 +5739,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         randomEvents: nextRandomEvents,
         megastructures: nextMegastructures,
         lastTick: now,
-        energyProduction: totalEnergyProduction,
-        energyConsumption: totalEnergyConsumption,
+        // Use real flow numbers so UI matches actual accumulation
+        energyProduction: dt > 0 ? energyProducedTick.div(dt) : D(0),
+        energyConsumption: dt > 0 ? energyConsumedTick.div(dt) : D(0),
         energyEfficiency,
+        ...(traceFlows
+          ? {
+              debug: {
+                ...(debugState ?? {}),
+                traceFlows: true,
+                lastFlow: debugLastFlow,
+              },
+            }
+          : {}),
       };
     });
   },

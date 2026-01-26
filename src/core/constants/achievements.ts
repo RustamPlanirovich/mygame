@@ -583,7 +583,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     requirement: {
       type: 'building_count',
       target: 10,
-      specificBuilding: 'waste_recycler',
+      specificBuilding: 'recycler_mk1',
     },
     reward: {
       influence: new Decimal(1000),
