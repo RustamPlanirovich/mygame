@@ -6846,16 +6846,25 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
       
       if (!res.ok) {
-        // Если нет ручных сохранений - это нормально для нового пользователя
+        // Если нет сохранений для слота - сбрасываем к начальному состоянию
         if (res.status === 404) {
-          console.log('No manual saves found, starting new game');
+          console.log('No saves for current slot, starting fresh game');
+          get().resetGame();
+          console.log('✅ resetGame() called, grid size:', get().grid.width, 'x', get().grid.height);
           return;
         }
         return;
       }
       
       const payload = await res.json();
-      if (!payload?.ok) return;
+      if (!payload?.ok) {
+        // Если нет текущего слота или нет сохранений - сбрасываем
+        if (payload?.error === 'NO_CURRENT_SLOT' || payload?.error === 'NO_SAVES_FOR_SLOT') {
+          console.log('No current slot or saves, starting fresh game');
+          get().resetGame();
+        }
+        return;
+      }
       
       save = payload.save.data;
       // Сохраняем ID текущего активного сохранения
@@ -8870,6 +8879,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     let buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
     resources = syncResourcesFromBase(resources, buffers);
 
+    // Создаём полностью новый grid с чистыми tiles
+    const freshGrid = {
+      ...DEFAULT_GRID,
+      tiles: {} as Record<string, string>,
+      deposits: generateDeposits(DEFAULT_GRID.width, DEFAULT_GRID.height),
+      buffers,
+      tileLevels: {} as Record<string, number>,
+      tileEvolutionLevels: {} as Record<string, number>,
+      tileDisabled: {} as Record<string, boolean>,
+      activeTransports: [] as typeof DEFAULT_GRID.activeTransports,
+      selected: null,
+      selectedBuildId: null,
+      highlightedBuildingId: null,
+      marketPolicy: {} as typeof DEFAULT_GRID.marketPolicy,
+    };
+
     set({
       resources,
       buildings: BUILDINGS_WITH_PROXIMITY,
@@ -8884,7 +8909,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         waveEndsAt: 0,
         nextSpawnAt: 0,
       },
-      grid: { ...DEFAULT_GRID, deposits: generateDeposits(DEFAULT_GRID.width, DEFAULT_GRID.height), buffers },
+      grid: freshGrid,
       research: INITIAL_RESEARCH,
       demons: INITIAL_DEMONS,
       meta: INITIAL_META,
@@ -8908,6 +8933,27 @@ export const useGameStore = create<GameState>((set, get) => ({
       },
       lastTick: now,
     });
+  },
+
+  startNewGame: async () => {
+    const state = get();
+    
+    // Сбрасываем состояние игры
+    state.resetGame();
+    
+    // Сохраняем новую игру на сервер (очищаем текущий save id)
+    try {
+      await saveCurrentSaveIdToServer(null);
+      
+      // Очищаем localStorage
+      localStorage.removeItem('gameState');
+      localStorage.removeItem('currentSaveId');
+      
+      return { ok: true };
+    } catch (error) {
+      console.error('Ошибка при создании новой игры:', error);
+      return { ok: false, error: 'Не удалось создать новую игру' };
+    }
   },
 
   // =======================================

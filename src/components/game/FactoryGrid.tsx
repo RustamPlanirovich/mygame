@@ -412,18 +412,23 @@ export function FactoryGrid() {
       const handlePrimaryClick = (sx: number, sy: number) => {
         const wp = screenToWorld(sx, sy);
         const s = useGameStore.getState();
+        
+        // Получаем актуальный grid из store (не из замыкания!)
+        const currentGrid = s.galaxies.activePlatformId 
+          ? s.galaxies.platforms.find(p => p.id === s.galaxies.activePlatformId)?.grid || s.grid
+          : s.grid;
 
         const gridPos = pixelToGrid(wp.x, wp.y);
-        const x = clamp(gridPos.x, 0, grid.width - 1);
-        const y = clamp(gridPos.y, 0, grid.height - 1);
+        const x = clamp(gridPos.x, 0, currentGrid.width - 1);
+        const y = clamp(gridPos.y, 0, currentGrid.height - 1);
 
         const pos = { x, y };
         selectTile(pos);
         
         // Auto-select building when clicking on deposit (if no building selected)
-        if (!grid.selectedBuildId && grid.deposits) {
+        if (!currentGrid.selectedBuildId && currentGrid.deposits) {
           const key = `${x},${y}`;
-          const depositType = grid.deposits[key];
+          const depositType = currentGrid.deposits[key];
           if (depositType) {
             // Find the first building that requires this deposit
             const matchingBuilding = s.buildings.find(b => {
@@ -450,16 +455,16 @@ export function FactoryGrid() {
           }
         }
 
-        if (grid.selectedBuildId) {
+        if (currentGrid.selectedBuildId) {
           // Найдем здание по ID
-          const building = s.buildings.find(b => b.id === grid.selectedBuildId);
+          const building = s.buildings.find(b => b.id === currentGrid.selectedBuildId);
           if (!building) {
             placeSelectedBuildAt(pos);
             return;
           }
 
           // Проверяем правила близости
-          const check = checkBuildingPlacement(x, y, building, s.buildings, grid.tiles);
+          const check = checkBuildingPlacement(x, y, building, s.buildings, currentGrid.tiles);
           
           // Если нет предупреждений или качество хорошее - строим сразу
           if (check.warnings.length === 0 || 
@@ -467,7 +472,7 @@ export function FactoryGrid() {
             placeSelectedBuildAt(pos);
           } else {
             // Показываем модальное окно с предупреждениями
-            setPendingPlacement({ x, y, buildingId: grid.selectedBuildId });
+            setPendingPlacement({ x, y, buildingId: currentGrid.selectedBuildId });
           }
         }
       };

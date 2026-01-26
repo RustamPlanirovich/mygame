@@ -1075,6 +1075,7 @@ export interface GameState {
   prestigeReset: () => void;
   startExpedition: () => void;
   resetGame: () => void;
+  startNewGame: () => Promise<{ ok: boolean; error?: string }>;
   // Galaxy system actions
   switchGalaxy: (galaxyId: GalaxyId) => void;
   unlockGalaxy: (galaxyId: GalaxyId) => void;

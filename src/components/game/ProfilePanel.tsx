@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { getCurrentSession, logout, loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
 import { DEFAULT_SETTINGS } from '../../core/gameTypes.settings';
 import type { GameSettings } from '../../core/gameTypes.settings';
-import { Save, LogOut, User, Mail, Shield, Clock } from 'lucide-react';
+import { Save, LogOut, User, Mail, Shield, Clock, Gamepad2 } from 'lucide-react';
 
 interface ProfilePanelProps {
   onShowSaveManager: () => void;
+  onShowGameSlots: () => void;
   onClose: () => void;
 }
 
-export const ProfilePanel = ({ onShowSaveManager, onClose }: ProfilePanelProps) => {
+export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: ProfilePanelProps) => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<{
@@ -103,6 +104,24 @@ export const ProfilePanel = ({ onShowSaveManager, onClose }: ProfilePanelProps) 
             </div>
           </div>
         )}
+      </div>
+
+      {/* Мои игры */}
+      <div className="bg-cyber-darker border border-green-500/30 rounded-lg p-4 space-y-3">
+        <h3 className="text-base font-bold text-green-400 flex items-center gap-2">
+          <Gamepad2 className="w-4 h-4" />
+          Мои игры
+        </h3>
+        <p className="text-xs text-cyber-text-dim">
+          Создавайте несколько игр для тестирования различных стратегий.
+        </p>
+        <button
+          onClick={onShowGameSlots}
+          className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2"
+        >
+          <Gamepad2 className="w-4 h-4" />
+          Управление играми
+        </button>
       </div>
 
       {/* Управление сохранениями */}

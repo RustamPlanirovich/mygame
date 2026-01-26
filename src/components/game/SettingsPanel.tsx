@@ -518,6 +518,7 @@ export const SettingsPanel: React.FC = () => {
               <div className="mt-4 pt-4 border-t border-cyber-gray">
                 <p className="text-xs text-cyber-text-dim">
                   Сохранения хранятся в localStorage браузера. Регулярно экспортируйте важные сохранения.
+                  Для управления игровыми слотами используйте раздел "Мои игры" в профиле.
                 </p>
               </div>
             </div>

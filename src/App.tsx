@@ -16,6 +16,7 @@ import { Minimap } from './components/game/Minimap';
 import { HelpModal } from './components/game/HelpPanel';
 import { AuthForm } from './components/auth/AuthForm';
 import { SaveManager } from './components/game/SaveManager';
+import { GameSlotsManager } from './components/game/GameSlotsManager';
 import { ProfilePanel } from './components/game/ProfilePanel';
 import { CheatPanel } from './components/game/CheatPanel';
 import { useAutosave } from './hooks/useAutosave';
@@ -55,6 +56,9 @@ function App() {
   
   // Save manager state
   const [showSaveManager, setShowSaveManager] = useState(false);
+  
+  // Game slots manager state
+  const [showGameSlots, setShowGameSlots] = useState(false);
   
   // Profile modal state
   const [showProfile, setShowProfile] = useState(false);
@@ -338,13 +342,27 @@ function App() {
                 onShowSaveManager={() => {
                   setShowProfile(false);
                   setShowSaveManager(true);
-                }} 
+                }}
+                onShowGameSlots={() => {
+                  setShowProfile(false);
+                  setShowGameSlots(true);
+                }}
                 onClose={() => setShowProfile(false)}
               />
             </div>
           </div>
         </>
       )}
+      
+      {/* Game Slots Manager */}
+      <GameSlotsManager 
+        isOpen={showGameSlots} 
+        onClose={() => setShowGameSlots(false)}
+        onSlotSwitch={() => {
+          // При переключении слота можно перезагрузить страницу для чистого состояния
+          window.location.reload();
+        }}
+      />
       
       {/* Cheat Panel - только в dev режиме */}
       {import.meta.env.DEV && showCheatPanel && (

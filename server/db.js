@@ -23,6 +23,34 @@ export async function initDb() {
     );
   `);
 
+  // Добавляем поля если не существуют
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS current_slot_id INTEGER;
+  `);
+
+  // Таблица игровых слотов
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS game_slots (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_played_at TIMESTAMPTZ,
+      play_time_seconds INTEGER DEFAULT 0
+    );
+  `);
+
+  // Индексы для игровых слотов
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_game_slots_user_id ON game_slots(user_id);
+  `);
+  
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_slots_user_name ON game_slots(user_id, name);
+  `);
+
   // Таблица сохранений игры (множественные сохранения)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS game_save (
@@ -36,9 +64,18 @@ export async function initDb() {
     );
   `);
 
-  // Индексы для быстрого поиска сохранений по пользователю
+  // Добавляем slot_id если не существует
+  await pool.query(`
+    ALTER TABLE game_save ADD COLUMN IF NOT EXISTS slot_id INTEGER REFERENCES game_slots(id) ON DELETE CASCADE;
+  `);
+
+  // Индексы для быстрого поиска сохранений
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_game_save_user_id ON game_save(user_id);
+  `);
+  
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_game_save_slot_id ON game_save(slot_id);
   `);
   
   await pool.query(`
@@ -49,10 +86,10 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_game_save_updated ON game_save(user_id, updated_at DESC);
   `);
 
-  // Уникальность имени для ручных сохранений
+  // Уникальность имени для ручных сохранений внутри слота
   await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_save_manual_name 
-    ON game_save(user_id, name) WHERE save_type = 'manual';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_save_slot_name 
+    ON game_save(slot_id, name) WHERE save_type = 'manual' AND slot_id IS NOT NULL;
   `);
 
   // Таблица сессий

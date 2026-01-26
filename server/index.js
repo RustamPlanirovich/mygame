@@ -122,6 +122,21 @@ app.post('/api/auth/register', async (req, res) => {
     
     const user = result.rows[0];
     
+    // Создаем слот по умолчанию для нового пользователя
+    const slotResult = await pool.query(
+      `INSERT INTO game_slots (user_id, name, description, last_played_at)
+       VALUES ($1, 'Моя игра', 'Первая игра', NOW())
+       RETURNING id`,
+      [user.id]
+    );
+    const defaultSlotId = slotResult.rows[0].id;
+    
+    // Устанавливаем его как текущий
+    await pool.query(
+      'UPDATE users SET current_slot_id = $1 WHERE id = $2',
+      [defaultSlotId, user.id]
+    );
+    
     // Создаем сессию
     const userAgent = req.headers['user-agent'];
     const ipAddress = req.ip || req.connection.remoteAddress;
@@ -149,7 +164,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, email, settings, current_save_id, pinned_resources FROM users WHERE email = $1 AND password = $2',
+      'SELECT id, email, settings, current_save_id, pinned_resources, current_slot_id FROM users WHERE email = $1 AND password = $2',
       [email, password]
     );
     
@@ -159,6 +174,42 @@ app.post('/api/auth/login', async (req, res) => {
     }
     
     const user = result.rows[0];
+    
+    // Если у пользователя нет слота - создаем ему слот по умолчанию
+    if (!user.current_slot_id) {
+      // Проверяем есть ли у него вообще слоты
+      const slotsResult = await pool.query(
+        'SELECT id FROM game_slots WHERE user_id = $1 LIMIT 1',
+        [user.id]
+      );
+      
+      let slotId;
+      if (slotsResult.rowCount === 0) {
+        // Создаем слот по умолчанию
+        const newSlotResult = await pool.query(
+          `INSERT INTO game_slots (user_id, name, description, last_played_at)
+           VALUES ($1, 'Моя игра', 'Первая игра', NOW())
+           RETURNING id`,
+          [user.id]
+        );
+        slotId = newSlotResult.rows[0].id;
+        
+        // Переносим существующие сохранения в новый слот
+        await pool.query(
+          'UPDATE game_save SET slot_id = $1 WHERE user_id = $2 AND slot_id IS NULL',
+          [slotId, user.id]
+        );
+      } else {
+        slotId = slotsResult.rows[0].id;
+      }
+      
+      // Устанавливаем слот как текущий
+      await pool.query(
+        'UPDATE users SET current_slot_id = $1 WHERE id = $2',
+        [slotId, user.id]
+      );
+      user.current_slot_id = slotId;
+    }
     
     // Создаем сессию
     const userAgent = req.headers['user-agent'];
@@ -371,19 +422,304 @@ app.put('/api/preferences/current-save', authMiddleware, async (req, res) => {
 });
 
 
-// ========== SAVES API ==========
+// ========== GAME SLOTS API ==========
 
-// Получить список всех сохранений пользователя
-app.get('/api/saves', authMiddleware, async (req, res) => {
+// Получить список всех игровых слотов пользователя
+app.get('/api/slots', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, save_type, created_at, updated_at 
-       FROM game_save 
+      `SELECT id, name, description, created_at, updated_at, last_played_at, play_time_seconds
+       FROM game_slots 
        WHERE user_id = $1 
-       ORDER BY updated_at DESC`,
+       ORDER BY last_played_at DESC NULLS LAST, updated_at DESC`,
       [req.userId]
     );
-    res.json({ ok: true, saves: result.rows });
+    
+    // Получаем текущий слот пользователя
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    res.json({ 
+      ok: true, 
+      slots: result.rows,
+      currentSlotId: userResult.rows[0]?.current_slot_id || null
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
+// Получить конкретный игровой слот
+app.get('/api/slots/:id', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, description, created_at, updated_at, last_played_at, play_time_seconds
+       FROM game_slots 
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.userId]
+    );
+    
+    if (result.rowCount === 0) {
+      res.status(404).json({ ok: false, error: 'SLOT_NOT_FOUND' });
+      return;
+    }
+    
+    res.json({ ok: true, slot: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
+// Создать новый игровой слот
+app.post('/api/slots', authMiddleware, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      res.status(400).json({ ok: false, error: 'NAME_REQUIRED' });
+      return;
+    }
+    
+    const result = await pool.query(
+      `INSERT INTO game_slots (user_id, name, description, last_played_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING id, name, description, created_at, updated_at, last_played_at, play_time_seconds`,
+      [req.userId, name.trim(), description?.trim() || null]
+    );
+    
+    const newSlot = result.rows[0];
+    
+    // Устанавливаем новый слот как текущий
+    await pool.query(
+      'UPDATE users SET current_slot_id = $1 WHERE id = $2',
+      [newSlot.id, req.userId]
+    );
+    
+    res.json({ ok: true, slot: newSlot });
+  } catch (e) {
+    if (e.code === '23505') {
+      res.status(409).json({ ok: false, error: 'SLOT_NAME_EXISTS' });
+    } else {
+      res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+    }
+  }
+});
+
+// Обновить игровой слот
+app.put('/api/slots/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        res.status(400).json({ ok: false, error: 'INVALID_NAME' });
+        return;
+      }
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name.trim());
+    }
+    
+    if (description !== undefined) {
+      updates.push(`description = $${paramIndex++}`);
+      values.push(description?.trim() || null);
+    }
+    
+    if (updates.length === 0) {
+      res.status(400).json({ ok: false, error: 'NO_UPDATES' });
+      return;
+    }
+    
+    updates.push(`updated_at = NOW()`);
+    values.push(req.params.id, req.userId);
+    
+    const result = await pool.query(
+      `UPDATE game_slots 
+       SET ${updates.join(', ')}
+       WHERE id = $${paramIndex++} AND user_id = $${paramIndex}
+       RETURNING id, name, description, created_at, updated_at, last_played_at, play_time_seconds`,
+      values
+    );
+    
+    if (result.rowCount === 0) {
+      res.status(404).json({ ok: false, error: 'SLOT_NOT_FOUND' });
+      return;
+    }
+    
+    res.json({ ok: true, slot: result.rows[0] });
+  } catch (e) {
+    if (e.code === '23505') {
+      res.status(409).json({ ok: false, error: 'SLOT_NAME_EXISTS' });
+    } else {
+      res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+    }
+  }
+});
+
+// Удалить игровой слот
+app.delete('/api/slots/:id', authMiddleware, async (req, res) => {
+  try {
+    // Проверяем, что это не текущий активный слот, или сбрасываем его
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    if (userResult.rows[0]?.current_slot_id === parseInt(req.params.id)) {
+      // Сбрасываем текущий слот
+      await pool.query(
+        'UPDATE users SET current_slot_id = NULL WHERE id = $1',
+        [req.userId]
+      );
+    }
+    
+    const result = await pool.query(
+      'DELETE FROM game_slots WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.id, req.userId]
+    );
+    
+    if (result.rowCount === 0) {
+      res.status(404).json({ ok: false, error: 'SLOT_NOT_FOUND' });
+      return;
+    }
+    
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
+// Переключиться на игровой слот
+app.post('/api/slots/:id/switch', authMiddleware, async (req, res) => {
+  try {
+    // Проверяем, что слот существует
+    const slotResult = await pool.query(
+      'SELECT id, name FROM game_slots WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    
+    if (slotResult.rowCount === 0) {
+      res.status(404).json({ ok: false, error: 'SLOT_NOT_FOUND' });
+      return;
+    }
+    
+    // Обновляем текущий слот пользователя и время последней игры
+    await pool.query(
+      'UPDATE users SET current_slot_id = $1 WHERE id = $2',
+      [req.params.id, req.userId]
+    );
+    
+    await pool.query(
+      'UPDATE game_slots SET last_played_at = NOW() WHERE id = $1',
+      [req.params.id]
+    );
+    
+    // Получаем последнее сохранение для этого слота
+    const saveResult = await pool.query(
+      `SELECT id, name, save_type, data, created_at, updated_at
+       FROM game_save 
+       WHERE slot_id = $1 
+       ORDER BY updated_at DESC 
+       LIMIT 1`,
+      [req.params.id]
+    );
+    
+    res.json({ 
+      ok: true, 
+      slot: slotResult.rows[0],
+      latestSave: saveResult.rows[0] || null
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
+// Получить текущий слот пользователя
+app.get('/api/slots/current', authMiddleware, async (req, res) => {
+  try {
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    if (!userResult.rows[0]?.current_slot_id) {
+      res.json({ ok: true, slot: null, latestSave: null });
+      return;
+    }
+    
+    const slotId = userResult.rows[0].current_slot_id;
+    
+    const slotResult = await pool.query(
+      `SELECT id, name, description, created_at, updated_at, last_played_at, play_time_seconds
+       FROM game_slots WHERE id = $1`,
+      [slotId]
+    );
+    
+    if (slotResult.rowCount === 0) {
+      res.json({ ok: true, slot: null, latestSave: null });
+      return;
+    }
+    
+    // Получаем последнее сохранение для этого слота
+    const saveResult = await pool.query(
+      `SELECT id, name, save_type, data, created_at, updated_at
+       FROM game_save 
+       WHERE slot_id = $1 
+       ORDER BY updated_at DESC 
+       LIMIT 1`,
+      [slotId]
+    );
+    
+    res.json({ 
+      ok: true, 
+      slot: slotResult.rows[0],
+      latestSave: saveResult.rows[0] || null
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
+
+// ========== SAVES API ==========
+
+// Получить список всех сохранений для текущего слота
+app.get('/api/saves', authMiddleware, async (req, res) => {
+  try {
+    // Получаем текущий слот
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    const slotId = userResult.rows[0]?.current_slot_id;
+    
+    let result;
+    if (slotId) {
+      result = await pool.query(
+        `SELECT id, name, save_type, slot_id, created_at, updated_at 
+         FROM game_save 
+         WHERE slot_id = $1 
+         ORDER BY updated_at DESC`,
+        [slotId]
+      );
+    } else {
+      // Для обратной совместимости - сохранения без слота
+      result = await pool.query(
+        `SELECT id, name, save_type, slot_id, created_at, updated_at 
+         FROM game_save 
+         WHERE user_id = $1 AND slot_id IS NULL
+         ORDER BY updated_at DESC`,
+        [req.userId]
+      );
+    }
+    
+    res.json({ ok: true, saves: result.rows, slotId });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message ?? e) });
   }
@@ -393,7 +729,7 @@ app.get('/api/saves', authMiddleware, async (req, res) => {
 app.get('/api/saves/:id', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, save_type, data, created_at, updated_at FROM game_save WHERE id = $1 AND user_id = $2',
+      'SELECT id, name, save_type, slot_id, data, created_at, updated_at FROM game_save WHERE id = $1 AND user_id = $2',
       [req.params.id, req.userId]
     );
     
@@ -424,6 +760,14 @@ app.put('/api/saves', authMiddleware, async (req, res) => {
       res.status(400).json({ ok: false, error: 'INVALID_SAVE_TYPE' });
       return;
     }
+    
+    // Получаем текущий слот пользователя
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    const slotId = userResult.rows[0]?.current_slot_id;
 
     let saveName = name;
     
@@ -443,7 +787,7 @@ app.put('/api/saves', authMiddleware, async (req, res) => {
         `UPDATE game_save 
          SET data = $1::jsonb, updated_at = NOW()
          WHERE id = $2 AND user_id = $3
-         RETURNING id, name, save_type, created_at, updated_at`,
+         RETURNING id, name, save_type, slot_id, created_at, updated_at`,
         [JSON.stringify(data), saveId, req.userId]
       );
       
@@ -452,28 +796,36 @@ app.put('/api/saves', authMiddleware, async (req, res) => {
         return;
       }
     } else {
-      // Создаем новое сохранение
+      // Создаем новое сохранение с привязкой к слоту
       result = await pool.query(
-        `INSERT INTO game_save (user_id, name, save_type, data)
-         VALUES ($1, $2, $3, $4::jsonb)
-         RETURNING id, name, save_type, created_at, updated_at`,
-        [req.userId, saveName, type, JSON.stringify(data)]
+        `INSERT INTO game_save (user_id, slot_id, name, save_type, data)
+         VALUES ($1, $2, $3, $4, $5::jsonb)
+         RETURNING id, name, save_type, slot_id, created_at, updated_at`,
+        [req.userId, slotId, saveName, type, JSON.stringify(data)]
+      );
+    }
+    
+    // Обновляем время последней игры в слоте
+    if (slotId) {
+      await pool.query(
+        'UPDATE game_slots SET last_played_at = NOW(), updated_at = NOW() WHERE id = $1',
+        [slotId]
       );
     }
 
     // Для автосохранений - удаляем старые, оставляем только 3 последних
-    if (type === 'auto') {
+    if (type === 'auto' && slotId) {
       await pool.query(
         `DELETE FROM game_save
-         WHERE user_id = $1 
+         WHERE slot_id = $1 
          AND save_type = 'auto'
          AND id NOT IN (
            SELECT id FROM game_save
-           WHERE user_id = $1 AND save_type = 'auto'
+           WHERE slot_id = $1 AND save_type = 'auto'
            ORDER BY created_at DESC
            LIMIT 3
          )`,
-        [req.userId]
+        [slotId]
       );
     }
 
@@ -507,24 +859,39 @@ app.delete('/api/saves/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Получить последнее ручное сохранение (для автозагрузки)
+// Получить последнее сохранение для текущего слота (для автозагрузки)
 app.get('/api/saves/latest/manual', authMiddleware, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT id, name, save_type, data, created_at, updated_at 
-       FROM game_save 
-       WHERE user_id = $1 AND save_type = 'manual'
-       ORDER BY updated_at DESC 
-       LIMIT 1`,
+    // Получаем текущий слот пользователя
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
       [req.userId]
     );
     
-    if (result.rowCount === 0) {
-      res.status(404).json({ ok: false, error: 'NO_MANUAL_SAVE' });
+    const slotId = userResult.rows[0]?.current_slot_id;
+    
+    // Если нет текущего слота - нет сохранений
+    if (!slotId) {
+      res.status(404).json({ ok: false, error: 'NO_CURRENT_SLOT' });
       return;
     }
     
-    res.json({ ok: true, save: result.rows[0] });
+    // Загружаем последнее сохранение для текущего слота
+    const result = await pool.query(
+      `SELECT id, name, save_type, slot_id, data, created_at, updated_at 
+       FROM game_save 
+       WHERE slot_id = $1
+       ORDER BY updated_at DESC 
+       LIMIT 1`,
+      [slotId]
+    );
+    
+    if (result.rowCount === 0) {
+      res.status(404).json({ ok: false, error: 'NO_SAVES_FOR_SLOT' });
+      return;
+    }
+    
+    res.json({ ok: true, save: result.rows[0], slotId });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message ?? e) });
   }

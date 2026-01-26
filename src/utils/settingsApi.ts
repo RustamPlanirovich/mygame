@@ -330,3 +330,221 @@ export const saveCurrentSaveIdToServer = async (currentSaveId: number | null): P
     return { ok: false, error: 'Ошибка подключения к серверу' };
   }
 };
+
+// ========== GAME SLOTS API ==========
+
+export interface GameSlot {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  last_played_at: string | null;
+  play_time_seconds: number;
+}
+
+export interface GameSlotWithSave extends GameSlot {
+  latestSave?: {
+    id: number;
+    name: string;
+    save_type: 'manual' | 'auto';
+    data: any;
+    created_at: string;
+    updated_at: string;
+  } | null;
+}
+
+/**
+ * Получить список всех игровых слотов пользователя
+ */
+export const getGameSlots = async (): Promise<{ ok: boolean; slots?: GameSlot[]; currentSlotId?: number | null; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Ошибка получения игровых слотов:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Создать новый игровой слот
+ */
+export const createGameSlot = async (name: string, description?: string): Promise<{ ok: boolean; slot?: GameSlot; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ name, description }),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    const data = await response.json();
+    
+    // Сохраняем ID нового слота в localStorage
+    if (data.ok && data.slot) {
+      localStorage.setItem('currentSlotId', data.slot.id.toString());
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Ошибка создания игрового слота:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Обновить игровой слот
+ */
+export const updateGameSlot = async (slotId: number, name?: string, description?: string): Promise<{ ok: boolean; slot?: GameSlot; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots/${slotId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ name, description }),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Ошибка обновления игрового слота:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Удалить игровой слот
+ */
+export const deleteGameSlot = async (slotId: number): Promise<{ ok: boolean; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots/${slotId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    const data = await response.json();
+    
+    // Если удалили текущий слот, очищаем localStorage
+    const currentSlotId = localStorage.getItem('currentSlotId');
+    if (data.ok && currentSlotId === slotId.toString()) {
+      localStorage.removeItem('currentSlotId');
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Ошибка удаления игрового слота:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Переключиться на игровой слот
+ */
+export const switchGameSlot = async (slotId: number): Promise<{ ok: boolean; slot?: GameSlot; latestSave?: any; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots/${slotId}/switch`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    const data = await response.json();
+    
+    // Сохраняем ID текущего слота в localStorage
+    if (data.ok) {
+      localStorage.setItem('currentSlotId', slotId.toString());
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Ошибка переключения на игровой слот:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Получить текущий игровой слот с последним сохранением
+ */
+export const getCurrentGameSlot = async (): Promise<{ ok: boolean; slot?: GameSlot | null; latestSave?: any; error?: string }> => {
+  if (!isAuthenticated()) {
+    return { ok: false, error: 'NOT_AUTHENTICATED' };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/slots/current`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 401) {
+      removeAuthToken();
+      return { ok: false, error: 'NOT_AUTHENTICATED' };
+    }
+
+    const data = await response.json();
+    
+    // Синхронизируем с localStorage
+    if (data.ok && data.slot) {
+      localStorage.setItem('currentSlotId', data.slot.id.toString());
+    } else if (data.ok && !data.slot) {
+      localStorage.removeItem('currentSlotId');
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Ошибка получения текущего игрового слота:', err);
+    return { ok: false, error: 'Ошибка подключения к серверу' };
+  }
+};
+
+/**
+ * Получить ID текущего слота из localStorage
+ */
+export const getCurrentSlotId = (): number | null => {
+  const slotId = localStorage.getItem('currentSlotId');
+  return slotId ? parseInt(slotId, 10) : null;
+};
