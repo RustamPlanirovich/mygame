@@ -1111,6 +1111,7 @@ export interface GameState {
   // Building level system (Фаза 8.5)
   upgradeBuildingAt: (coord: GridCoord) => void;
   downgradeBuildingAt: (coord: GridCoord) => void;
+  maxUpgradeBuildingAt: (coord: GridCoord) => void;
   upgradeBuildingById: (buildingId: string, instanceId: string) => void;
   downgradeBuildingById: (buildingId: string, instanceId: string) => void;
   // Random events system (Фаза 8.6)

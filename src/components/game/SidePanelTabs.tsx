@@ -50,7 +50,9 @@ type TabId =
   | 'help';
 
 export function SidePanelTabs() {
-  const grid = useGameStore((s) => s.grid);
+  const mainGrid = useGameStore((s) => s.grid);
+  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
+  const platforms = useGameStore((s) => s.galaxies.platforms);
   const activeEventsCount = useGameStore(s => s.randomEvents.activeEvents.filter(e => e.status === 'pending').length);
   const unlockedAchievementsCount = useGameStore(s => Object.keys(s.achievements.unlocked).length);
   const recentAchievementsCount = useGameStore(s => {
@@ -62,13 +64,18 @@ export function SidePanelTabs() {
   const quests = useGameStore(s => s.quests.activeQuests);
   const claimQuestReward = useGameStore(s => s.claimQuestReward);
   
+  // Получаем активный грид (платформа или основная база)
+  const grid = activePlatformId 
+    ? platforms.find(p => p.id === activePlatformId)?.grid || mainGrid
+    : mainGrid;
+  
   // Определяем тип выбранной клетки
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
   const deposit = selectedKey ? grid.deposits?.[selectedKey] : null;
   
-  // Проверяем, является ли выбранная клетка базой
-  const isBaseSelected = grid.selected ? 
+  // Проверяем, является ли выбранная клетка базой (только для главной базы, не для платформ)
+  const isBaseSelected = !activePlatformId && grid.selected ? 
     grid.selected.x === Math.floor(grid.width / 2) && grid.selected.y === Math.floor(grid.height / 2) 
     : false;
 
@@ -139,6 +146,13 @@ export function SidePanelTabs() {
         ore: 'Месторождение: Руда',
         ice: 'Месторождение: Лёд',
         carbon: 'Месторождение: Углерод',
+        natural_gas: 'Месторождение: Природный газ',
+        oil: 'Месторождение: Нефть',
+        sand: 'Месторождение: Песок',
+        uranium: 'Месторождение: Уран',
+        chrome: 'Месторождение: Хром',
+        titanium: 'Месторождение: Титан',
+        copper: 'Месторождение: Медь',
       };
       return labels[deposit as DepositType] || 'Месторождение';
     }

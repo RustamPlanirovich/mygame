@@ -17,13 +17,15 @@ export interface PlacementCheck {
 
 /**
  * Проверить размещение здания и создать предупреждения
+ * @param skipPowerCheck - пропустить проверку энергопокрытия (для платформ)
  */
 export function checkBuildingPlacement(
   x: number,
   y: number,
   building: Building,
   buildings: Building[],
-  tiles: Record<string, string>
+  tiles: Record<string, string>,
+  skipPowerCheck: boolean = false
 ): PlacementCheck {
   const warnings: ProximityWarning[] = [];
   
@@ -40,10 +42,10 @@ export function checkBuildingPlacement(
   // Получаем здания с координатами
   const buildingsWithCoords = getBuildingsWithCoordinates(buildings, tiles);
   
-  // ФАЗА 8.2: Проверка энергопокрытия
+  // ФАЗА 8.2: Проверка энергопокрытия (пропускается для платформ)
   // Источники энергии не нуждаются в покрытии
   const isPowerSource = building.powerGridRadius && building.powerGridRadius > 0;
-  if (!isPowerSource) {
+  if (!isPowerSource && !skipPowerCheck) {
     const isPowered = isLocationPowered({ x, y }, buildingsWithCoords);
     
     if (!isPowered) {

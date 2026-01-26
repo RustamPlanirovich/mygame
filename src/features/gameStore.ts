@@ -147,29 +147,39 @@ const D_TWENTY = D(20);
 // LOGISTICS CACHE: Persists between ticks to avoid O(N^2) calculations
 // Stores pre-calculated sorted lists of sources for each consumer
 let logisticsCache: {
-  tilesRef: any; // Reference to state.grid.tiles to detect changes
-  // Map<ConsumerKey, Record<ResourceType, SourceTileKey[]>>
-  // For each consumer tile, stores a list of source tile keys (including 'base') for each resource type
+  tilesCount: number; // Количество тайлов для быстрой проверки
+  tilesKeys: string; // Сериализованные ключи для точной проверки (строится редко)
   routes: Record<string, Partial<Record<ResourceType, string[]>>>;
 } = {
-  tilesRef: null,
+  tilesCount: 0,
+  tilesKeys: '',
   routes: {}
 };
+
+// Вспомогательная функция для проверки изменений в tiles
+function tilesChangedForLogistics(tiles: Record<string, string>): boolean {
+  const count = Object.keys(tiles).length;
+  // Быстрая проверка по количеству
+  if (count !== logisticsCache.tilesCount) return true;
+  // Если количество совпадает, проверяем ключи (дорого, но редко)
+  const keys = Object.keys(tiles).sort().join(',');
+  return keys !== logisticsCache.tilesKeys;
+}
 
 // PRODUCTION RATES CACHE: Пересчитываем только при изменении сетки/зданий
 // Это экономит O(N*M) операций каждый тик где N=tiles, M=resources
 let productionRatesCache: {
-  tilesRef: any;
+  tilesCount: number;
   tileLevelsRef: any;
   tileEvolutionLevelsRef: any;
-  buildingsRef: any;
+  buildingsCount: number;
   rates: Record<ResourceType, Decimal> | null;
   lastCalculatedAt: number;
 } = {
-  tilesRef: null,
+  tilesCount: 0,
   tileLevelsRef: null,
   tileEvolutionLevelsRef: null,
-  buildingsRef: null,
+  buildingsCount: 0,
   rates: null,
   lastCalculatedAt: 0,
 };
@@ -3429,7 +3439,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         return b;
       });
 
-      const capsMult = computeCapsMultiplier(newResearch.levels, nextMeta.qubits);
+      const capsMult = computeCapsMultiplier(state.research.levels, nextMeta.qubits);
       let resources = recomputeCaps({ ...INITIAL_RESOURCES }, nextBuildings, capsMult, {}, nextTiles);
       let buffers = clampBaseBufferToCaps(nextGrid.buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
@@ -3564,7 +3574,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const levels = state.research.levels;
       const tradeMult = computeTradeMultiplier(levels);
       const capsMult = computeCapsMultiplier(levels, state.meta.qubits);
-      const combatMult = computeCombatMultiplier(levels, state.meta.qubits) * artifactBonuses.combatPower;
+      const combatMult = computeCombatMultiplier(levels, state.meta.qubits).mul(artifactBonuses.combatPower);
 
       // Update proximity multipliers for all buildings
       const buildingsWithProximity = updateAllProximityMultipliers(state.buildings, state.grid.tiles);
@@ -3822,11 +3832,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // OPTIMIZATION: Rebuild Logistics Cache if grid changed
       // This turns O(N^2) per tick into O(N^2) only on build/destroy, and O(N) per tick
-      if (logisticsCache.tilesRef !== state.grid.tiles) {
-          logisticsCache.tilesRef = state.grid.tiles;
+      // ВАЖНО: Zustand создаёт новые объекты при каждом set(), поэтому проверяем по содержимому
+      if (tilesChangedForLogistics(state.grid.tiles)) {
+          const tileKeys = Object.keys(state.grid.tiles);
+          logisticsCache.tilesCount = tileKeys.length;
+          logisticsCache.tilesKeys = tileKeys.sort().join(',');
           logisticsCache.routes = {};
-          
-          const startBuild = performance.now();
           
           // 1. Index all producers by resource
           const producersByRes: Record<string, Array<{key: string, x: number, y: number}>> = {};
@@ -3840,12 +3851,13 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
           
           // Add all building producers
-          for (const [key, id] of Object.entries(state.grid.tiles)) {
-              const b = buildingsMap.get(id); // buildingsMap is already prepared above
+          for (const key in state.grid.tiles) {
+              const id = state.grid.tiles[key];
+              const b = buildingsMap.get(id);
               if (b?.production) {
                   const pos = parseKey(key);
                   if (pos) {
-                      for (const res of Object.keys(b.production)) {
+                      for (const res in b.production) {
                           if (!producersByRes[res]) producersByRes[res] = [];
                           producersByRes[res].push({ key, x: pos.x, y: pos.y });
                       }
@@ -3854,13 +3866,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
           
           // 2. For each consumer, pre-calculate sorted list of sources
-          for (const [key, id] of Object.entries(state.grid.tiles)) {
+          for (const key in state.grid.tiles) {
+              const id = state.grid.tiles[key];
               const b = buildingsMap.get(id);
               if (b?.consumption) {
                   const pos = parseKey(key);
                   if (pos) {
                       logisticsCache.routes[key] = {};
-                      for (const res of Object.keys(b.consumption)) {
+                      for (const res in b.consumption) {
                            if (res === 'energy') continue; // Energy is handled via power grid
                            
                            const potentialSources = producersByRes[res] || [];
@@ -4507,12 +4520,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       newResources = syncResourcesFromBase(newResources, buffers);
 
       // ОПТИМИЗАЦИЯ: Calculate production rates только при изменении сетки
-      // Это экономит ~2000 итераций Object.entries каждый тик
+      // Используем count вместо ref для избежания ложных инвалидаций от Zustand
+      const currentTilesCount = Object.keys(state.grid.tiles).length;
+      const currentBuildingsCount = state.buildings.length;
+      
       const needsProductionRatesRecalc = 
-        productionRatesCache.tilesRef !== state.grid.tiles ||
+        productionRatesCache.tilesCount !== currentTilesCount ||
         productionRatesCache.tileLevelsRef !== state.grid.tileLevels ||
         productionRatesCache.tileEvolutionLevelsRef !== state.grid.tileEvolutionLevels ||
-        productionRatesCache.buildingsRef !== state.buildings ||
+        productionRatesCache.buildingsCount !== currentBuildingsCount ||
         !productionRatesCache.rates;
 
       let productionRates: Record<ResourceType, Decimal>;
@@ -4577,10 +4593,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         // Сохраняем в кэш
         productionRatesCache = {
-          tilesRef: state.grid.tiles,
+          tilesCount: currentTilesCount,
           tileLevelsRef: state.grid.tileLevels,
           tileEvolutionLevelsRef: state.grid.tileEvolutionLevels,
-          buildingsRef: state.buildings,
+          buildingsCount: currentBuildingsCount,
           rates: productionRates,
           lastCalculatedAt: now,
         };
@@ -8758,7 +8774,32 @@ export const useGameStore = create<GameState>((set, get) => ({
   upgradeBuildingAt: (coord) => {
     set((state) => {
       const tileKey = `${coord.x},${coord.y}`;
-      const buildingId = state.grid.tiles[tileKey];
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      console.log(`[upgradeBuildingAt] coord: ${tileKey}, activePlatformId: ${activePlatformId}`);
+      
+      // Get building from active platform or main grid
+      let buildingId: string | undefined;
+      let tileLevels: Record<string, number>;
+      let isOnPlatform = false;
+      let platformIndex = -1;
+      
+      if (activePlatformId) {
+        platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex !== -1) {
+          const platform = state.galaxies.platforms[platformIndex];
+          buildingId = platform.grid.tiles[tileKey];
+          tileLevels = (platform.grid as any).tileLevels || {};
+          isOnPlatform = true;
+          console.log(`[upgradeBuildingAt] On platform, buildingId: ${buildingId}, tileLevels:`, tileLevels);
+        } else {
+          buildingId = state.grid.tiles[tileKey];
+          tileLevels = state.grid.tileLevels || {};
+        }
+      } else {
+        buildingId = state.grid.tiles[tileKey];
+        tileLevels = state.grid.tileLevels || {};
+      }
       
       if (!buildingId) {
         console.warn('No building at this location');
@@ -8766,8 +8807,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       // Get current level from tileLevels
-      const tileLevels = state.grid.tileLevels || {};
       const currentLevel = tileLevels[tileKey] || 1;
+      
+      console.log(`[upgradeBuildingAt] currentLevel: ${currentLevel}`);
       
       if (currentLevel >= 500) {
         console.warn('Building is already at max level (500)');
@@ -8828,6 +8870,35 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Upgrade the building level
       const newTileLevels = { ...tileLevels, [tileKey]: currentLevel + 1 };
       
+      console.log(`[upgradeBuildingAt] Upgrading from ${currentLevel} to ${currentLevel + 1}, isOnPlatform: ${isOnPlatform}`);
+      
+      if (isOnPlatform && platformIndex !== -1) {
+        // Update platform grid
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...updatedPlatforms[platformIndex],
+          grid: {
+            ...updatedPlatforms[platformIndex].grid,
+            tileLevels: newTileLevels,
+          } as any,
+        };
+        
+        console.log(`[upgradeBuildingAt] Platform upgraded, new tileLevels:`, newTileLevels);
+        
+        return {
+          ...state,
+          resources: newResources,
+          currency: {
+            ...state.currency,
+            credits: newCredits,
+          },
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
       // ФАЗА 8.5: Обновляем grid и пересчитываем вместимость
       const updatedGrid = {
         ...state.grid,
@@ -8852,7 +8923,29 @@ export const useGameStore = create<GameState>((set, get) => ({
   downgradeBuildingAt: (coord) => {
     set((state) => {
       const tileKey = `${coord.x},${coord.y}`;
-      const buildingId = state.grid.tiles[tileKey];
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      // Get building from active platform or main grid
+      let buildingId: string | undefined;
+      let tileLevels: Record<string, number>;
+      let isOnPlatform = false;
+      let platformIndex = -1;
+      
+      if (activePlatformId) {
+        platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex !== -1) {
+          const platform = state.galaxies.platforms[platformIndex];
+          buildingId = platform.grid.tiles[tileKey];
+          tileLevels = (platform.grid as any).tileLevels || {};
+          isOnPlatform = true;
+        } else {
+          buildingId = state.grid.tiles[tileKey];
+          tileLevels = state.grid.tileLevels || {};
+        }
+      } else {
+        buildingId = state.grid.tiles[tileKey];
+        tileLevels = state.grid.tileLevels || {};
+      }
       
       if (!buildingId) {
         console.warn('No building at this location');
@@ -8860,7 +8953,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       // Get current level from tileLevels
-      const tileLevels = state.grid.tileLevels || {};
       const currentLevel = tileLevels[tileKey] || 1;
       
       if (currentLevel <= 1) {
@@ -8904,6 +8996,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Downgrade the building level
       const newTileLevels = { ...tileLevels, [tileKey]: currentLevel - 1 };
       
+      if (isOnPlatform && platformIndex !== -1) {
+        // Update platform grid
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...updatedPlatforms[platformIndex],
+          grid: {
+            ...updatedPlatforms[platformIndex].grid,
+            tileLevels: newTileLevels,
+          } as any,
+        };
+        
+        return {
+          ...state,
+          resources: newResources,
+          currency: {
+            ...state.currency,
+            credits: newCredits,
+          },
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
       // ФАЗА 8.5: Обновляем grid и пересчитываем вместимость
       const updatedGrid = {
         ...state.grid,
@@ -8936,17 +9053,38 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Максимальное улучшение здания
-  maxUpgradeBuildingAt: (coord) => {
+  maxUpgradeBuildingAt: (coord: import('../core/gameTypes').GridCoord) => {
     set((state) => {
       const tileKey = `${coord.x},${coord.y}`;
-      const buildingId = state.grid.tiles[tileKey];
+      const activePlatformId = state.galaxies.activePlatformId;
+      
+      // Get building from active platform or main grid
+      let buildingId: string | undefined;
+      let tileLevels: Record<string, number>;
+      let isOnPlatform = false;
+      let platformIndex = -1;
+      
+      if (activePlatformId) {
+        platformIndex = state.galaxies.platforms.findIndex(p => p.id === activePlatformId);
+        if (platformIndex !== -1) {
+          const platform = state.galaxies.platforms[platformIndex];
+          buildingId = platform.grid.tiles[tileKey];
+          tileLevels = (platform.grid as any).tileLevels || {};
+          isOnPlatform = true;
+        } else {
+          buildingId = state.grid.tiles[tileKey];
+          tileLevels = state.grid.tileLevels || {};
+        }
+      } else {
+        buildingId = state.grid.tiles[tileKey];
+        tileLevels = state.grid.tileLevels || {};
+      }
       
       if (!buildingId) {
         console.warn('No building at this location');
         return state;
       }
       
-      const tileLevels = state.grid.tileLevels || {};
       let currentLevel = tileLevels[tileKey] || 1;
       
       if (currentLevel >= 500) {
@@ -9024,6 +9162,33 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newLevel = currentLevel + upgradesPerformed;
       const newTileLevels = { ...tileLevels, [tileKey]: newLevel };
       
+      console.log(`Upgraded building from level ${currentLevel} to ${newLevel} (${upgradesPerformed} upgrades)`);
+      
+      if (isOnPlatform && platformIndex !== -1) {
+        // Update platform grid
+        const updatedPlatforms = [...state.galaxies.platforms];
+        updatedPlatforms[platformIndex] = {
+          ...updatedPlatforms[platformIndex],
+          grid: {
+            ...updatedPlatforms[platformIndex].grid,
+            tileLevels: newTileLevels,
+          } as any,
+        };
+        
+        return {
+          ...state,
+          resources: availableResources,
+          currency: {
+            ...state.currency,
+            credits: availableCredits,
+          },
+          galaxies: {
+            ...state.galaxies,
+            platforms: updatedPlatforms,
+          },
+        };
+      }
+      
       const updatedGrid = {
         ...state.grid,
         tileLevels: newTileLevels,
@@ -9031,8 +9196,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
       const updatedResources = recomputeCaps(availableResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
-      
-      console.log(`Upgraded building from level ${currentLevel} to ${newLevel} (${upgradesPerformed} upgrades)`);
       
       return {
         ...state,

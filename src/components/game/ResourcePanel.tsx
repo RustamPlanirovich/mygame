@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type Decimal from 'break_eternity.js';
 import { useGameStore } from '../../features/gameStore';
-import { formatNumber } from '../../core/math/format.ts';
+import { formatNumber, D } from '../../core/math/format.ts';
 import { Zap, Box, Snowflake, Atom, Layers, Sparkles, PackageOpen } from 'lucide-react';
 import type { ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
@@ -61,8 +61,9 @@ export function ResourcePanel() {
       <div className="flex items-center gap-2 overflow-x-auto flex-1">
         {pinned.map((key) => {
           const r = resources[key];
-          if (!r) return null; // Проверка на случай, если ресурс не найден
+          if (!r || !r.amount || !r.max) return null; // Проверка на случай, если ресурс не найден
           
+          const production = r.production ?? D(0);
           const full = r.max.gt(0) && r.amount.gte(r.max);
 
           const Icon = ICON_BY_RESOURCE[key];
@@ -72,7 +73,7 @@ export function ResourcePanel() {
             <div
               key={key}
               className={`shrink-0 flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-darker/50 border border-cyber-gray/30 ${tone}`}
-              title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${r.production.gt(0) ? '+' : ''}${formatNumber(r.production)}/с`}
+              title={`${RESOURCE_LABEL[key]}\n${formatNumber(r.amount)} / ${formatNumber(r.max)}\n${production.gt(0) ? '+' : ''}${formatNumber(production)}/с`}
             >
               <Icon size={14} />
               <span className={`font-mono text-xs font-bold ${full ? 'text-cyber-red' : 'text-cyber-text'}`}>

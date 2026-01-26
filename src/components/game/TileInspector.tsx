@@ -48,48 +48,93 @@ export function TileInspector() {
   
   // Подписываемся на конкретные поля grid для правильного реактивного обновления
   // Use platform grid if active, otherwise main grid
+  // ВАЖНО: Получаем activePlatform внутри selector для правильной реактивности
   const selected = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.selected;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.selected;
+    }
     return s.grid.selected;
   });
   const tiles = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.tiles;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.tiles;
+    }
     return s.grid.tiles;
   });
   const deposits = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.deposits;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.deposits;
+    }
     return s.grid.deposits;
   });
   const buffers = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.buffers;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.buffers;
+    }
     return s.grid.buffers;
   });
   const tileLevels = useGameStore((s) => {
-    if (activePlatform) return {};
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return (platform.grid as any).tileLevels || {};
+    }
     return s.grid.tileLevels;
   });
   const tileEvolutionLevels = useGameStore((s) => {
-    if (activePlatform) return {};
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return (platform.grid as any).tileEvolutionLevels || {};
+    }
     return s.grid.tileEvolutionLevels;
   });
   const tileDisabled = useGameStore((s) => {
-    if (activePlatform) return {};
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return (platform.grid as any).tileDisabled || {};
+    }
     return s.grid.tileDisabled;
   });
   const marketPolicy = useGameStore((s) => {
-    if (activePlatform) return {};
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return (platform.grid as any).marketPolicy || {};
+    }
     return s.grid.marketPolicy;
   });
   const selectedBuildId = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.selectedBuildId;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.selectedBuildId;
+    }
     return s.grid.selectedBuildId;
   });
   const gridWidth = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.width;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.width;
+    }
     return s.grid.width;
   });
   const gridHeight = useGameStore((s) => {
-    if (activePlatform) return activePlatform.grid.height;
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.height;
+    }
     return s.grid.height;
   });
   

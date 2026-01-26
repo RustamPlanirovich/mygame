@@ -463,8 +463,9 @@ export function FactoryGrid() {
             return;
           }
 
-          // Проверяем правила близости
-          const check = checkBuildingPlacement(x, y, building, s.buildings, currentGrid.tiles);
+          // Проверяем правила близости (на платформах пропускаем проверку энергопокрытия)
+          const isOnPlatform = !!s.galaxies.activePlatformId;
+          const check = checkBuildingPlacement(x, y, building, s.buildings, currentGrid.tiles, isOnPlatform);
           
           // Если нет предупреждений или качество хорошее - строим сразу
           if (check.warnings.length === 0 || 
@@ -1365,12 +1366,21 @@ export function FactoryGrid() {
     const building = state.buildings.find(b => b.id === pendingPlacement.buildingId);
     if (!building) return null;
 
+    // Use platform grid if on platform, otherwise main grid
+    const isOnPlatform = !!state.galaxies.activePlatformId;
+    const activePlatformData = state.galaxies.activePlatformId
+      ? state.galaxies.platforms.find(p => p.id === state.galaxies.activePlatformId)
+      : null;
+    const currentTiles = activePlatformData?.grid.tiles || state.grid.tiles;
+
+    // Skip power check on platforms
     const check = checkBuildingPlacement(
       pendingPlacement.x,
       pendingPlacement.y,
       building,
       state.buildings,
-      state.grid.tiles
+      currentTiles,
+      isOnPlatform
     );
 
     return {

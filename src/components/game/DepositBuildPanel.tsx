@@ -49,8 +49,6 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
     }
     return s.resources;
   });
-  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
-  const platforms = useGameStore((s) => s.galaxies.platforms);
   
   // Get selectedBuildId from either platform or main grid
   const selectedBuildId = useGameStore((s) => {
