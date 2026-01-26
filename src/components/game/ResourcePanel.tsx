@@ -24,7 +24,15 @@ function productionTone(p: Decimal) {
 }
 
 export function ResourcePanel() {
-  const resources = useGameStore(state => state.resources);
+  // Get resources from active platform or main base
+  const resources = useGameStore(state => {
+    const platformId = state.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = state.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.resources || state.resources;
+    }
+    return state.resources;
+  });
   const { pins, isPinned, togglePin } = usePinnedResources();
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -53,6 +61,8 @@ export function ResourcePanel() {
       <div className="flex items-center gap-2 overflow-x-auto flex-1">
         {pinned.map((key) => {
           const r = resources[key];
+          if (!r) return null; // Проверка на случай, если ресурс не найден
+          
           const full = r.max.gt(0) && r.amount.gte(r.max);
 
           const Icon = ICON_BY_RESOURCE[key];

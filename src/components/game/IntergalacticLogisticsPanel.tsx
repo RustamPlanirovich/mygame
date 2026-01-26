@@ -3,6 +3,7 @@ import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
 import type { ResourceType, GalaxyId } from '../../core/gameTypes';
 import { RESOURCE_EMOJI } from '../../core/constants/labels';
+import { D } from '../../utils/bigNumber';
 
 export const IntergalacticLogisticsPanel: React.FC = () => {
   const {
@@ -34,7 +35,6 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
     
     Object.entries(cargoResources).forEach(([res, amount]) => {
       if (amount && amount > 0) {
-        const D = (window as any).Decimal;
         cargo[res as ResourceType] = D(amount);
         hasAnyCargo = true;
       }

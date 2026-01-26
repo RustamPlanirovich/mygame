@@ -103,7 +103,15 @@ export function TileInspector() {
   }), [selected, tiles, deposits, buffers, tileLevels, tileEvolutionLevels, tileDisabled, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
   
   const buildings = useGameStore((s) => s.buildings);
-  const resources = useGameStore((s) => s.resources);
+  // Get resources from active platform or main base
+  const resources = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.resources || s.resources;
+    }
+    return s.resources;
+  });
   const combat = useGameStore((s) => s.combat);
   const researchLevels = useGameStore((s) => s.research.levels);
   const meta = useGameStore((s) => s.meta);

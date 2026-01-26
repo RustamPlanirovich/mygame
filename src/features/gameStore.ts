@@ -4789,6 +4789,21 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
         
+        // Initialize combat if not present or incomplete
+        if (!updatedPlatform.combat || !updatedPlatform.combat.shieldRegenPerSecond) {
+          updatedPlatform.combat = {
+            underAttack: updatedPlatform.combat?.underAttack || false,
+            waveEndsAt: updatedPlatform.combat?.waveEndsAt || 0,
+            nextWaveAt: updatedPlatform.combat?.nextWaveAt || (Date.now() + 120000),
+            enemies: updatedPlatform.combat?.enemies || [],
+            damagePerSecond: updatedPlatform.combat?.damagePerSecond || D(0),
+            shieldRegenPerSecond: D(5),
+            turretCount: updatedPlatform.combat?.turretCount || 0,
+            radarCount: updatedPlatform.combat?.radarCount || 0,
+            radarRange: updatedPlatform.combat?.radarRange || 1,
+          };
+        }
+        
         // Process buildings on platform grid and produce resources
         const miningBonus = 1 + (platform.upgrades?.mining || 0) * 0.5; // +50% per mining upgrade
         
@@ -4881,6 +4896,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               enemies: newEnemies,
               underAttack: true,
               nextWaveAt: now + 120000, // Next wave in 2 minutes
+              shieldRegenPerSecond: updatedPlatform.combat.shieldRegenPerSecond || D(5),
+              damagePerSecond: updatedPlatform.combat.damagePerSecond || D(0),
             },
           };
         }
@@ -4986,6 +5003,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               enemies: aliveEnemies,
               underAttack: aliveEnemies.length > 0,
               damagePerSecond: totalEnemyDamage.div(dt > 0 ? dt : 1),
+              shieldRegenPerSecond: updatedPlatform.combat.shieldRegenPerSecond || D(5),
             },
           };
           
@@ -5028,6 +5046,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Auto-transport resources from platforms to main station
       let nextGalaxies = { 
         ...state.galaxies,
+        platforms: [...state.galaxies.platforms], // Create a new array copy for proper updates
         fuelReserve: D(state.galaxies.fuelReserve),
         // Clear active platform if it was destroyed
         activePlatformId: destroyedPlatformIds.includes(state.galaxies.activePlatformId || '') 
@@ -5236,15 +5255,23 @@ export const useGameStore = create<GameState>((set, get) => ({
               // Add to platform resources
               const platformIndex = nextGalaxies.platforms.findIndex(p => p.id === caravan.toId);
               if (platformIndex >= 0) {
-                const platform = nextGalaxies.platforms[platformIndex];
+                const platform = { ...nextGalaxies.platforms[platformIndex] };
+                const updatedResources = { ...platform.resources };
+                
                 Object.entries(caravan.cargo).forEach(([resType, amount]) => {
                   if (amount) {
-                    const resource = platform.resources[resType as import('../core/gameTypes').ResourceType];
+                    const resource = updatedResources[resType as import('../core/gameTypes').ResourceType];
                     if (resource) {
-                      resource.amount = resource.amount.add(amount);
+                      updatedResources[resType as import('../core/gameTypes').ResourceType] = {
+                        ...resource,
+                        amount: resource.amount.add(amount),
+                      };
                     }
                   }
                 });
+                
+                platform.resources = updatedResources;
+                nextGalaxies.platforms[platformIndex] = platform;
               }
             }
             
@@ -7121,7 +7148,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         resources: Object.fromEntries(
           Object.entries(INITIAL_RESOURCES).map(([key, res]) => [
             key,
-            { amount: D(0), max: res.max }
+            { amount: D(0), max: res.max, production: D(0) }
           ])
         ) as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
         maxHp: D(1000),

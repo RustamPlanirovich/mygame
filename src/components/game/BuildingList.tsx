@@ -64,10 +64,26 @@ export function BuildingList() {
   const highlightedBuildingId = useGameStore((s) => s.grid.highlightedBuildingId);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const setHighlightedBuilding = useGameStore((s) => s.setHighlightedBuilding);
-  const resources = useGameStore((s) => s.resources);
+  // Get resources from active platform or main base
+  const resources = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.resources || s.resources;
+    }
+    return s.resources;
+  });
   const currency = useGameStore((s) => s.currency);
   const research = useGameStore((s) => s.research);
-  const gridTiles = useGameStore((s) => s.grid.tiles);
+  // Get grid tiles from active platform or main base
+  const gridTiles = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.grid.tiles || s.grid.tiles;
+    }
+    return s.grid.tiles;
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyAffordable, setShowOnlyAffordable] = useState(false);

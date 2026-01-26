@@ -40,7 +40,15 @@ const getDepositLabel = (deposit: DepositType) => {
 
 export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
   const buildings = useGameStore((s) => s.buildings);
-  const resources = useGameStore((s) => s.resources);
+  // Get resources from active platform or main base
+  const resources = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      return platform?.resources || s.resources;
+    }
+    return s.resources;
+  });
   const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
   const platforms = useGameStore((s) => s.galaxies.platforms);
   
