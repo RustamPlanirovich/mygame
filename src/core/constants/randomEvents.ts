@@ -41,7 +41,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 10,
     minInterval: 15 * 60 * 1000, // 15 минут
     title: '🏴‍☠️ Пиратский рейд',
-    descriptionTemplate: 'Пираты атакуют платформу {platformName}! {shipsLost} кораблей потеряно в бою.',
+    descriptionTemplate: 'Пираты атаковали вашу базу! Потеряно: {resourcesLost}.',
     icon: '🏴‍☠️',
     soundEffect: 'alarm',
   },
@@ -51,7 +51,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 8,
     minInterval: 30 * 60 * 1000, // 30 минут
     title: '🌌 Космическая аномалия',
-    descriptionTemplate: 'Обнаружена пространственная аномалия! {effect}',
+    descriptionTemplate: 'Обнаружена пространственная аномалия!',
     icon: '🌌',
     soundEffect: 'anomaly',
   },
@@ -61,7 +61,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 5, // Редкое
     minInterval: 25 * 60 * 1000, // 25 минут
     title: '💥 Цепная реакция',
-    descriptionTemplate: 'Перегрузка реактора вызвала цепную реакцию! {damageCount} зданий повреждено.',
+    descriptionTemplate: 'Перегрузка реактора вызвала цепную реакцию! Потеряно {energyLoss} энергии.',
     icon: '💥',
     soundEffect: 'explosion',
   },
@@ -71,7 +71,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 5, // Редкое
     minInterval: 40 * 60 * 1000, // 40 минут
     title: '✨ Синергетическое открытие',
-    descriptionTemplate: 'Ваши системы обнаружили синергию между технологиями! Открыта случайная технология: {techName}.',
+    descriptionTemplate: 'Ваши системы обнаружили синергию между технологиями! Открыта случайная технология.',
     icon: '✨',
     soundEffect: 'discovery',
   },
@@ -81,7 +81,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 12,
     minInterval: 15 * 60 * 1000, // 15 минут
     title: '⚡ Скачок энергии',
-    descriptionTemplate: 'Солнечная активность повысилась! Производство энергии увеличено на {multiplier}% на {duration} секунд.',
+    descriptionTemplate: 'Солнечная активность повысилась! Получено: {resources}.',
     icon: '⚡',
     soundEffect: 'power_up',
   },
@@ -91,7 +91,7 @@ export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
     weight: 8,
     minInterval: 20 * 60 * 1000, // 20 минут
     title: '🔌 Перегрузка сети',
-    descriptionTemplate: 'Перегрузка энергосети! Потеряно {energyLoss} энергии. Производство остановлено на {duration} секунд.',
+    descriptionTemplate: 'Перегрузка энергосети! Потеряно {energyLoss} энергии.',
     icon: '🔌',
     soundEffect: 'power_down',
   },

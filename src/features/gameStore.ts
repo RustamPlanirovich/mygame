@@ -5516,7 +5516,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         } else {
           // No enemies, regenerate shields
-          const newShieldHp = updatedPlatform.shieldHp.add(updatedPlatform.combat.shieldRegenPerSecond.mul(dt)).min(updatedPlatform.shieldMaxHp);
+          const regenRate = D(updatedPlatform.combat.shieldRegenPerSecond || 5);
+          const newShieldHp = D(updatedPlatform.shieldHp).add(regenRate.mul(dt)).min(D(updatedPlatform.shieldMaxHp));
           
           updatedPlatform = {
             ...updatedPlatform,
@@ -5850,20 +5851,58 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Проверяем, пора ли генерировать новое событие
       if (nextRandomEvents.eventsEnabled && now >= nextRandomEvents.nextEventAt) {
-        const newEvent = generateRandomEvent();
+        // Создаем временное состояние для проверки условий
+        const tempState: GameState = {
+          ...state,
+          resources: newResources,
+          grid: { ...state.grid, buffers },
+          currency: nextCurrency,
+          galaxies: nextGalaxies,
+        };
+        
+        const newEvent = generateRandomEvent(tempState);
         
         // Вычисляем следующее время события
         const baseInterval = BASE_EVENT_INTERVAL_MIN + Math.random() * (BASE_EVENT_INTERVAL_MAX - BASE_EVENT_INTERVAL_MIN);
         const adjustedInterval = baseInterval / nextRandomEvents.eventFrequencyMultiplier;
         
-        nextRandomEvents = {
-          ...nextRandomEvents,
-          activeEvents: [...nextRandomEvents.activeEvents, newEvent],
-          nextEventAt: now + adjustedInterval,
-        };
-        
-        // Уведомление о событии будет создано через addNotification вне set()
-        // Или сохраним событие для создания уведомления после return
+        if (newEvent) {
+          // Автоматически применяем эффекты события при его генерации
+          const stateWithEffects = applyEventEffects(tempState, newEvent);
+          
+          // Копируем обновленные ресурсы и валюту
+          newResources = { ...stateWithEffects.resources };
+          buffers = stateWithEffects.grid.buffers;
+          nextCurrency = { ...stateWithEffects.currency };
+          
+          nextRandomEvents = {
+            ...nextRandomEvents,
+            eventHistory: [
+              {
+                type: newEvent.type,
+                timestamp: Date.now(),
+                title: newEvent.title,
+              },
+              ...nextRandomEvents.eventHistory,
+            ].slice(0, 20),
+            nextEventAt: now + adjustedInterval,
+          };
+          
+          // Добавляем уведомление о событии
+          newNotifications.push({
+            type: newEvent.type === 'pirate_raid' || newEvent.type === 'power_outage' || 
+                  newEvent.type === 'solar_flare' || newEvent.type === 'chain_reaction' 
+                  ? 'warning' : 'info',
+            title: newEvent.title,
+            message: newEvent.description,
+          });
+        } else {
+          // Событие пропущено (не подходит условие), просто обновляем время
+          nextRandomEvents = {
+            ...nextRandomEvents,
+            nextEventAt: now + adjustedInterval,
+          };
+        }
       }
       
       // Обрабатываем активные события с временными эффектами
@@ -10890,16 +10929,49 @@ function applyEventEffects(state: GameState, event: RandomEvent): GameState {
 // Счетчик для уникальности ID событий
 let eventIdCounter = 0;
 
+// Проверка условий для события
+function canGenerateEvent(eventType: import('../core/gameTypes').RandomEventType, state: GameState): boolean {
+  switch (eventType) {
+    case 'pirate_raid':
+      // Пиратский рейд только если есть платформы
+      return state.galaxies.platforms.length > 0;
+    case 'synergy_discovery':
+      // Синергетическое открытие только если есть неисследованные технологии
+      const unlockedCount = Object.values(state.research.technologies).filter(Boolean).length;
+      const totalTechs = Object.keys(TECHNOLOGIES).length;
+      return unlockedCount < totalTechs;
+    case 'power_outage':
+      // Перегрузка сети только если есть энергия
+      const currentEnergy = getBuf(state.grid.buffers, 'base', 'energy');
+      return currentEnergy.gt(0);
+    case 'solar_flare':
+      // Солнечная вспышка только если есть электроника
+      const hasSemiconductors = getBuf(state.grid.buffers, 'base', 'semiconductors').gt(0);
+      const hasComputers = getBuf(state.grid.buffers, 'base', 'computer').gt(0);
+      const hasDisplays = getBuf(state.grid.buffers, 'base', 'display').gt(0);
+      return hasSemiconductors || hasComputers || hasDisplays;
+    default:
+      return true;
+  }
+}
+
 // Генератор случайных событий
-function generateRandomEvent(): RandomEvent {
+function generateRandomEvent(state: GameState): RandomEvent | null {
   const now = Date.now();
   
-  // Выбираем тип события на основе весов
-  const totalWeight = Object.values(EVENT_CONFIGS).reduce((sum, cfg) => sum + cfg.weight, 0);
-  let random = Math.random() * totalWeight;
-  let selectedConfig = EVENT_CONFIGS.meteor_shower;
+  // Фильтруем события по условиям
+  const availableEvents = Object.values(EVENT_CONFIGS).filter(cfg => canGenerateEvent(cfg.type, state));
   
-  for (const config of Object.values(EVENT_CONFIGS)) {
+  if (availableEvents.length === 0) {
+    return null;
+  }
+  
+  // Выбираем тип события на основе весов
+  const totalWeight = availableEvents.reduce((sum, cfg) => sum + cfg.weight, 0);
+  let random = Math.random() * totalWeight;
+  let selectedConfig = availableEvents[0];
+  
+  for (const config of availableEvents) {
     random -= config.weight;
     if (random <= 0) {
       selectedConfig = config;
@@ -10910,11 +10982,11 @@ function generateRandomEvent(): RandomEvent {
   // Используем счетчик для гарантии уникальности
   const eventId = `event_${now}_${(eventIdCounter++).toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
   
-  // Генерируем эффекты на основе типа события
-  const effects = generateEventEffects(selectedConfig.type);
+  // Генерируем эффекты на основе типа события и текущего состояния
+  const effects = generateEventEffects(selectedConfig.type, state);
   
   // Генерируем описание
-  const description = formatEventDescription(selectedConfig, effects);
+  const description = formatEventDescription(selectedConfig, effects, state);
   
   return {
     id: eventId,
@@ -10929,7 +11001,7 @@ function generateRandomEvent(): RandomEvent {
 }
 
 // Генерация эффектов для события
-function generateEventEffects(eventType: import('../core/gameTypes').RandomEventType): RandomEvent['effects'] {
+function generateEventEffects(eventType: import('../core/gameTypes').RandomEventType, state: GameState): RandomEvent['effects'] {
   const config = EVENT_EFFECTS[eventType] as any;
   
   switch (eventType) {
@@ -10940,10 +11012,6 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
         resourceGain: {
           ore: oreGain,
           carbon: carbonGain,
-        },
-        buildingDamage: {
-          damagePercent: config.damagePercent,
-          affectedBuildings: [],
         },
       };
     }
@@ -10956,8 +11024,21 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
     }
     
     case 'pirate_raid': {
-      // Эффекты будут обработаны отдельно в tick()
-      return {};
+      // Пиратский рейд наносит урон ресурсам на случайной платформе
+      if (state.galaxies.platforms.length === 0) {
+        return {};
+      }
+      const randomPlatform = state.galaxies.platforms[Math.floor(Math.random() * state.galaxies.platforms.length)];
+      // Пираты крадут 5-15% руды и меди
+      const lossPercent = (Math.random() * 10 + 5) / 100;
+      const oreCurrent = getBuf(state.grid.buffers, 'base', 'ore');
+      const copperCurrent = getBuf(state.grid.buffers, 'base', 'copper');
+      return {
+        resourceLoss: {
+          ore: oreCurrent.mul(lossPercent).floor(),
+          copper: copperCurrent.mul(lossPercent).floor(),
+        },
+      };
     }
     
     case 'cosmic_anomaly': {
@@ -11007,11 +11088,11 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
     }
     
     case 'chain_reaction': {
+      // Цепная реакция наносит урон производству энергии (теряется 10-20%)
+      const energyCurrent = getBuf(state.grid.buffers, 'base', 'energy');
+      const lossPercent = (Math.random() * 10 + 10) / 100;
       return {
-        buildingDamage: {
-          damagePercent: config.damagePercent,
-          affectedBuildings: [],
-        },
+        energyLoss: energyCurrent.mul(lossPercent).floor(),
       };
     }
     
@@ -11022,21 +11103,19 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
     }
     
     case 'power_surge': {
+      // Скачок энергии — добавляем бонус энергии вместо множителя
+      const energyBonus = D(Math.floor(Math.random() * 500 + 200)); // 200-700 энергии
       return {
-        productionMultiplier: {
-          duration: config.duration,
-          multiplier: config.productionMultiplier,
+        resourceGain: {
+          energy: energyBonus,
         },
       };
     }
     
     case 'power_outage': {
-      const energyLoss = D(Math.floor(Math.random() * (config.energyLoss.max - config.energyLoss.min + 1) + config.energyLoss.min));
+      const energyCurrent = getBuf(state.grid.buffers, 'base', 'energy');
+      const energyLoss = energyCurrent.mul(0.3).floor().max(D(100)); // Теряем 30% или минимум 100
       return {
-        productionMultiplier: {
-          duration: config.duration,
-          multiplier: config.productionMultiplier,
-        },
         energyLoss,
       };
     }
@@ -11058,13 +11137,25 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
     }
     
     case 'solar_flare': {
-      const lossPercent = Math.random() * (config.resourceLossPercent.max - config.resourceLossPercent.min) + config.resourceLossPercent.min;
-      // Потери будут рассчитаны в applyEventEffects на основе текущих запасов
-      return {
-        resourceLoss: {
-          semiconductors: D(lossPercent), // Будет использоваться как процент
-        },
-      };
+      // Солнечная вспышка — теряем электронику (процент от текущих запасов)
+      const lossPercent = (Math.random() * 10 + 5) / 100; // 5-15%
+      const resourceLoss: Partial<Record<ResourceType, Decimal>> = {};
+      
+      const semiconductorsCurrent = getBuf(state.grid.buffers, 'base', 'semiconductors');
+      const computerCurrent = getBuf(state.grid.buffers, 'base', 'computer');
+      const displayCurrent = getBuf(state.grid.buffers, 'base', 'display');
+      
+      if (semiconductorsCurrent.gt(0)) {
+        resourceLoss.semiconductors = semiconductorsCurrent.mul(lossPercent).floor();
+      }
+      if (computerCurrent.gt(0)) {
+        resourceLoss.computer = computerCurrent.mul(lossPercent).floor();
+      }
+      if (displayCurrent.gt(0)) {
+        resourceLoss.display = displayCurrent.mul(lossPercent).floor();
+      }
+      
+      return { resourceLoss };
     }
     
     default:
@@ -11072,18 +11163,45 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
   }
 }
 
+// Названия ресурсов на русском
+const RESOURCE_NAMES_RU: Record<string, string> = {
+  ore: 'руды',
+  copper: 'меди',
+  steel: 'стали',
+  carbon: 'углерода',
+  titanium: 'титана',
+  uranium: 'урана',
+  energy: 'энергии',
+  semiconductors: 'полупроводников',
+  computer: 'компьютеров',
+  display: 'дисплеев',
+  silicon: 'кремния',
+  glass: 'стекла',
+  plastic: 'пластика',
+  fuel: 'топлива',
+  alloy: 'сплава',
+};
+
 // Форматирование описания события
-function formatEventDescription(config: import('../core/constants/randomEvents').EventConfig, effects: RandomEvent['effects']): string {
+function formatEventDescription(config: import('../core/constants/randomEvents').EventConfig, effects: RandomEvent['effects'], state: GameState): string {
   let description = config.descriptionTemplate;
   
   // Заменяем плейсхолдеры на реальные значения
   if (effects?.resourceGain) {
     const resources = Object.entries(effects.resourceGain)
-      .map(([type, amount]) => `${amount?.toFixed(0)} ${type}`)
+      .map(([type, amount]) => `${amount?.toFixed(0)} ${RESOURCE_NAMES_RU[type] || type}`)
       .join(', ');
     description = description.replace('{resources}', resources);
     description = description.replace('{oreGain}', (effects.resourceGain as any).ore?.toFixed(0) || '0');
     description = description.replace('{carbonGain}', (effects.resourceGain as any).carbon?.toFixed(0) || '0');
+  }
+  
+  if (effects?.resourceLoss) {
+    const resources = Object.entries(effects.resourceLoss)
+      .filter(([_, amount]) => amount && amount.gt(0))
+      .map(([type, amount]) => `${amount?.toFixed(0)} ${RESOURCE_NAMES_RU[type] || type}`)
+      .join(', ');
+    description = description.replace('{resourcesLost}', resources || 'ресурсов');
   }
   
   if (effects?.researchPointsGain) {
