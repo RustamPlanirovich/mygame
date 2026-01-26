@@ -47,27 +47,38 @@ export function getLogisticsHubs(buildings: Building[]): Array<{ building: Build
     }));
 }
 
+export type SimpleLogisticsHub = { x: number; y: number; radius: number };
+
 /**
  * Проверяет, находится ли здание в зоне покрытия логистической сети
  * @param coord Координаты здания
- * @param buildings Список всех зданий
+ * @param buildingsOrHubs Список всех зданий или оптимизированный список хабов
  * @returns true если здание в зоне покрытия хотя бы одного логистического узла
  */
 export function isInLogisticsNetwork(
   coord: GridCoord,
-  buildings: Building[]
+  buildingsOrHubs: Building[] | SimpleLogisticsHub[]
 ): boolean {
-  const hubs = getLogisticsHubs(buildings);
+  let hubs: SimpleLogisticsHub[];
 
-  for (const { building, radius } of hubs) {
-    if (!building.coord) continue;
-    
+  // Duck typing check for optimized hubs
+  if (buildingsOrHubs.length > 0 && 'radius' in buildingsOrHubs[0] && 'x' in buildingsOrHubs[0] && !('id' in buildingsOrHubs[0])) {
+      hubs = buildingsOrHubs as SimpleLogisticsHub[];
+  } else {
+      const buildings = buildingsOrHubs as Building[];
+      hubs = getLogisticsHubs(buildings).map(h => {
+        if (!h.building.coord) return { x: 0, y: 0, radius: 0 }; // Should not happen due to filter
+        return { x: h.building.coord.x, y: h.building.coord.y, radius: h.radius };
+      });
+  }
+
+  for (const hub of hubs) {
     if (isInLogisticsZone(
-      building.coord.x,
-      building.coord.y,
+      hub.x,
+      hub.y,
       coord.x,
       coord.y,
-      radius
+      hub.radius
     )) {
       return true;
     }
@@ -89,16 +100,16 @@ export function calculateDistance(from: GridCoord, to: GridCoord): number {
  * 
  * @param buildingCoord Координаты здания
  * @param baseCoord Координаты базы
- * @param buildings Список всех зданий
+ * @param buildingsOrHubs Список всех зданий или оптимизированный список хабов
  * @returns Множитель эффективности (1.0 = 100%, 0.85 = 85%, и т.д.)
  */
 export function calculateLogisticsEfficiency(
   buildingCoord: GridCoord,
   baseCoord: GridCoord,
-  buildings: Building[]
+  buildingsOrHubs: Building[] | SimpleLogisticsHub[]
 ): number {
   // Если здание в зоне логистического узла, штрафов нет
-  if (isInLogisticsNetwork(buildingCoord, buildings)) {
+  if (isInLogisticsNetwork(buildingCoord, buildingsOrHubs)) {
     return 1.0;
   }
 

@@ -5,6 +5,7 @@ import type { GameSettings } from '../../core/gameTypes.settings';
 import { useGameStore } from '../../features/gameStore';
 import { SignalStats } from './SignalOverlay';
 import { loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
+import { useConfirmDialog, useAlertDialog } from './ConfirmDialog';
 
 export const SettingsPanel: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
@@ -13,6 +14,9 @@ export const SettingsPanel: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<string>('');
   const saveGame = useGameStore(state => state.saveGame);
   const loadGame = useGameStore(state => state.loadGame);
+  
+  const { confirm: showConfirm, DialogComponent: ConfirmDialogComponent } = useConfirmDialog();
+  const { showAlert, showSuccess, AlertComponent } = useAlertDialog();
 
   // Загружаем настройки при монтировании компонента
   useEffect(() => {
@@ -69,7 +73,14 @@ export const SettingsPanel: React.FC = () => {
   };
 
   const handleReset = async () => {
-    if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
+    const confirmed = await showConfirm({
+      title: 'Сброс настроек',
+      message: 'Сбросить все настройки к значениям по умолчанию?',
+      type: 'warning',
+      confirmText: 'Сбросить',
+      cancelText: 'Отмена',
+    });
+    if (!confirmed) return;
     
     setSettings(DEFAULT_SETTINGS);
     
@@ -96,7 +107,7 @@ export const SettingsPanel: React.FC = () => {
   const handleExportSave = () => {
     const save = localStorage.getItem('gameState');
     if (!save) {
-      alert('Нет сохранения для экспорта');
+      showAlert('Нет сохранения для экспорта', 'Экспорт');
       return;
     }
     
@@ -123,9 +134,9 @@ export const SettingsPanel: React.FC = () => {
           const data = event.target?.result as string;
           localStorage.setItem('gameState', data);
           loadGame();
-          alert('Сохранение загружено успешно!');
+          showSuccess('Сохранение загружено успешно!', 'Импорт');
         } catch (err) {
-          alert('Ошибка загрузки сохранения');
+          showAlert('Ошибка загрузки сохранения', 'Ошибка');
         }
       };
       reader.readAsText(file);
@@ -133,10 +144,17 @@ export const SettingsPanel: React.FC = () => {
     input.click();
   };
 
-  const handleDeleteSave = () => {
-    if (confirm('Удалить все сохранения? Это действие нельзя отменить!')) {
+  const handleDeleteSave = async () => {
+    const confirmed = await showConfirm({
+      title: 'Удаление сохранений',
+      message: 'Удалить все сохранения? Это действие нельзя отменить!',
+      type: 'alert',
+      confirmText: 'Удалить',
+      cancelText: 'Отмена',
+    });
+    if (confirmed) {
       localStorage.removeItem('gameState');
-      alert('Сохранения удалены. Перезагрузите страницу для начала новой игры.');
+      showAlert('Сохранения удалены. Перезагрузите страницу для начала новой игры.', 'Удаление');
     }
   };
 
@@ -149,7 +167,10 @@ export const SettingsPanel: React.FC = () => {
   ];
 
   return (
-    <div className="h-full flex flex-col bg-cyber-darker">
+    <>
+      <ConfirmDialogComponent />
+      <AlertComponent />
+      <div className="h-full flex flex-col bg-cyber-darker">
       <div className="shrink-0 p-4 border-b border-cyber-gray bg-cyber-dark">
         <h2 className="text-lg font-bold text-cyber-green flex items-center gap-2">
           <SettingsIcon size={20} />
@@ -537,5 +558,6 @@ export const SettingsPanel: React.FC = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };

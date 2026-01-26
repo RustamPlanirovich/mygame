@@ -9,6 +9,7 @@ import { FactoryGrid } from './components/game/FactoryGrid';
 import { SidePanelTabs } from './components/game/SidePanelTabs';
 import { ClickerZone } from './components/game/ClickerZone';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
+import { NotificationToast } from './components/game/NotificationToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
 import { Dashboard } from './components/game/Dashboard';
 import { Minimap } from './components/game/Minimap';
@@ -302,6 +303,9 @@ function App() {
       
       {/* Event notification toasts */}
       <EventNotificationToast />
+      
+      {/* General notification toasts */}
+      <NotificationToast />
       
       {/* Signal Interception Overlay */}
       <SignalOverlay />

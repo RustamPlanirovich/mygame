@@ -124,6 +124,45 @@ const SPAWN_INTERVAL_SECONDS = 1.8;
 const BASE_MAX_HP = D(100);
 const ENEMY_IMPACT_DAMAGE = D(12);
 
+// ОПТИМИЗАЦИЯ: Кэшированные Decimal константы (избегаем создания новых объектов каждый тик)
+const D_ZERO = D(0);
+const D_ONE = D(1);
+const D_TWO = D(2);
+const D_FIVE = D(5);
+const D_TEN = D(10);
+const D_TWELVE = D(12);
+const D_TWENTY = D(20);
+
+// LOGISTICS CACHE: Persists between ticks to avoid O(N^2) calculations
+// Stores pre-calculated sorted lists of sources for each consumer
+let logisticsCache: {
+  tilesRef: any; // Reference to state.grid.tiles to detect changes
+  // Map<ConsumerKey, Record<ResourceType, SourceTileKey[]>>
+  // For each consumer tile, stores a list of source tile keys (including 'base') for each resource type
+  routes: Record<string, Partial<Record<ResourceType, string[]>>>;
+} = {
+  tilesRef: null,
+  routes: {}
+};
+
+// PRODUCTION RATES CACHE: Пересчитываем только при изменении сетки/зданий
+// Это экономит O(N*M) операций каждый тик где N=tiles, M=resources
+let productionRatesCache: {
+  tilesRef: any;
+  tileLevelsRef: any;
+  tileEvolutionLevelsRef: any;
+  buildingsRef: any;
+  rates: Record<ResourceType, Decimal> | null;
+  lastCalculatedAt: number;
+} = {
+  tilesRef: null,
+  tileLevelsRef: null,
+  tileEvolutionLevelsRef: null,
+  buildingsRef: null,
+  rates: null,
+  lastCalculatedAt: 0,
+};
+
 const ENEMY_TRAITS: Record<Enemy['type'], { dps: Decimal; contactRange: number; shieldPierce: number }> = {
   // Быстрый, но не слишком опасный.
   scout: { dps: D(0.9), contactRange: 0.20, shieldPierce: 0 },
@@ -1485,7 +1524,7 @@ const recomputeCaps = (
   buildings: Building[], 
   capsMultiplier: Decimal = D(1),
   tileLevels: Record<string, number> = {},
-  tiles: Record<string, string> = {}
+  tilesOrMap: Record<string, string> | Map<string, string[]> = {}
 ) => {
   const next = { ...resources };
 
@@ -1548,18 +1587,32 @@ const recomputeCaps = (
 
     const effectiveMultipliers = expandWarehouseProductionMultipliers(b.id, b.productionMultipliers, BASE_RESOURCE_MAX);
     
-    // Находим ВСЕ здания этого типа на карте и суммируем их уровни
-    for (const [tileKey, buildingId] of Object.entries(tiles)) {
-      if (buildingId === b.id) {
+    // Helper to add caps for a tile
+    const addCap = (tileKey: string) => {
         const level = tileLevels[tileKey] || 1;
-        
         // Добавляем вместимость: базовая_вместимость × уровень_здания
         for (const [resType, amount] of Object.entries(effectiveMultipliers)) {
           const rType = resType as ResourceType;
           if (!caps[rType]) continue;
           caps[rType] = caps[rType].add(D(amount).mul(level));
         }
-      }
+    };
+
+    if (tilesOrMap instanceof Map) {
+        // FAST PATH: Use pre-computed map
+        const keys = tilesOrMap.get(b.id);
+        if (keys) {
+            for (const tileKey of keys) {
+                addCap(tileKey);
+            }
+        }
+    } else {
+        // SLOW PATH: Legacy iteration
+        for (const [tileKey, buildingId] of Object.entries(tilesOrMap)) {
+          if (buildingId === b.id) {
+             addCap(tileKey);
+          }
+        }
     }
   }
 
@@ -3441,32 +3494,146 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Update proximity multipliers for all buildings
       const buildingsWithProximity = updateAllProximityMultipliers(state.buildings, state.grid.tiles);
 
-      // caps first - передаем tileLevels и tiles для правильного расчета вместимости
+      // OPTIMIZATION: Prepare data structures once (Move BEFORE caps and energy calc)
+      const buildingsMap = new Map(buildingsWithProximity.map(b => [b.id, b]));
+      
+      const tilesByBuildingId = new Map<string, string[]>();
+      const activePowerSources: Array<{x: number, y: number, r: number}> = [];
+      const activeLogisticsHubs: Array<{x: number, y: number, radius: number}> = [];
+      
+      const tiles = state.grid.tiles;
+      const tileDisabled = state.grid.tileDisabled || {};
+
+      // Unified Loop over tiles: O(Tiles) ~ 2500 iter (fast)
+      // Avoids Object.entries() allocation
+      for (const key in tiles) {
+         const id = tiles[key];
+         
+         // 1. Build tilesByBuildingId
+         let list = tilesByBuildingId.get(id);
+         if (!list) {
+             list = [];
+             tilesByBuildingId.set(id, list);
+         }
+         list.push(key); // Just push key, simpler/faster than object
+
+         // 2. Build active lists (Power/Logistics)
+         const buildingDef = buildingsMap.get(id);
+         if (buildingDef) {
+             // Check if it's a special building that needs coordinate parsing
+             const hasPower = buildingDef.powerGridRadius && buildingDef.powerGridRadius > 0;
+             const hasLogistics = buildingDef.logisticsRadius && buildingDef.logisticsRadius > 0;
+
+             if (hasPower || hasLogistics) {
+                 const isDisabled = tileDisabled[key] || false;
+                 if (!isDisabled) {
+                     const pos = parseKey(key);
+                     if (pos) {
+                         if (hasPower) {
+                            activePowerSources.push({x: pos.x, y: pos.y, r: buildingDef.powerGridRadius!});
+                         }
+                         if (hasLogistics) {
+                            activeLogisticsHubs.push({x: pos.x, y: pos.y, radius: buildingDef.logisticsRadius!});
+                         }
+                     }
+                 }
+             }
+         }
+      }
+
+      // Preparation for recomputeCaps (pass map)
       let newResources = recomputeCaps(
         { ...state.resources }, 
         buildingsWithProximity, 
-        capsMult.mul(artifactBonuses.energyCapacity),  // Apply artifact energy capacity bonus
+        capsMult.mul(artifactBonuses.energyCapacity),
         state.grid.tileLevels || {},
-        state.grid.tiles
+        tilesByBuildingId // OPTIMIZATION: Pass the map instead of raw tiles
       );
+
+      // Helper for fast power check with Spatial Map optimization
+      // To avoid O(N*M) lookups, we fill a spatial bitmask initially.
+      // Assuming grid is roughly 250x250 max. Using Set<number> for encoded coordinates.
+      // Encoded key: y << 16 | x (Safe for coordinates up to 65535)
+      const powerGridMap = new Set<number>();
+      
+      // Fill the power grid map O(Sources * Radius^2)
+      // This is generally faster than N*M checks when M and N are large
+      // Only do this if we have sources
+      if (activePowerSources.length > 0) {
+          const width = state.grid.width;
+          const height = state.grid.height;
+          
+          for (const src of activePowerSources) {
+             const r = src.r;
+             // Only scan bounding box for this source
+             const minX = Math.max(0, src.x - r);
+             const maxX = Math.min(width - 1, src.x + r);
+             const minY = Math.max(0, src.y - r);
+             const maxY = Math.min(height - 1, src.y + r);
+             
+             for (let y = minY; y <= maxY; y++) {
+                 for (let x = minX; x <= maxX; x++) {
+                     const key = (y << 16) | x;
+                     if (!powerGridMap.has(key)) {
+                         // Manhattan distance check
+                         if (Math.abs(x - src.x) + Math.abs(y - src.y) <= r) {
+                             powerGridMap.add(key);
+                         }
+                     }
+                 }
+             }
+          }
+      }
+
+      // Fast check using the pre-computed map O(1)
+      const isPoweredFast = (x: number, y: number) => {
+        return powerGridMap.has((y << 16) | x);
+      };
 
       const baseKey = 'base';
 
-      // Buffers
+      // Buffers (Optimized Mutable Access)
       let buffers = { ...state.grid.buffers };
+      const touchedBufferKeys = new Set<string>();
+
+      // ОПТИМИЗАЦИЯ: Кэш для parsed Decimals - избегаем повторного парсинга одного значения
+      const decimalCache = new Map<string, Decimal>();
+      
+      // Shadow global helpers for performance (avoid object cloning)
+      const getBuf = (bufs: Record<string, Partial<Record<ResourceType, string>>>, key: string, res: ResourceType) => {
+         const raw = bufs[key]?.[res];
+         if (raw == null) return D_ZERO;
+         // ОПТИМИЗАЦИЯ: Кэшируем parsed Decimal
+         let cached = decimalCache.get(raw);
+         if (!cached) {
+           cached = D(raw);
+           decimalCache.set(raw, cached);
+         }
+         return cached;
+      };
+
+      const setBuf = (bufs: Record<string, Partial<Record<ResourceType, string>>>, key: string, res: ResourceType, val: Decimal) => {
+         // bufs is assumed to be our local 'buffers' variable
+         if (!touchedBufferKeys.has(key)) {
+             bufs[key] = { ...(bufs[key] || {}) };
+             touchedBufferKeys.add(key);
+         }
+         bufs[key][res] = val.max(D_ZERO).toString();
+         return bufs; // maintain signature for chainability
+      };
 
       // Track real energy flow for UI (per-tick amounts)
       // This includes ALL drains/sources that touch base energy.
-      let energyProducedTick = D(0);
-      let energyConsumedTick = D(0);
+      let energyProducedTick = D_ZERO;
+      let energyConsumedTick = D_ZERO;
 
       // Optional diagnostics: break down energy drains by subsystem.
-      let energyDrainDemonsTick = D(0);
-      let energyDrainMarketImportTick = D(0);
-      let energyDrainBuildingsLegacyTick = D(0);
-      let energyDrainBuildingsConsumptionTick = D(0);
-      let energyDrainCombatShieldTick = D(0);
-      let energyDrainCombatTurretsTick = D(0);
+      let energyDrainDemonsTick = D_ZERO;
+      let energyDrainMarketImportTick = D_ZERO;
+      let energyDrainBuildingsLegacyTick = D_ZERO;
+      let energyDrainBuildingsConsumptionTick = D_ZERO;
+      let energyDrainCombatShieldTick = D_ZERO;
+      let energyDrainCombatTurretsTick = D_ZERO;
 
       const energyLegacyByBuilding: Record<string, Decimal> = {};
       const energyConsumptionByBuilding: Record<string, Decimal> = {};
@@ -3578,6 +3745,68 @@ export const useGameStore = create<GameState>((set, get) => ({
         radioactive_waste: getBuf(buffers, baseKey, 'radioactive_waste'),
       };
 
+      // OPTIMIZATION: Rebuild Logistics Cache if grid changed
+      // This turns O(N^2) per tick into O(N^2) only on build/destroy, and O(N) per tick
+      if (logisticsCache.tilesRef !== state.grid.tiles) {
+          logisticsCache.tilesRef = state.grid.tiles;
+          logisticsCache.routes = {};
+          
+          const startBuild = performance.now();
+          
+          // 1. Index all producers by resource
+          const producersByRes: Record<string, Array<{key: string, x: number, y: number}>> = {};
+          const basePos = getBasePos(state.grid);
+          
+          // Always add base as potential source for all resources
+          // (Actual availability checked at runtime)
+          for (const res of Object.keys(state.resources)) {
+              if (!producersByRes[res]) producersByRes[res] = [];
+              producersByRes[res].push({ key: baseKey, x: basePos.x, y: basePos.y });
+          }
+          
+          // Add all building producers
+          for (const [key, id] of Object.entries(state.grid.tiles)) {
+              const b = buildingsMap.get(id); // buildingsMap is already prepared above
+              if (b?.production) {
+                  const pos = parseKey(key);
+                  if (pos) {
+                      for (const res of Object.keys(b.production)) {
+                          if (!producersByRes[res]) producersByRes[res] = [];
+                          producersByRes[res].push({ key, x: pos.x, y: pos.y });
+                      }
+                  }
+              }
+          }
+          
+          // 2. For each consumer, pre-calculate sorted list of sources
+          for (const [key, id] of Object.entries(state.grid.tiles)) {
+              const b = buildingsMap.get(id);
+              if (b?.consumption) {
+                  const pos = parseKey(key);
+                  if (pos) {
+                      logisticsCache.routes[key] = {};
+                      for (const res of Object.keys(b.consumption)) {
+                           if (res === 'energy') continue; // Energy is handled via power grid
+                           
+                           const potentialSources = producersByRes[res] || [];
+                           
+                           // Calculate distances and sort
+                           const sorted = potentialSources
+                               .filter(s => s.key !== key) // Don't consume from self
+                               .map(s => ({
+                                   key: s.key,
+                                   dist: Math.abs(s.x - pos.x) + Math.abs(s.y - pos.y)
+                               }))
+                               .sort((a, b) => a.dist - b.dist)
+                               .map(s => s.key); // Keep only keys
+                           
+                           logisticsCache.routes[key][res as ResourceType] = sorted;
+                      }
+                  }
+              }
+          }
+      }
+
       // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Находим ближайшие источники для каждого потребителя
       // Структура для хранения активных транспортов (для визуализации)
       const activeTransports: Array<{
@@ -3587,67 +3816,29 @@ export const useGameStore = create<GameState>((set, get) => ({
         amount: Decimal;
       }> = [];
 
-      // Функция поиска ВСЕХ источников ресурса (отсортированных по расстоянию)
-      const findAllSources = (
-        targetX: number,
-        targetY: number,
-        resource: ResourceType,
-        exclude?: string
-      ): Array<{ x: number; y: number; key: string; dist: number }> => {
-        const sources: Array<{ x: number; y: number; key: string; dist: number }> = [];
-
-        // Проверяем базу
-        const baseAvailable = getBuf(buffers, baseKey, resource);
-        if (baseAvailable.gt(0)) {
-          const basePos = getBasePos(state.grid);
-          const baseDist = Math.abs(basePos.x - targetX) + Math.abs(basePos.y - targetY);
-          sources.push({ x: basePos.x, y: basePos.y, key: baseKey, dist: baseDist });
-        }
-
-        // Проверяем все здания-производители
-        for (const [k, buildingId] of Object.entries(state.grid.tiles)) {
-          if (k === exclude) continue;
-          
-          const building = state.buildings.find((b) => b.id === buildingId);
-          if (!building?.production?.[resource]) continue;
-
-          const pos = parseKey(k);
-          if (!pos) continue;
-
-          const available = getBuf(buffers, k, resource);
-          if (available.lte(0)) continue;
-
-          const dist = Math.abs(pos.x - targetX) + Math.abs(pos.y - targetY);
-          sources.push({ ...pos, key: k, dist });
-        }
-
-        // Сортируем по расстоянию (ближайшие первые)
-        return sources.sort((a, b) => a.dist - b.dist);
-      };
-
-      // Calculate energy balance BEFORE production
-      let totalEnergyProduction = D(0);
-      let totalEnergyConsumption = D(0);
+      // ОПТИМИЗАЦИЯ: Calculate energy balance using pre-built tilesByBuildingId map
+      // Это избавляет от O(Buildings * Tiles) в пользу O(Buildings + Tiles)
+      let totalEnergyProduction = D_ZERO;
+      let totalEnergyConsumption = D_ZERO;
       
-      buildingsWithProximity.forEach((b) => {
-        if (b.count <= 0) return;
+      // tileDisabled уже объявлен выше
+      
+      for (const b of buildingsWithProximity) {
+        if (b.count <= 0) continue;
         
-        const placedKeys = Object.entries(state.grid.tiles)
-          .filter(([_, id]) => id === b.id)
-          .map(([key]) => key);
-        
-        if (placedKeys.length === 0) return;
+        // ОПТИМИЗАЦИЯ: Используем pre-built map вместо filter каждый раз
+        const placedKeys = tilesByBuildingId.get(b.id);
+        if (!placedKeys || placedKeys.length === 0) continue;
         
         // Считаем только активные (не отключенные) здания
         let activePlacedCount = 0;
         for (const key of placedKeys) {
-          const isDisabled = state.grid.tileDisabled?.[key] || false;
-          if (!isDisabled) {
+          if (!tileDisabled[key]) {
             activePlacedCount++;
           }
         }
         
-        if (activePlacedCount === 0) return;
+        if (activePlacedCount === 0) continue;
         
         // Energy production
         if (b.production?.energy) {
@@ -3663,29 +3854,25 @@ export const useGameStore = create<GameState>((set, get) => ({
         if (b.consumption?.energy) {
           totalEnergyConsumption = totalEnergyConsumption.add(D(b.consumption.energy).mul(activePlacedCount));
         }
-      });
+      }
       
       // Combat energy consumption
       if (waveActiveEconomy) {
-        buildingsWithProximity.forEach((b) => {
-          if (b.count <= 0) return;
+        for (const b of buildingsWithProximity) {
+          if (b.count <= 0) continue;
           
-          const placedKeys = Object.entries(state.grid.tiles)
-            .filter(([_, id]) => id === b.id)
-            .map(([key]) => key);
-          
-          if (placedKeys.length === 0) return;
+          const placedKeys = tilesByBuildingId.get(b.id);
+          if (!placedKeys || placedKeys.length === 0) continue;
           
           // Считаем только активные (не отключенные) здания
           let activePlacedCount = 0;
           for (const key of placedKeys) {
-            const isDisabled = state.grid.tileDisabled?.[key] || false;
-            if (!isDisabled) {
+            if (!tileDisabled[key]) {
               activePlacedCount++;
             }
           }
           
-          if (activePlacedCount === 0) return;
+          if (activePlacedCount === 0) continue;
           
           if (b.combat?.energyPerSecond) {
             totalEnergyConsumption = totalEnergyConsumption.add(D(b.combat.energyPerSecond).mul(activePlacedCount));
@@ -3693,7 +3880,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (b.defense?.energyPerSecond) {
             totalEnergyConsumption = totalEnergyConsumption.add(D(b.defense.energyPerSecond).mul(activePlacedCount));
           }
-        });
+        }
       }
       
       // Apply Energy Optimization from repeatable research (reduces consumption)
@@ -3737,33 +3924,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         energyEfficiency = 1.0;
       }
 
+
+
       // Produce/consume into local tile buffers
-      buildingsWithProximity.forEach((b) => {
-        if (b.count <= 0) return;
+      // ОПТИМИЗАЦИЯ: for...of вместо forEach (быстрее в V8)
+      // Получаем позицию базы ОДИН раз за тик
+      const basePosition = getBasePos(state.grid);
+      
+      for (const b of buildingsWithProximity) {
+        if (b.count <= 0) continue;
 
         // Find all placed instances of this building
-        const placedKeys: string[] = [];
-        for (const [k, v] of Object.entries(state.grid.tiles)) {
-          if (v === b.id) placedKeys.push(k);
-        }
-        if (placedKeys.length === 0) return;
-
-        // Создаем список всех зданий с координатами для проверки покрытия (нужен для энергосети и логистики)
-        const allBuildingsWithCoords: Building[] = buildingsWithProximity
-          .map(building => {
-            const coordKeys = Object.entries(state.grid.tiles)
-              .filter(([_, id]) => id === building.id)
-              .map(([key]) => {
-                const pos = parseKey(key);
-                return pos ? { ...building, coord: pos } : null;
-              })
-              .filter(b => b !== null) as Building[];
-            return coordKeys;
-          })
-          .flat();
-
-        // Получаем позицию базы для логистических расчетов
-        const basePosition = getBasePos(state.grid);
+        const placedKeys = tilesByBuildingId.get(b.id);
+        if (!placedKeys || placedKeys.length === 0) continue;
 
         for (const tileKey of placedKeys) {
           if (!buffers[tileKey]) buffers[tileKey] = {};
@@ -3775,7 +3948,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Здания без энергопокрытия не работают (кроме источников энергии)
           const isPowerSource = b.powerGridRadius && b.powerGridRadius > 0;
           if (!isPowerSource) {
-            const isPowered = isBuildingPowered({ x: tilePos.x, y: tilePos.y }, allBuildingsWithCoords);
+            const isPowered = isPoweredFast(tilePos.x, tilePos.y);
             
             // Если здание не в зоне покрытия - пропускаем его (не производит и не потребляет)
             if (!isPowered) {
@@ -3785,18 +3958,22 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           // Фаза 11: Проверка disabled state
           // Отключенные здания не работают (не производят и не потребляют)
-          const isDisabled = state.grid.tileDisabled?.[tileKey] || false;
-          if (isDisabled) {
+          // ОПТИМИЗАЦИЯ: используем уже извлечённый tileDisabled
+          if (tileDisabled[tileKey]) {
             continue;
           }
 
           // Если здание производственное, но его выходы уже заблокированы (переполнение),
           // то оно не должно тратить энергию/ресурсы «вхолостую».
-          const hasProductionOutputs = !!b.production && Object.keys(b.production).length > 0;
+          // ОПТИМИЗАЦИЯ: проверяем наличие production без Object.keys
+          const hasProductionOutputs = !!b.production;
           if (hasProductionOutputs) {
             let canProduceAny = false;
-            for (const [outResType, outPerSecond] of Object.entries(b.production)) {
+            for (const outResType in b.production) {
               const outType = outResType as ResourceType;
+              const outPerSecond = b.production[outType];
+              if (!outPerSecond) continue;
+              
               const perSec = D(outPerSecond);
               if (perSec.lte(0)) continue;
 
@@ -3914,35 +4091,51 @@ export const useGameStore = create<GameState>((set, get) => ({
               let shortfall = targetBuffer.sub(currentAvailable).max(D(0));
               
               if (shortfall.gt(0)) {
-                // Ищем ВСЕ источники, отсортированные по расстоянию
-                const sources = findAllSources(tilePos.x, tilePos.y, rType, tileKey);
+                // Ищем источники используя кэшированные маршруты (O(1) access + O(K) iter)
+                const sourceKeys = logisticsCache.routes[tileKey]?.[rType];
                 
-                // Собираем ресурсы от каждого источника пока не наберём нужное количество
-                for (const source of sources) {
-                  if (shortfall.lte(0)) break;
-                  
-                  const sourceAvailable = getBuf(buffers, source.key, rType);
-                  const toTransfer = sourceAvailable.min(shortfall);
-                  
-                  if (toTransfer.gt(0)) {
-                    buffers = setBuf(buffers, source.key, rType, sourceAvailable.sub(toTransfer));
-                    currentAvailable = getBuf(buffers, tileKey, rType);
-                    buffers = setBuf(buffers, tileKey, rType, currentAvailable.add(toTransfer));
-                    shortfall = shortfall.sub(toTransfer);
-                    
-                    activeTransports.push({
-                      from: { x: source.x, y: source.y },
-                      to: { x: tilePos.x, y: tilePos.y },
-                      resource: rType,
-                      amount: toTransfer,
-                    });
-                  }
+                if (sourceKeys) {
+                    for (const sourceKey of sourceKeys) {
+                      if (shortfall.lte(0)) break;
+                      
+                      const sourceAvailable = getBuf(buffers, sourceKey, rType);
+                      // Skip empty sources (fast check)
+                      if (sourceAvailable.lte(0)) continue; 
+                      
+                      const toTransfer = sourceAvailable.min(shortfall);
+                      
+                      if (toTransfer.gt(0)) {
+                        // Mutates buffers directly via optimized setBuf shadow
+                        const prevSource = getBuf(buffers, sourceKey, rType);
+                        buffers = setBuf(buffers, sourceKey, rType, prevSource.sub(toTransfer));
+                        const prevTarget = getBuf(buffers, tileKey, rType);
+                        buffers = setBuf(buffers, tileKey, rType, prevTarget.add(toTransfer));
+                        
+                        shortfall = shortfall.sub(toTransfer);
+                        
+                        // Visualization (only needed if UI is open really, but cheap enough)
+                        // Decoding positions from keys is slightly expensive, maybe optimize?
+                        // For now keep it to maintain feature parity.
+                        // Can optimize by checking if we really need to push to activeTransports
+                        if (activeTransports.length < 50) { // Limit visualization count optimization
+                            const sourcePos = sourceKey === baseKey ? getBasePos(state.grid) : parseKey(sourceKey);
+                            if (sourcePos) {
+                                activeTransports.push({
+                                  from: { x: sourcePos.x, y: sourcePos.y },
+                                  to: { x: tilePos.x, y: tilePos.y },
+                                  resource: rType,
+                                  amount: toTransfer,
+                                });
+                            }
+                        }
+                      }
+                    }
                 }
               }
             }
-            }
           }
-
+          } // Close if (b.consumption)
+           
           // Determine how much we can run given inputs.
           let ratio = D(1);
           
@@ -4106,7 +4299,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 const logisticsEfficiency = calculateLogisticsEfficiency(
                   tilePos,
                   basePosition,
-                  allBuildingsWithCoords
+                  activeLogisticsHubs
                 );
                 if (logisticsEfficiency < 1.0) {
                   produced = produced.mul(logisticsEfficiency);
@@ -4191,19 +4384,23 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
         }
-      });
+      }
 
       // Автоматическая отправка ВСЕХ произведённых ресурсов на базу
       // Отправляем излишки, оставляя 10 секунд для локальной доставки соседним зданиям
-      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
+      // ОПТИМИЗАЦИЯ: Используем for...in и buildingsMap вместо find()
+      for (const tileKey in tiles) {
         if (tileKey === 'base') continue;
         
-        const building = state.buildings.find((b) => b.id === buildingId);
+        const buildingId = tiles[tileKey];
+        const building = buildingsMap.get(buildingId);
         if (!building?.production) continue;
         
         // Проходим по всем производимым ресурсам здания
-        for (const [rType, prodRate] of Object.entries(building.production)) {
+        for (const rType in building.production) {
           const resourceType = rType as ResourceType;
+          const prodRate = building.production[resourceType];
+          if (!prodRate) continue;
           
           // Энергия уже добавляется напрямую в базу, пропускаем её здесь
           if (resourceType === 'energy') continue;
@@ -4234,60 +4431,95 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Sync global resources from base buffer (and clamp by caps)
       newResources = syncResourcesFromBase(newResources, buffers);
 
-      // Calculate production rates per second for UI display
-      // Считаем напрямую из зданий на карте
-      const productionRates: Record<ResourceType, Decimal> = {
-        energy: D(0), ore: D(0), ice: D(0), carbon: D(0), steel: D(0), dark_matter: D(0),
-        natural_gas: D(0), oil: D(0), gasoline: D(0), plastic: D(0), glass: D(0), chemicals: D(0), sand: D(0),
-        uranium: D(0), chrome: D(0), titanium: D(0), copper: D(0), semiconductors: D(0), dynamite: D(0), fiber: D(0),
-        integrated_circuit: D(0), battery: D(0), engine: D(0), display: D(0), computer: D(0), liquid_fuel: D(0),
-        chrome_alloy: D(0), titanium_alloy: D(0), enriched_uranium: D(0),
-        weapon: D(0), artillery: D(0), radar: D(0), nuclear_bomb: D(0),
-        jet_engine: D(0), satellite: D(0), rocket: D(0), spaceship: D(0), console: D(0), space_station: D(0),
-        robot: D(0), waste: D(0), radioactive_waste: D(0),
-      };
+      // ОПТИМИЗАЦИЯ: Calculate production rates только при изменении сетки
+      // Это экономит ~2000 итераций Object.entries каждый тик
+      const needsProductionRatesRecalc = 
+        productionRatesCache.tilesRef !== state.grid.tiles ||
+        productionRatesCache.tileLevelsRef !== state.grid.tileLevels ||
+        productionRatesCache.tileEvolutionLevelsRef !== state.grid.tileEvolutionLevels ||
+        productionRatesCache.buildingsRef !== state.buildings ||
+        !productionRatesCache.rates;
+
+      let productionRates: Record<ResourceType, Decimal>;
       
-      // Суммируем производство со всех зданий на карте
-      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
-        const building = state.buildings.find(b => b.id === buildingId);
-        if (!building?.production) continue;
+      if (needsProductionRatesRecalc) {
+        // Полный пересчёт (только при изменении структуры)
+        productionRates = {
+          energy: D_ZERO, ore: D_ZERO, ice: D_ZERO, carbon: D_ZERO, steel: D_ZERO, dark_matter: D_ZERO,
+          natural_gas: D_ZERO, oil: D_ZERO, gasoline: D_ZERO, plastic: D_ZERO, glass: D_ZERO, chemicals: D_ZERO, sand: D_ZERO,
+          uranium: D_ZERO, chrome: D_ZERO, titanium: D_ZERO, copper: D_ZERO, semiconductors: D_ZERO, dynamite: D_ZERO, fiber: D_ZERO,
+          integrated_circuit: D_ZERO, battery: D_ZERO, engine: D_ZERO, display: D_ZERO, computer: D_ZERO, liquid_fuel: D_ZERO,
+          chrome_alloy: D_ZERO, titanium_alloy: D_ZERO, enriched_uranium: D_ZERO,
+          weapon: D_ZERO, artillery: D_ZERO, radar: D_ZERO, nuclear_bomb: D_ZERO,
+          jet_engine: D_ZERO, satellite: D_ZERO, rocket: D_ZERO, spaceship: D_ZERO, console: D_ZERO, space_station: D_ZERO,
+          robot: D_ZERO, waste: D_ZERO, radioactive_waste: D_ZERO,
+        };
         
-        const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-        const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
-        const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
-        
-        for (const [resType, baseRate] of Object.entries(building.production)) {
-          const rType = resType as ResourceType;
-          let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult);
+        // ОПТИМИЗАЦИЯ: Используем buildingsMap вместо find() каждый раз
+        // Суммируем производство со всех зданий на карте
+        for (const tileKey in state.grid.tiles) {
+          const buildingId = state.grid.tiles[tileKey];
+          const building = buildingsMap.get(buildingId);
+          if (!building?.production) continue;
           
-          // Применяем все те же множители что и в основном цикле
-          if (building.proximityMultiplier && building.proximityMultiplier !== 1) {
-            rate = rate.mul(building.proximityMultiplier);
+          const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+          const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
+          const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
+          
+          for (const resType in building.production) {
+            const rType = resType as ResourceType;
+            const baseRate = building.production[rType];
+            if (!baseRate) continue;
+            
+            let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult);
+            
+            // Применяем proximity множитель
+            if (building.proximityMultiplier && building.proximityMultiplier !== 1) {
+              rate = rate.mul(building.proximityMultiplier);
+            }
+            
+            productionRates[rType] = productionRates[rType].add(rate);
           }
+        }
+        
+        // Вычитаем потребление
+        for (const tileKey in state.grid.tiles) {
+          const buildingId = state.grid.tiles[tileKey];
+          const building = buildingsMap.get(buildingId);
+          if (!building?.consumption) continue;
           
-          productionRates[rType] = productionRates[rType].add(rate);
+          const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+          
+          for (const resType in building.consumption) {
+            const rType = resType as ResourceType;
+            const baseRate = building.consumption[rType];
+            if (!baseRate) continue;
+            
+            const rate = D(baseRate).mul(buildingLevel);
+            productionRates[rType] = productionRates[rType].sub(rate);
+          }
         }
-      }
-      
-      // Вычитаем потребление
-      for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
-        const building = state.buildings.find(b => b.id === buildingId);
-        if (!building?.consumption) continue;
         
-        const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-        
-        for (const [resType, baseRate] of Object.entries(building.consumption)) {
-          const rType = resType as ResourceType;
-          const rate = D(baseRate).mul(buildingLevel);
-          productionRates[rType] = productionRates[rType].sub(rate);
-        }
+        // Сохраняем в кэш
+        productionRatesCache = {
+          tilesRef: state.grid.tiles,
+          tileLevelsRef: state.grid.tileLevels,
+          tileEvolutionLevelsRef: state.grid.tileEvolutionLevels,
+          buildingsRef: state.buildings,
+          rates: productionRates,
+          lastCalculatedAt: now,
+        };
+      } else {
+        // Используем кэшированные значения
+        productionRates = productionRatesCache.rates!;
       }
       
       // Обновляем поле production в ресурсах
-      for (const resourceType of Object.keys(newResources) as ResourceType[]) {
-        newResources[resourceType] = {
-          ...newResources[resourceType],
-          production: productionRates[resourceType] || D(0),
+      for (const resourceType in newResources) {
+        const rType = resourceType as ResourceType;
+        newResources[rType] = {
+          ...newResources[rType],
+          production: productionRates[rType] || D(0),
         };
       }
 

@@ -19,6 +19,15 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const achievementsData = useGameStore(state => state.achievements);
   const artifacts = useGameStore(state => state.artifacts);
 
+  type StatItem = {
+    label: string;
+    value: number | string;
+    icon: string;
+    color: string;
+    show?: boolean;
+    title?: string;
+  };
+
   // Подсчет статистики
   const totalBuildings = buildings.reduce((sum, b) => sum + b.count, 0);
   const totalTileCount = Object.keys(grid.tiles).length;
@@ -30,6 +39,16 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const totalPlatforms = galaxies.platforms?.length || 0;
   
   const activeEnemies = combat.enemies.length;
+  const waveActive = combat.waveEndsAt > Date.now();
+  const pressure = combat.enemyPressurePerSecond;
+
+  const threatStatus = combat.baseHp.lte(0)
+    ? 'ОФФЛАЙН'
+    : activeEnemies > 0
+      ? 'АТАКА'
+      : waveActive
+        ? 'ВОЛНА'
+        : 'ТИШИНА';
   
   const unlockedAchievements = Object.keys(achievementsData.unlocked).length;
   const totalAchievements = ACHIEVEMENTS.length;
@@ -38,7 +57,7 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const totalGalaxies = Object.keys(GALAXIES).length;
 
   // Основные метрики - компактно
-  const mainStats = [
+  const mainStats: StatItem[] = [
     {
       label: 'Зданий',
       value: totalBuildings,
@@ -66,7 +85,27 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   ];
 
   // Дополнительные метрики - показываются только при наличии
-  const secondaryStats = [
+  const secondaryStats: StatItem[] = [
+    {
+      label: 'Угроза',
+      value: threatStatus,
+      icon: '⚔️',
+      color: threatStatus === 'АТАКА'
+        ? 'text-red-400'
+        : threatStatus === 'ВОЛНА'
+          ? 'text-yellow-400'
+          : threatStatus === 'ОФФЛАЙН'
+            ? 'text-cyber-gray-light'
+            : 'text-cyber-text',
+      title: threatStatus === 'АТАКА'
+        ? 'Идёт атака: есть активные враги. Они создают давление и/или наносят урон по базе/щиту.'
+        : threatStatus === 'ВОЛНА'
+          ? 'Волна активна, но враги сейчас не видны (обычно уже уничтожены). Следующая атака может начаться до конца таймера волны.'
+          : threatStatus === 'ОФФЛАЙН'
+            ? 'База уничтожена/оффлайн — оборона не работает.'
+            : 'Тишина: волна не активна и врагов нет.',
+      show: true,
+    },
     {
       label: 'Платформ',
       value: totalPlatforms,
@@ -75,10 +114,20 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
       show: totalPlatforms > 0,
     },
     {
+      label: 'Давление',
+      value: `${formatNumber(pressure)}/с`,
+      icon: '📡',
+      color: 'text-red-300',
+      title: 'Суммарный DPS врагов по базе/щиту с учётом дистанции. Чем ближе враги, тем выше давление.',
+      show: activeEnemies > 0,
+    },
+    {
       label: 'Активных врагов',
-      value: activeEnemies,
+      // строка, чтобы не форматировать как 5.00
+      value: `${activeEnemies}`,
       icon: '👾',
       color: 'text-red-400',
+      title: 'Активные враги в текущей волне. Влияют на бой: расход энергии обороны/щита и урон по базе; на клетках карты не размещаются (на карте это лишь индикаторы).',
       show: activeEnemies > 0,
     },
     {
@@ -129,7 +178,7 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
             <div
               key={`secondary-${index}`}
               className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/30 border border-cyber-gray/20 hover:border-cyber-green/30 transition-all"
-              title={stat.label}
+              title={stat.title ?? stat.label}
             >
               <span className="text-base opacity-80">{stat.icon}</span>
               <div className="flex flex-col">

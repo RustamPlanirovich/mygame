@@ -10,6 +10,7 @@ import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
 import { getPowerSources, isInRadius, isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getLogisticsHubs, isInLogisticsZone, calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
+import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 
 // Hexagonal grid constants (flat-top hexagons)
 const HEX_SIZE = 28; // Radius of hexagon
@@ -260,6 +261,67 @@ export function FactoryGrid() {
     for (const b of buildings) map[b.id] = b;
     return map;
   }, [buildings]);
+
+  // MEMOIZATION: Only recalculate when tiles change, not on every tick (buffers update)
+  const { allBuildingsWithCoords, activeLogisticsHubs, powerSources, poweredTiles } = useMemo(() => {
+    const buildingsWithCoords: Building[] = [];
+    const logisticsHubs: Array<{x: number, y: number, radius: number}> = [];
+    
+    // Optimization: avoid Object.entries allocation
+    for (const key in grid.tiles) {
+      const buildingId = grid.tiles[key];
+      
+      // Fast numeric parse (assuming format "x,y")
+      const commaIdx = key.indexOf(',');
+      if (commaIdx === -1) continue;
+      
+      // Manual substring or just fast split. 
+      // Substring is faster than split+map(Number)
+      const x = +key.substring(0, commaIdx);
+      const y = +key.substring(commaIdx + 1);
+      
+      const building = buildingsById[buildingId];
+      if (building) {
+          const bWC = {
+            ...building,
+            coord: { x, y }
+          };
+          buildingsWithCoords.push(bWC);
+
+          if (bWC.logisticsRadius && bWC.logisticsRadius > 0) {
+              logisticsHubs.push({ x, y, radius: bWC.logisticsRadius });
+          }
+      }
+    }
+
+    // Pre-calculate powered tiles map (O(1) lookup in render loop)
+    const sources = getPowerSources(buildingsWithCoords);
+    const poweredSet = new Set<string>();
+    
+    for (const { building, radius } of sources) {
+       if (!building.coord) continue;
+       const { x: cx, y: cy } = building.coord;
+       
+       // Add all tiles in radius to set
+       for (let dy = -radius; dy <= radius; dy++) {
+         const ay = Math.abs(dy);
+         const y = cy + dy;
+         for (let dx = -radius; dx <= radius; dx++) {
+            const ax = Math.abs(dx);
+            if (ax + ay <= radius) {
+                poweredSet.add(`${cx + dx},${y}`);
+            }
+         }
+       }
+    }
+
+    return { 
+        allBuildingsWithCoords: buildingsWithCoords, 
+        activeLogisticsHubs: logisticsHubs,
+        powerSources: sources,
+        poweredTiles: poweredSet
+    };
+  }, [grid.tiles, buildingsById]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -664,6 +726,41 @@ export function FactoryGrid() {
         window.removeEventListener('keyup', onKeyUpLocal);
         ro.disconnect();
       };
+
+      // Подписка на событие перехода к базе
+      const unsubscribeGoToBase = gameEvents.on(GAME_EVENTS.GO_TO_BASE, () => {
+        const cam = camRef.current;
+        const r = app.renderer;
+        const vw = r.width;
+        const vh = r.height;
+        const currentGrid = useGameStore.getState().grid;
+        
+        // Вычисляем позицию базы в пиксельных координатах
+        const basePos = getBasePos(currentGrid);
+        const basePixel = gridToPixel(basePos.x, basePos.y);
+        
+        // Центрируем камеру на базе
+        const baseCenterX = basePixel.px + CELL / 2;
+        const baseCenterY = basePixel.py + CELL / 2;
+        
+        // Устанавливаем удобный zoom
+        cam.zoom = clamp(1.2, ZOOM_MIN, ZOOM_MAX);
+        
+        // Позиционируем камеру так чтобы база была в центре экрана
+        cam.x = vw / 2 - baseCenterX * cam.zoom;
+        cam.y = vh / 2 - baseCenterY * cam.zoom;
+        cam.interacted = true;
+        
+        updateCameraClampRef.current?.();
+        saveCameraThrottled(cam.x, cam.y, cam.zoom);
+      });
+
+      // Добавляем отписку в cleanup
+      const originalCleanup = cleanupRef.current;
+      cleanupRef.current = () => {
+        originalCleanup?.();
+        unsubscribeGoToBase();
+      };
     })();
 
     return () => {
@@ -800,115 +897,166 @@ export function FactoryGrid() {
 
     // Cells - рисуем только видимые
     const basePos = getBasePos(grid);
+
+    // OPTIMIZATION: Prepare styles outside loop to avoid repeated object access 
+    const isSquare = GRID_MODE === 'square';
+    const isHex = GRID_MODE === 'hex';
+    const cellHalf = CELL / 2;
+    // Оптимизация смещения текста для изометрии (константа)
+    const textOffsetY = GRID_MODE === 'isometric' ? -8 : 0;
+    
+    // Low zoom optimization flags
+    const isZoomVeryLow = cam.zoom < 0.5;
+    const buildingAlphaBoost = isZoomVeryLow ? 0.5 : 0.35;
+    const lowZoomStrokeAlpha = 0.9;
+    
+    // Кэшируем цвета чтобы не обращаться к THEME_COLORS в цикле
+    const COLOR_BASE_FILL = THEME_COLORS.cyberGreen;
+    const COLOR_HIGHLIGHT_FILL = THEME_COLORS.cyberYellow;
+    const COLOR_BUILDING_FILL = THEME_COLORS.cyberBlue;
+    const COLOR_DEFAULT_FILL = THEME_COLORS.cyberDark;
+    
+    const COLOR_BASE_STROKE = THEME_COLORS.cyberGray;
+    const COLOR_HIGHLIGHT_STROKE = THEME_COLORS.cyberYellow;
+    const COLOR_BUILDING_STROKE = THEME_COLORS.cyberBlue;
+    const COLOR_DEFAULT_STROKE = THEME_COLORS.cyberGray;
+
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const k = `${x},${y}`;
-        const hasBuilding = Boolean(grid.tiles[k]);
+        // Access directly for speed (avoid Boolean wrap if possible in hot loop)
+        const buildingId = grid.tiles[k];
+        const hasBuilding = !!buildingId;
         const { px, py } = gridToPixel(x, y);
 
         const isBase = x === basePos.x && y === basePos.y;
-        const isHighlighted = hasBuilding && grid.highlightedBuildingId && grid.tiles[k] === grid.highlightedBuildingId;
         
-        // При малом зуме делаем здания более яркими и контрастными
-        const buildingAlphaBoost = cam.zoom < 0.5 ? 0.5 : 0.35;
-        const fill = isBase
-          ? THEME_COLORS.cyberGreen
-          : isHighlighted
-            ? THEME_COLORS.cyberYellow
-            : hasBuilding
-              ? THEME_COLORS.cyberBlue
-              : THEME_COLORS.cyberDark;
-        const alpha = isBase ? 0.3 : isHighlighted ? 0.6 : hasBuilding ? buildingAlphaBoost : 0.4;
+        let fill = COLOR_DEFAULT_FILL;
+        let alpha = 0.4;
+        let strokeColor = COLOR_DEFAULT_STROKE;
+        let strokeAlpha = 0.6;
+        let strokeWidth = 1;
 
-        // Draw tile based on mode
-        if (GRID_MODE === 'square') {
+        if (isBase) {
+             fill = COLOR_BASE_FILL;
+             alpha = 0.3;
+        } else if (hasBuilding) {
+             const isHighlighted = grid.highlightedBuildingId && buildingId === grid.highlightedBuildingId;
+             if (isHighlighted) {
+                 fill = COLOR_HIGHLIGHT_FILL;
+                 alpha = 0.6;
+                 strokeColor = COLOR_HIGHLIGHT_STROKE;
+                 strokeAlpha = 1.0;
+                 strokeWidth = 3;
+             } else {
+                 fill = COLOR_BUILDING_FILL;
+                 alpha = buildingAlphaBoost;
+                 if (isZoomVeryLow) {
+                     strokeColor = COLOR_BUILDING_STROKE;
+                     strokeAlpha = lowZoomStrokeAlpha;
+                     strokeWidth = 2;
+                 }
+             }
+        }
+        
+        // Draw Fill
+        if (isSquare) {
           g.roundRect(px, py, CELL, CELL, 2).fill({ color: fill, alpha });
-        } else if (GRID_MODE === 'hex') {
+        } else if (isHex) {
           drawHexagon(g, px, py, HEX_SIZE);
           g.fill({ color: fill, alpha });
         } else {
-          // Isometric
           drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
           g.fill({ color: fill, alpha });
         }
 
-        // Highlight: if this building needs inputs but local buffer is empty for any required resource.
-        let strokeColor: number = THEME_COLORS.cyberGray;
-        let strokeAlpha: number = 0.6;
-        let strokeWidth = 1;
-        const missingResources: ResourceType[] = [];
-        
-        // Подсветка для выбранных зданий
-        if (isHighlighted) {
-          strokeColor = THEME_COLORS.cyberYellow;
-          strokeAlpha = 1.0;
-          strokeWidth = 3;
+        // Draw Stroke (Conditional)
+        const shouldDrawStroke = showText || (hasBuilding && isZoomVeryLow);
+        if (shouldDrawStroke) {
+           const finalAlpha = strokeAlpha * (showText ? 0.5 : 1);
+           if (isSquare) {
+             g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
+           } else if (isHex) {
+             drawHexagon(g, px, py, HEX_SIZE);
+             g.stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
+           } else {
+             drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
+             g.stroke({ color: strokeColor, width: strokeWidth * 1.5, alpha: strokeAlpha }); // Iso keeps full alpha usually
+           }
         }
-        // При малом зуме делаем обводку зданий толще и ярче для лучшей видимости
-        else if (hasBuilding && cam.zoom < 0.5) {
-          strokeColor = THEME_COLORS.cyberBlue;
-          strokeAlpha = 0.9;
-          strokeWidth = 2;
-        }
-        
-        // Оптимизация: пропускаем детальную проверку ресурсов при сильном отдалении
-        // Примечание: С автоматической доставкой ресурсы доставляются по требованию,
-        // поэтому не показываем "НЕТ:resource" - это создаёт путаницу
-        // Оставляем только проверку энергии в отдельном месте
-        /*if (!isBase && hasBuilding && showDetailedText) {
-          const b = buildingsById[grid.tiles[k]];
-          if (b?.consumption) {
-            let missing = false;
-            for (const [res, perSecond] of Object.entries(b.consumption)) {
-              const r = res as ResourceType;
-              if (r === 'energy') continue;
-              if (!perSecond) continue;
-              const raw = grid.buffers[k]?.[r];
-              const have = raw ? Number(raw) : 0;
-              if (!(have > 0)) {
-                missing = true;
-                if (!missingResources.includes(r)) missingResources.push(r);
-              }
-            }
-            if (missing) {
-              strokeColor = THEME_COLORS.cyberRed;
-              strokeAlpha = 0.8;
-            }
-          }
-        }*/
 
-        // Draw stroke - при сильном отдалении упрощаем или пропускаем
-        if (showText || (hasBuilding && cam.zoom < 0.5)) {
-          if (GRID_MODE === 'square') {
-            g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha * (showText ? 0.5 : 1) });
-          } else if (GRID_MODE === 'hex') {
-            drawHexagon(g, px, py, HEX_SIZE);
-            g.stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha * (showText ? 0.6 : 1) });
-          } else {
-            drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
-            g.stroke({ color: strokeColor, width: strokeWidth * 1.5, alpha: strokeAlpha });
-          }
+        // --- OPTIMIZATION: Merged Power Overlay & Warnings ---
+        if (showText && cam.zoom > 0.5) {
+             const isPowered = poweredTiles.has(k);
+             
+             // 1. Green overlay for powered tiles
+             if (isPowered) {
+                  // Only draw if square for now for optimization
+                  if (typeof g.rect === 'function') { 
+                      g.rect(px, py, CELL, CELL).fill({ color: 0x22c55e, alpha: 0.08 });
+                  }
+             }
+             
+             // 2. Logic for buildings (Source icons, Warnings)
+             if (hasBuilding) {
+                  const bRef = buildingsById[buildingId];
+                  if (bRef) {
+                      const isSource = bRef.powerGridRadius && bRef.powerGridRadius > 0;
+                      
+                      // Source Icon (Lightning)
+                      if (isSource && showDetailedText && textLayer) {
+                          const centerX = isHex ? px : px + cellHalf;
+                          const centerY = isHex ? py : py + cellHalf;
+                          const powerIcon = getTextFromPool('⚡', TEXT_STYLES.base);
+                          powerIcon.anchor.set(0.5, 0.5);
+                          powerIcon.x = centerX;
+                          powerIcon.y = centerY - CELL / 4;
+                          powerIcon.alpha = 0.7;
+                      }
+                      
+                      // Warning Frame (Red) - Unpowered
+                      if (!isSource && !isPowered) {
+                           const pulse = (Math.sin(Date.now() / 500) * 0.2) + 0.6;
+                           if (isSquare) {
+                               g.roundRect(px + 2, py + 2, CELL - 4, CELL - 4, 2)
+                                .stroke({ color: 0xef4444, width: 2, alpha: pulse });
+                           }
+                           
+                           // Warning Icon
+                           if (showDetailedText && textLayer) {
+                               const warningIcon = getTextFromPool('⚠', TEXT_STYLES.warning);
+                               warningIcon.anchor.set(0, 0);
+                               warningIcon.x = px + 4;
+                               warningIcon.y = py + 4;
+                               warningIcon.style.fill = 0xef4444;
+                            }
+                      }
+                  }
+             }
         }
+
 
         if (textLayer && showText) {
-          const textOffsetY = GRID_MODE === 'isometric' ? -8 : 0;
-          
           if (isBase) {
             const t = getTextFromPool('🏠', TEXT_STYLES.base);
             t.anchor.set(0.5, 0.5);
-            const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
-            const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+            const centerX = isHex ? px : px + cellHalf;
+            const centerY = isHex ? py : py + cellHalf;
             t.x = centerX;
             t.y = centerY + textOffsetY;
           } else if (hasBuilding) {
-            const buildingId = grid.tiles[k];
             const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
+            // Optimization: Only compute if needed
             const currentEvolution = evolutionLevel > 0 ? getCurrentEvolution(buildingId, evolutionLevel) : null;
             
             // Используем visualUpgrade emoji если есть эволюция, иначе базовую эмодзи здания
             const emoji = currentEvolution?.visualUpgrade || getBuildingEmoji(buildingId);
+            
+            // Restore missingResources definition
+            const missingResources = grid.missingResources?.[k] || [];
             const isBlocked = missingResources.length > 0;
             
+
             const t = getTextFromPool(emoji, isBlocked ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
             t.anchor.set(0.5, 0.5);
             const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
@@ -967,135 +1115,41 @@ export function FactoryGrid() {
       }
     }
 
-    // Создаем список всех зданий с координатами (используется для энергосети и логистики)
-    const allBuildingsWithCoords: Building[] = [];
-    for (const [key, buildingId] of Object.entries(grid.tiles)) {
-      const coords = key.split(',').map(Number);
-      if (coords.length === 2) {
-        const building = buildingsById[buildingId];
-        if (building) {
-          allBuildingsWithCoords.push({
-            ...building,
-            coord: { x: coords[0], y: coords[1] }
-          });
-        }
-      }
-    }
 
-    // ФАЗА 8.2: ВИЗУАЛИЗАЦИЯ ЭНЕРГОСЕТИ
-    // Отображаем зоны покрытия энергосети, если зум достаточный
-    if (showText && cam.zoom > 0.5) {
-      const powerSources = getPowerSources(allBuildingsWithCoords);
-
-      // Рисуем зоны покрытия энергосети
-      for (const { building, radius } of powerSources) {
-        if (!building.coord) continue;
-
-        const { x: cx, y: cy } = building.coord;
-
-        // Рисуем только видимые клетки для оптимизации
-        const rangeMinX = Math.max(minX, cx - radius);
-        const rangeMaxX = Math.min(maxX, cx + radius);
-        const rangeMinY = Math.max(minY, cy - radius);
-        const rangeMaxY = Math.min(maxY, cy + radius);
-
-        // Подсвечиваем покрытые клетки
-        for (let x = rangeMinX; x <= rangeMaxX; x++) {
-          for (let y = rangeMinY; y <= rangeMaxY; y++) {
-            if (isInRadius(cx, cy, x, y, radius)) {
-              const { px, py } = gridToPixel(x, y);
-              g.rect(px, py, CELL, CELL).fill({ color: 0x22c55e, alpha: 0.08 });
-            }
-          }
-        }
-
-        // Рисуем контур радиуса (ромб для манхэттенского расстояния)
-        const centerPixel = gridToPixel(cx, cy);
-        const centerX = centerPixel.px + CELL / 2;
-        const centerY = centerPixel.py + CELL / 2;
-        
-        g.setStrokeStyle({ color: 0x22c55e, width: 1.5, alpha: 0.3 })
-         .moveTo(centerX, centerY - radius * (CELL + GAP))
-         .lineTo(centerX + radius * (CELL + GAP), centerY)
-         .lineTo(centerX, centerY + radius * (CELL + GAP))
-         .lineTo(centerX - radius * (CELL + GAP), centerY)
-         .closePath()
-         .stroke();
-
-        // Иконка источника энергии
-        if (showDetailedText && textLayer) {
-          const powerIcon = getTextFromPool('⚡', TEXT_STYLES.base);
-          powerIcon.anchor.set(0.5, 0.5);
-          powerIcon.x = centerX;
-          powerIcon.y = centerY - CELL / 4;
-          powerIcon.alpha = 0.7;
-        }
-      }
-
-      // Подсвечиваем здания без энергопокрытия красной рамкой
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const k = `${x},${y}`;
-          const buildingId = grid.tiles[k];
-          if (!buildingId) continue;
-
-          const building = buildingsById[buildingId];
-          if (!building) continue;
-
-          // Пропускаем источники энергии
-          if (building.powerGridRadius && building.powerGridRadius > 0) continue;
-
-          // Проверяем энергопокрытие
-          const isPowered = isBuildingPowered({ x, y }, allBuildingsWithCoords);
-          
-          if (!isPowered) {
-            const { px, py } = gridToPixel(x, y);
-            // Красная пульсирующая рамка
-            const pulse = Math.sin(Date.now() / 500) * 0.2 + 0.6;
-            g.roundRect(px + 2, py + 2, CELL - 4, CELL - 4, 2)
-             .stroke({ color: 0xef4444, width: 2, alpha: pulse });
-
-            // Иконка предупреждения
-            if (showDetailedText && textLayer) {
-              const warningIcon = getTextFromPool('⚠', TEXT_STYLES.warning);
-              warningIcon.anchor.set(0, 0);
-              warningIcon.x = px + 4;
-              warningIcon.y = py + 4;
-              warningIcon.style.fill = 0xef4444;
-            }
-          }
-        }
-      }
-    }
 
     // ФАЗА 8.3: ВИЗУАЛИЗАЦИЯ ЛОГИСТИЧЕСКОЙ СЕТИ
     // Отображаем зоны покрытия логистики (склады и логистические центры)
     if (showText && cam.zoom > 0.6) {
-      const logisticsHubs = getLogisticsHubs(allBuildingsWithCoords);
+      // Use memoized list
+      const logisticsHubs = activeLogisticsHubs;
+      
+      // OPTIMIZATION: Grid Painting approach to avoid overdraw
+      const coveredTiles = new Set<string>();
 
       // Рисуем зоны покрытия логистической сети
-      for (const { building, radius } of logisticsHubs) {
-        if (!building.coord) continue;
-
-        const { x: cx, y: cy } = building.coord;
-
+      for (const { x: cx, y: cy, radius } of logisticsHubs) {
+        
         // Рисуем только видимые клетки для оптимизации
         const rangeMinX = Math.max(minX, cx - radius);
         const rangeMaxX = Math.min(maxX, cx + radius);
         const rangeMinY = Math.max(minY, cy - radius);
         const rangeMaxY = Math.min(maxY, cy + radius);
+        
+        // Если источник не пересекает видимую область - пропускаем
+        if (rangeMinX > rangeMaxX || rangeMinY > rangeMaxY) continue;
 
-        // Подсвечиваем покрытые клетки (синий цвет для логистики)
+        // Заполняем Set
         for (let x = rangeMinX; x <= rangeMaxX; x++) {
           for (let y = rangeMinY; y <= rangeMaxY; y++) {
-            if (isInLogisticsZone(cx, cy, x, y, radius)) {
-              const { px, py } = gridToPixel(x, y);
-              g.rect(px, py, CELL, CELL).fill({ color: 0x3b82f6, alpha: 0.06 });
-            }
+             const dist = Math.abs(x - cx) + Math.abs(y - cy);
+             if (dist <= radius) {
+                coveredTiles.add(`${x},${y}`);
+             }
           }
         }
 
-        // Рисуем контур радиуса логистики
+        /*
+        // Рисуем контур радиуса логистики (lines are cheap)
         const centerPixel = gridToPixel(cx, cy);
         const centerX = centerPixel.px + CELL / 2;
         const centerY = centerPixel.py + CELL / 2;
@@ -1107,8 +1161,13 @@ export function FactoryGrid() {
          .lineTo(centerX - radius * (CELL + GAP), centerY)
          .closePath()
          .stroke();
+         */
 
         // Иконка логистического узла
+        const centerPixel = gridToPixel(cx, cy);
+        const centerX = centerPixel.px + CELL / 2;
+        const centerY = centerPixel.py + CELL / 2;
+
         if (showDetailedText && textLayer) {
           const logisticsIcon = getTextFromPool('📦', TEXT_STYLES.base);
           logisticsIcon.anchor.set(0.5, 0.5);
@@ -1116,6 +1175,13 @@ export function FactoryGrid() {
           logisticsIcon.y = centerY - CELL / 4;
           logisticsIcon.alpha = 0.7;
         }
+      }
+      
+      // Batch draw active logistics tiles
+      for (const key of coveredTiles) {
+         const [x, y] = key.split(',').map(Number);
+         const { px, py } = gridToPixel(x, y);
+         g.rect(px, py, CELL, CELL).fill({ color: 0x3b82f6, alpha: 0.06 });
       }
 
       // Подсвечиваем здания с логистическим штрафом оранжевой рамкой
@@ -1135,7 +1201,7 @@ export function FactoryGrid() {
           const logisticsEfficiency = calculateLogisticsEfficiency(
             { x, y },
             basePos,
-            allBuildingsWithCoords
+            activeLogisticsHubs
           );
           
           if (logisticsEfficiency < 1.0 && showDetailedText) {
@@ -1257,7 +1323,22 @@ export function FactoryGrid() {
         g.stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
       }
     }
-  }, [grid.tiles, grid.deposits, grid.selected, grid.activeTransports, grid.buffers, grid.width, grid.height, combat.enemies.length, worldSize, buildingsById]);
+  }, [
+      grid.tiles, 
+      grid.deposits, 
+      grid.selected, 
+      grid.activeTransports, 
+      grid.buffers, 
+      grid.width, 
+      grid.height, 
+      combat.enemies.length, 
+      worldSize, 
+      buildingsById,
+      // Added new dependencies from top-level useMemo
+      allBuildingsWithCoords,
+      activeLogisticsHubs,
+      powerSources
+  ]);
 
   // Обработчики модального окна
   const handleConfirmPlacement = () => {

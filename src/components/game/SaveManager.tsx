@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import { Save, Trash2, Download, X, Plus, RefreshCw } from 'lucide-react';
+import { useConfirmDialog } from './ConfirmDialog';
 
 interface SaveInfo {
   id: number;
@@ -21,6 +22,8 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   const [showNewSaveDialog, setShowNewSaveDialog] = useState(false);
   const [newSaveName, setNewSaveName] = useState('');
   const [error, setError] = useState('');
+  
+  const { confirm: showConfirm, DialogComponent: ConfirmDialogComponent } = useConfirmDialog();
 
   const getSavesList = useGameStore(state => state.getSavesList);
   const loadGameFromSave = useGameStore(state => state.loadGameFromSave);
@@ -87,7 +90,14 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   };
 
   const handleDeleteSave = async (saveId: number) => {
-    if (!confirm('Вы уверены, что хотите удалить это сохранение?')) {
+    const confirmed = await showConfirm({
+      title: 'Удаление сохранения',
+      message: 'Вы уверены, что хотите удалить это сохранение?',
+      type: 'warning',
+      confirmText: 'Удалить',
+      cancelText: 'Отмена',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -102,7 +112,14 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   };
 
   const handleOverwriteSave = async (saveId: number, saveName: string) => {
-    if (!confirm(`Вы уверены, что хотите перезаписать сохранение "${saveName}"?`)) {
+    const confirmed = await showConfirm({
+      title: 'Перезапись сохранения',
+      message: `Вы уверены, что хотите перезаписать сохранение "${saveName}"? Текущий прогресс будет сохранён в этот слот.`,
+      type: 'warning',
+      confirmText: 'Перезаписать',
+      cancelText: 'Отмена',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -135,6 +152,8 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   const autoSaves = saves.filter(s => s.save_type === 'auto');
 
   return (
+    <>
+    <ConfirmDialogComponent />
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg max-w-3xl w-full max-h-[80vh] flex flex-col">
         {/* Header */}
@@ -296,5 +315,6 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
         </div>
       </div>
     </div>
+    </>
   );
 };

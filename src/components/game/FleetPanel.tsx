@@ -4,6 +4,7 @@ import { formatNumber } from '../../core/math/format';
 import { D } from '../../core/math/format';
 import type { Ship, ShipType } from '../../core/gameTypes';
 import { Anchor, Award, Heart, Shield, Sword, Settings, Trash2, Wrench } from 'lucide-react';
+import { notify } from '../../utils/notifications';
 
 export function FleetPanel() {
   const ships = useGameStore((s) => s.fleet.ships);
@@ -41,7 +42,7 @@ export function FleetPanel() {
 
   const handleBuildShip = (type: ShipType) => {
     if (!canAffordShip(type)) {
-      alert('Недостаточно ресурсов для постройки корабля!');
+      notify.warning('Недостаточно ресурсов для постройки корабля!');
       return;
     }
     buildShip(type);
@@ -50,7 +51,7 @@ export function FleetPanel() {
   const handleUpgradeShip = (shipId: string) => {
     const ship = ships.find(s => s.id === shipId);
     if (!ship || !canAffordUpgrade(ship)) {
-      alert('Недостаточно ресурсов для улучшения корабля!');
+      notify.warning('Недостаточно ресурсов для улучшения корабля!');
       return;
     }
     upgradeShip(shipId);

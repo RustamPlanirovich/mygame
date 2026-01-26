@@ -4,6 +4,7 @@ import { formatNumber } from '../../core/math/format.ts';
 import type { PolicyId, PolicyCategory } from '../../core/gameTypes';
 import { POLICIES, canActivatePolicy, getPoliciesByCategory } from '../../core/constants/policies';
 import { Landmark, Info, XCircle } from 'lucide-react';
+import { notify } from '../../utils/notifications';
 
 const CATEGORY_LABELS: Record<PolicyCategory, string> = {
   production: '🏭 Производственные',
@@ -53,7 +54,7 @@ export function PoliticsPanel() {
     if (check.can) {
       activatePolicy(policyId);
     } else {
-      alert(check.reason);
+      notify.warning(check.reason || 'Невозможно активировать политику');
     }
   };
 

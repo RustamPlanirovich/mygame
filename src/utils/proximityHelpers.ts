@@ -13,16 +13,26 @@ import { detectDistricts, getDistrictBonusForBuilding } from '../core/math/distr
 
 // Кэш для proximity вычислений
 let proximityCache: {
-  tilesHash: string;
+  tilesRef: Record<string, string>;
+  tilesCount: number;
   result: Building[];
 } | null = null;
 
 /**
- * Создает хэш для tiles для проверки изменений
+ * ОПТИМИЗАЦИЯ: Быстрая проверка изменений без JSON.stringify
+ * Проверяем по ссылке и количеству элементов
  */
-function createTilesHash(tiles: Record<string, string>): string {
-  const entries = Object.entries(tiles).sort(([a], [b]) => a.localeCompare(b));
-  return JSON.stringify(entries);
+function tilesChanged(tiles: Record<string, string>): boolean {
+  if (!proximityCache) return true;
+  if (proximityCache.tilesRef === tiles) return false;
+  
+  // Быстрая проверка по количеству
+  const count = Object.keys(tiles).length;
+  if (proximityCache.tilesCount !== count) return true;
+  
+  // Ссылка изменилась, но количество то же - считаем что изменилось
+  // (Zustand создаёт новый объект при любом изменении)
+  return true;
 }
 
 /**
@@ -77,10 +87,9 @@ export function updateAllProximityMultipliers(
   buildings: Building[],
   tiles: Record<string, string>
 ): Building[] {
-  // Проверяем кэш
-  const tilesHash = createTilesHash(tiles);
-  if (proximityCache && proximityCache.tilesHash === tilesHash) {
-    return proximityCache.result;
+  // ОПТИМИЗАЦИЯ: Быстрая проверка без JSON.stringify
+  if (!tilesChanged(tiles)) {
+    return proximityCache!.result;
   }
   
   // Получаем здания с координатами
@@ -95,7 +104,8 @@ export function updateAllProximityMultipliers(
   // Обновляем множители для каждого размещенного здания
   const updatedMultipliers = new Map<string, number>();
   
-  for (const [tileKey, buildingId] of Object.entries(tiles)) {
+  for (const tileKey in tiles) {
+    const buildingId = tiles[tileKey];
     const building = buildingMap.get(buildingId);
     if (!building) continue;
     
@@ -133,12 +143,17 @@ export function updateAllProximityMultipliers(
     updatedMultipliers.set(tileKey, totalMultiplier);
   }
   
+  // ОПТИМИЗАЦИЯ: Предварительно группируем тайлы по buildingId для ускорения расчета
+  const tilesByBuildingId = new Map<string, string[]>();
+  for(const [key, id] of Object.entries(tiles)) {
+      if(!tilesByBuildingId.has(id)) tilesByBuildingId.set(id, []);
+      tilesByBuildingId.get(id)!.push(key);
+  }
+
   // Возвращаем обновленные здания
   const updatedBuildings = buildings.map(b => {
-    // Находим все тайлы с этим зданием и вычисляем средний множитель
-    const buildingTiles = Object.entries(tiles)
-      .filter(([_, id]) => id === b.id)
-      .map(([key, _]) => key);
+    // Находим все тайлы с этим зданием используя мапу (O(1)) вместо фильтрации (O(N))
+    const buildingTiles = tilesByBuildingId.get(b.id) || [];
     
     if (buildingTiles.length === 0) {
       return { ...b, proximityMultiplier: 1 };
@@ -165,7 +180,8 @@ export function updateAllProximityMultipliers(
   
   // Сохраняем в кэш
   proximityCache = {
-    tilesHash,
+    tilesRef: tiles,
+    tilesCount: Object.keys(tiles).length,
     result: updatedBuildings,
   };
   

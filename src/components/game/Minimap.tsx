@@ -1,6 +1,7 @@
 import { useGameStore } from '../../features/gameStore';
 import { useMemo, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, Home } from 'lucide-react';
+import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 
 const MINIMAP_SIZE = 80; // фиксированный размер мини-карты в пикселях
 
@@ -77,13 +78,22 @@ export const Minimap = () => {
       <div className="bg-cyber-dark/90 backdrop-blur-sm border-2 border-cyber-green rounded-lg p-3 shadow-2xl">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-cyber-green font-bold">МИНИ-КАРТА</span>
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="cyber-button p-1 text-[10px]"
-            title={isExpanded ? 'Свернуть' : 'Развернуть'}
-          >
-            {isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={() => gameEvents.emit(GAME_EVENTS.GO_TO_BASE)}
+              className="cyber-button p-1 text-[10px]"
+              title="На базу"
+            >
+              <Home size={12} />
+            </button>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="cyber-button p-1 text-[10px]"
+              title={isExpanded ? 'Свернуть' : 'Развернуть'}
+            >
+              {isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+          </div>
         </div>
         
         <div 

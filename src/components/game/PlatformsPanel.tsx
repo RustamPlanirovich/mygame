@@ -3,6 +3,7 @@ import { GALAXIES } from '../../core/constants/galaxies';
 import { formatNumber, D } from '../../core/math/format';
 import type { SpacePlatform, ResourceType } from '../../core/gameTypes';
 import { Shield, Zap, Package, TrendingUp, Trash2, Wrench, Settings } from 'lucide-react';
+import { notify } from '../../utils/notifications';
 
 export function PlatformsPanel() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -30,12 +31,12 @@ export function PlatformsPanel() {
     };
 
     if (credits.lt(cost.credits)) {
-      alert(`Недостаточно кредитов! Требуется: ${formatNumber(cost.credits)}`);
+      notify.warning(`Недостаточно кредитов! Требуется: ${formatNumber(cost.credits)}`);
       return;
     }
 
     if (influence.lt(cost.influence)) {
-      alert(`Недостаточно влияния! Требуется: ${formatNumber(cost.influence)}`);
+      notify.warning(`Недостаточно влияния! Требуется: ${formatNumber(cost.influence)}`);
       return;
     }
 
@@ -51,7 +52,7 @@ export function PlatformsPanel() {
     const cost = calculateUpgradeCost(currentLevel, upgradeType);
 
     if (credits.lt(cost)) {
-      alert(`Недостаточно кредитов! Требуется: ${formatNumber(cost)}`);
+      notify.warning(`Недостаточно кредитов! Требуется: ${formatNumber(cost)}`);
       return;
     }
 

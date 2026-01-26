@@ -7,6 +7,7 @@ import {
   getSpecialFeatureColor, 
   getDiscoveryCost 
 } from '../../utils/galaxyGenerator';
+import { notify } from '../../utils/notifications';
 
 export function GalaxyMap() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -47,11 +48,11 @@ export function GalaxyMap() {
         if (influence.gte(unlockCost)) {
           unlockGalaxy(galaxyId);
         } else {
-          alert(`Требуется ${unlockCost} влияния для открытия этой галактики`);
+          notify.warning(`Требуется ${unlockCost} влияния для открытия этой галактики`);
         }
       } else {
         const galaxy = GALAXIES[galaxyId];
-        alert(`Требуется исследование: ${galaxy.unlockRequirement || 'неизвестно'}`);
+        notify.info(`Требуется исследование: ${galaxy.unlockRequirement || 'неизвестно'}`);
       }
     }
   };

@@ -4,6 +4,7 @@ import { formatNumber } from '../../core/math/format';
 import type { ResourceType, GalaxyId } from '../../core/gameTypes';
 import { RESOURCE_EMOJI } from '../../core/constants/labels';
 import { D } from '../../utils/bigNumber';
+import { notify } from '../../utils/notifications';
 
 export const IntergalacticLogisticsPanel: React.FC = () => {
   const {
@@ -26,7 +27,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
 
   const handleSendCaravan = () => {
     if (!selectedTo) {
-      alert('Выберите пункт назначения');
+      notify.warning('Выберите пункт назначения');
       return;
     }
 
@@ -41,13 +42,13 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
     });
 
     if (!hasAnyCargo) {
-      alert('Добавьте ресурсы для отправки');
+      notify.warning('Добавьте ресурсы для отправки');
       return;
     }
 
     sendCaravan(selectedFrom, selectedTo, cargo);
     setCargoResources({});
-    alert('Караван отправлен!');
+    notify.success('Караван отправлен!');
   };
 
   const handleUpgrade = (upgradeType: 'speed' | 'capacity' | 'defense') => {
