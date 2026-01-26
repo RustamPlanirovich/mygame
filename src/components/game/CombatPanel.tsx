@@ -15,25 +15,35 @@ import {
   computeAegisInterference,
   computeAegisInterferenceMultiplier,
   computeAegisSmartTargetingEnabled,
+  computeAegisShieldBoostMultiplier,
+  computeAegisTurretOverdriveMultiplier,
+  computeAegisAutoRepairPerSecond,
 } from '../../core/constants/aegis';
 
 export function CombatPanel() {
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
   const energy = useGameStore((s) => s.resources.energy.amount);
+  const steel = useGameStore((s) => s.resources.steel?.amount ?? D(0));
   const researchLevels = useGameStore((s) => s.research.levels);
   const qubits = useGameStore((s) => s.meta.qubits);
   const nanoSwarm = useGameStore((s) => s.nanoSwarm);
   const setNanoSwarmAllocation = useGameStore((s) => s.setNanoSwarmAllocation);
   const aegis = useGameStore((s) => s.aegis);
   const buyAegisUpgrade = useGameStore((s) => s.buyAegisUpgrade);
+  const emergencyRepairBase = useGameStore((s) => s.emergencyRepairBase);
   const resources = useGameStore((s) => s.resources);
+
+  // Emergency repair costs
+  const REPAIR_COST_ENERGY = D(500);
+  const REPAIR_COST_STEEL = D(50);
+  const REPAIR_HP = D(50);
 
   const turretCount = useMemo(() => {
     return buildings.find((b) => b.id === 'turret_mk1')?.count ?? 0;
   }, [buildings]);
 
-  const { basePct, secondsToNextWave, secondsToWaveEnd, waveActive } = useMemo(() => {
+  const { basePct, secondsToNextWave, secondsToWaveEnd, waveActive, baseRegen, baseDamagePenalty, canRepair, needsRepair } = useMemo(() => {
     const now = Date.now();
     const basePctRaw = combat.baseMaxHp.gt(0) ? combat.baseHp.div(combat.baseMaxHp) : combat.baseHp;
     const basePct = Math.max(0, Math.min(1, Number(basePctRaw.toString())));
@@ -43,8 +53,18 @@ export function CombatPanel() {
 
     const secondsToNextWave = combat.nextWaveAt > now ? Math.ceil((combat.nextWaveAt - now) / 1000) : 0;
 
-    return { basePct, secondsToNextWave, secondsToWaveEnd, waveActive };
-  }, [combat.baseHp, combat.baseMaxHp, combat.nextWaveAt, combat.waveEndsAt, combat.enemies.length]);
+    // Base regen info
+    const baseRegen = combat.baseRegenPerSecond ?? D(0);
+    
+    // Production penalty from damage: 0-50% based on missing HP
+    const baseDamagePenalty = Math.round((1 - basePct) * 50);
+    
+    // Can afford repair?
+    const canRepair = energy.gte(REPAIR_COST_ENERGY) && steel.gte(REPAIR_COST_STEEL);
+    const needsRepair = combat.baseHp.lt(combat.baseMaxHp);
+
+    return { basePct, secondsToNextWave, secondsToWaveEnd, waveActive, baseRegen, baseDamagePenalty, canRepair, needsRepair };
+  }, [combat.baseHp, combat.baseMaxHp, combat.nextWaveAt, combat.waveEndsAt, combat.enemies.length, combat.baseRegenPerSecond, energy, steel]);
 
   const status = combat.baseHp.lte(0)
     ? 'ОФФЛАЙН'
@@ -114,11 +134,22 @@ export function CombatPanel() {
 
     const smartLevel = aegis.levels.smart_targeting ?? 0;
     const encLevel = aegis.levels.encryption ?? 0;
+    const shieldBoostLevel = aegis.levels.shield_boost ?? 0;
+    const turretOverdriveLevel = aegis.levels.turret_overdrive ?? 0;
+    const autoRepairLevel = aegis.levels.auto_repair ?? 0;
 
     const smartCost = aegisUpgradeCost('smart_targeting', smartLevel);
     const encCost = aegisUpgradeCost('encryption', encLevel);
+    const shieldBoostCost = aegisUpgradeCost('shield_boost', shieldBoostLevel);
+    const turretOverdriveCost = aegisUpgradeCost('turret_overdrive', turretOverdriveLevel);
+    const autoRepairCost = aegisUpgradeCost('auto_repair', autoRepairLevel);
 
     const canBuy = (cost: any) => Object.entries(cost).every(([res, amt]) => resources[res as keyof typeof resources].amount.gte(amt as any));
+
+    // Calculate current bonuses
+    const shieldBoostMult = computeAegisShieldBoostMultiplier(shieldBoostLevel);
+    const turretOverdriveMult = computeAegisTurretOverdriveMultiplier(turretOverdriveLevel);
+    const autoRepairPerSec = computeAegisAutoRepairPerSecond(autoRepairLevel);
 
     return {
       waveActive,
@@ -139,8 +170,32 @@ export function CombatPanel() {
         cost: encCost,
         canBuy: canBuy(encCost),
       },
+      shieldBoost: {
+        level: shieldBoostLevel,
+        def: AEGIS_UPGRADE_DEFS.shield_boost,
+        atMax: shieldBoostLevel >= AEGIS_UPGRADE_DEFS.shield_boost.maxLevel,
+        cost: shieldBoostCost,
+        canBuy: canBuy(shieldBoostCost),
+        bonus: Math.round((shieldBoostMult - 1) * 100),
+      },
+      turretOverdrive: {
+        level: turretOverdriveLevel,
+        def: AEGIS_UPGRADE_DEFS.turret_overdrive,
+        atMax: turretOverdriveLevel >= AEGIS_UPGRADE_DEFS.turret_overdrive.maxLevel,
+        cost: turretOverdriveCost,
+        canBuy: canBuy(turretOverdriveCost),
+        bonus: Math.round((turretOverdriveMult - 1) * 100),
+      },
+      autoRepair: {
+        level: autoRepairLevel,
+        def: AEGIS_UPGRADE_DEFS.auto_repair,
+        atMax: autoRepairLevel >= AEGIS_UPGRADE_DEFS.auto_repair.maxLevel,
+        cost: autoRepairCost,
+        canBuy: canBuy(autoRepairCost),
+        bonus: autoRepairPerSec,
+      },
     };
-  }, [combat.waveEndsAt, combat.enemies.length, aegis.levels.encryption, aegis.levels.smart_targeting, resources]);
+  }, [combat.waveEndsAt, combat.enemies.length, aegis.levels, resources]);
 
   return (
     <div className="p-3 border-b border-cyber-gray">
@@ -162,7 +217,9 @@ export function CombatPanel() {
       <div className="cyber-panel p-2">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-sm text-cyber-blue font-semibold">База</div>
+            <div className={`text-sm font-semibold ${basePct < 0.25 ? 'text-cyber-red' : basePct < 0.5 ? 'text-yellow-400' : 'text-cyber-blue'}`}>
+              База {basePct < 0.25 ? '⚠️' : ''}
+            </div>
             <div className="text-[10px] text-cyber-text-dim">
               {formatNumber(combat.baseHp)} / {formatNumber(combat.baseMaxHp)}
             </div>
@@ -172,6 +229,41 @@ export function CombatPanel() {
             <div>Турели: <span className="text-cyber-text">{turretCount}</span> · {firing ? '🔥' : '⏸️'}</div>
           </div>
         </div>
+
+        {/* Warning and penalties when base is damaged */}
+        {baseDamagePenalty > 0 && (
+          <div className="mt-1.5 text-[10px] bg-cyber-red/20 border border-cyber-red/40 rounded px-2 py-1">
+            <div className="text-cyber-red font-semibold">
+              ⚠️ База повреждена — производство -{baseDamagePenalty}%
+            </div>
+            {baseRegen.gt(0) && (
+              <div className="text-cyber-text-dim mt-0.5">
+                🔧 Регенерация: +{formatNumber(baseRegen)} HP/с
+              </div>
+            )}
+            {!baseRegen.gt(0) && combat.enemies.length > 0 && (
+              <div className="text-cyber-text-dim mt-0.5">
+                ⏳ Регенерация начнётся после окончания атаки
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Emergency repair button */}
+        {needsRepair && (
+          <div className="mt-2">
+            <button
+              className={`w-full cyber-button text-[10px] py-1.5 px-2 ${
+                canRepair ? 'bg-cyber-green/20 border-cyber-green hover:bg-cyber-green/30' : 'opacity-50 cursor-not-allowed'
+              }`}
+              disabled={!canRepair}
+              onClick={() => emergencyRepairBase()}
+              title={`Восстанавливает +50 HP базы. Стоимость: 500⚡ + 50 стали`}
+            >
+              🔧 Экстренный ремонт (+50 HP) — 500⚡ + 50 🔩
+            </button>
+          </div>
+        )}
 
         <div className="mt-1.5 text-[10px] text-cyber-text-dim flex flex-wrap gap-x-2 gap-y-0.5">
           {defenseNeed.gt(0) ? (
@@ -201,7 +293,7 @@ export function CombatPanel() {
 
         <div className="mt-3 h-2 bg-cyber-gray/40 rounded overflow-hidden">
           <div
-            className="h-full bg-cyber-green"
+            className={`h-full ${basePct < 0.25 ? 'bg-cyber-red animate-pulse' : basePct < 0.5 ? 'bg-yellow-400' : 'bg-cyber-green'}`}
             style={{ width: `${Math.round(basePct * 100)}%` }}
           />
         </div>
@@ -352,6 +444,69 @@ export function CombatPanel() {
                   onClick={() => buyAegisUpgrade('encryption')}
                 >
                   {aegisUi.encryption.atMax ? 'МАКС' : '↑'}
+                </button>
+              </div>
+            </div>
+
+            <div className="cyber-panel p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-cyber-blue font-semibold truncate">{aegisUi.shieldBoost.def.name}</div>
+                  <div className="text-[9px] text-cyber-text-dim mt-0.5">
+                    Ур.: {aegisUi.shieldBoost.level}/{aegisUi.shieldBoost.def.maxLevel}
+                    {aegisUi.shieldBoost.bonus > 0 && (
+                      <span className="text-cyber-green"> · +{aegisUi.shieldBoost.bonus}% реген</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="cyber-button text-[10px] py-1 px-2 shrink-0"
+                  disabled={aegisUi.shieldBoost.atMax || !aegisUi.shieldBoost.canBuy}
+                  onClick={() => buyAegisUpgrade('shield_boost')}
+                >
+                  {aegisUi.shieldBoost.atMax ? 'МАКС' : '↑'}
+                </button>
+              </div>
+            </div>
+
+            <div className="cyber-panel p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-cyber-blue font-semibold truncate">{aegisUi.turretOverdrive.def.name}</div>
+                  <div className="text-[9px] text-cyber-text-dim mt-0.5">
+                    Ур.: {aegisUi.turretOverdrive.level}/{aegisUi.turretOverdrive.def.maxLevel}
+                    {aegisUi.turretOverdrive.bonus > 0 && (
+                      <span className="text-cyber-green"> · +{aegisUi.turretOverdrive.bonus}% урон</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="cyber-button text-[10px] py-1 px-2 shrink-0"
+                  disabled={aegisUi.turretOverdrive.atMax || !aegisUi.turretOverdrive.canBuy}
+                  onClick={() => buyAegisUpgrade('turret_overdrive')}
+                >
+                  {aegisUi.turretOverdrive.atMax ? 'МАКС' : '↑'}
+                </button>
+              </div>
+            </div>
+
+            <div className="cyber-panel p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-cyber-blue font-semibold truncate">{aegisUi.autoRepair.def.name}</div>
+                  <div className="text-[9px] text-cyber-text-dim mt-0.5">
+                    Ур.: {aegisUi.autoRepair.level}/{aegisUi.autoRepair.def.maxLevel}
+                    {aegisUi.autoRepair.bonus > 0 && (
+                      <span className="text-cyber-green"> · +{aegisUi.autoRepair.bonus.toFixed(1)} HP/с</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="cyber-button text-[10px] py-1 px-2 shrink-0"
+                  disabled={aegisUi.autoRepair.atMax || !aegisUi.autoRepair.canBuy}
+                  onClick={() => buyAegisUpgrade('auto_repair')}
+                >
+                  {aegisUi.autoRepair.atMax ? 'МАКС' : '↑'}
                 </button>
               </div>
             </div>

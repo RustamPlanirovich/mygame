@@ -323,7 +323,7 @@ export interface StarChartState {
   levels: Record<StarChartUpgradeId, number>;
 }
 
-export type AegisUpgradeId = 'smart_targeting' | 'encryption';
+export type AegisUpgradeId = 'smart_targeting' | 'encryption' | 'shield_boost' | 'turret_overdrive' | 'auto_repair';
 
 export interface AegisState {
   levels: Record<AegisUpgradeId, number>;
@@ -424,6 +424,10 @@ export interface CombatState {
   nextWaveAt: number;
   waveEndsAt: number;
   nextSpawnAt: number;
+
+  // Base regen tracking
+  lastDamageAt: number; // Timestamp когда база последний раз получила урон
+  baseRegenPerSecond: Decimal; // Текущая скорость регенерации базы
 
   // Telemetry for UX: helps explain why defense is weak or base is losing HP.
   defenseEnergyNeedPerSecond: Decimal;
@@ -1070,6 +1074,7 @@ export interface GameState {
   buyProductionMatrixUpgrade: (id: ProductionMatrixUpgradeId) => void;
   buyQuantumNetUpgrade: (id: QuantumNetUpgradeId) => void;
   setQuantumNetPreservedBuildingId: (buildingId: string | null) => void;
+  emergencyRepairBase: () => boolean; // Returns true if repair was successful
   activatePolicy: (id: PolicyId) => void;
   deactivatePolicy: (id: PolicyId) => void;
   prestigeReset: () => void;

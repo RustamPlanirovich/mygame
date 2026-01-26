@@ -71,6 +71,9 @@ import {
   aegisUpgradeCost,
   computeAegisInterferenceMultiplier,
   computeAegisSmartTargetingEnabled,
+  computeAegisShieldBoostMultiplier,
+  computeAegisTurretOverdriveMultiplier,
+  computeAegisAutoRepairPerSecond,
 } from '../core/constants/aegis';
 import {
   PRODUCTION_MATRIX_UPGRADE_DEFS,
@@ -123,6 +126,14 @@ const WAVE_DURATION_SECONDS = 18;
 const SPAWN_INTERVAL_SECONDS = 1.8;
 const BASE_MAX_HP = D(100);
 const ENEMY_IMPACT_DAMAGE = D(12);
+
+// Base HP mechanics
+const BASE_REGEN_PER_SECOND = D(0.5); // HP восстановление вне боя
+const BASE_REGEN_COOLDOWN_SECONDS = 5; // Задержка после атаки перед регеном
+const BASE_DAMAGE_PRODUCTION_PENALTY_MAX = 0.5; // Максимальный штраф производства (50%) при HP = 0
+const EMERGENCY_REPAIR_COST_ENERGY = D(500); // Стоимость экстренного ремонта
+const EMERGENCY_REPAIR_COST_STEEL = D(50);
+const EMERGENCY_REPAIR_HP = D(50); // Сколько HP восстанавливает экстренный ремонт
 
 // ОПТИМИЗАЦИЯ: Кэшированные Decimal константы (избегаем создания новых объектов каждый тик)
 const D_ZERO = D(0);
@@ -322,6 +333,9 @@ const INITIAL_AEGIS: AegisState = {
   levels: {
     smart_targeting: 0,
     encryption: 0,
+    shield_boost: 0,
+    turret_overdrive: 0,
+    auto_repair: 0,
   },
 };
 
@@ -2085,6 +2099,11 @@ const INITIAL_COMBAT: CombatState = {
   nextWaveAt: Date.now() + WAVE_INTERVAL_SECONDS * 1000,
   waveEndsAt: 0,
   nextSpawnAt: 0,
+  
+  // Base regen tracking
+  lastDamageAt: 0,
+  baseRegenPerSecond: D(0),
+
   defenseEnergyNeedPerSecond: D(0),
   defenseEnergyUsedPerSecond: D(0),
   defenseFireRatio: D(0),
@@ -3212,6 +3231,49 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
+  emergencyRepairBase: () => {
+    let success = false;
+    set((state) => {
+      // Can only repair if base HP is below max
+      if (state.combat.baseHp.gte(state.combat.baseMaxHp)) {
+        return state;
+      }
+
+      // Check if we can afford the repair
+      const cost: Partial<Record<ResourceType, Decimal>> = {
+        energy: EMERGENCY_REPAIR_COST_ENERGY,
+        steel: EMERGENCY_REPAIR_COST_STEEL,
+      };
+
+      if (!canAffordFromBase(state.grid.buffers, cost)) {
+        return state;
+      }
+
+      // Spend the resources
+      let buffers = spendCostFromBase(state.grid.buffers, cost);
+
+      // Repair the base
+      const newBaseHp = state.combat.baseHp.add(EMERGENCY_REPAIR_HP).min(state.combat.baseMaxHp);
+
+      let resources = syncResourcesFromBase({ ...state.resources }, buffers);
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      resources = recomputeCaps(resources, state.buildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
+      buffers = clampBaseBufferToCaps(buffers, resources);
+      resources = syncResourcesFromBase(resources, buffers);
+
+      success = true;
+      return {
+        resources,
+        grid: { ...state.grid, buffers },
+        combat: {
+          ...state.combat,
+          baseHp: newBaseHp,
+        },
+      };
+    });
+    return success;
+  },
+
   buyProductionMatrixUpgrade: (id: ProductionMatrixUpgradeId) => {
     set((state) => {
       const def = PRODUCTION_MATRIX_UPGRADE_DEFS[id];
@@ -3485,6 +3547,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         state.aegis.levels.encryption ?? 0,
         waveActiveEconomy,
       );
+      
+      // Aegis multipliers
+      const aegisShieldBoostMult = computeAegisShieldBoostMultiplier(state.aegis.levels.shield_boost ?? 0);
+      const aegisTurretOverdriveMult = computeAegisTurretOverdriveMultiplier(state.aegis.levels.turret_overdrive ?? 0);
+      const aegisAutoRepairPerSec = computeAegisAutoRepairPerSecond(state.aegis.levels.auto_repair ?? 0);
+
+      // Base damage penalty: production decreases as base HP goes down
+      // At 100% HP: no penalty (mult = 1.0)
+      // At 0% HP: max penalty (mult = 1 - BASE_DAMAGE_PRODUCTION_PENALTY_MAX = 0.5)
+      const baseHpRatio = state.combat.baseMaxHp.gt(0) 
+        ? Math.max(0, Math.min(1, Number(state.combat.baseHp.div(state.combat.baseMaxHp).toString())))
+        : 1;
+      const baseDamageMult = 1 - (1 - baseHpRatio) * BASE_DAMAGE_PRODUCTION_PENALTY_MAX;
 
       const levels = state.research.levels;
       const tradeMult = computeTradeMultiplier(levels);
@@ -3675,7 +3750,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const repeatableProdMult = repeatableBonuses.productionMultiplier;
       const repeatableExoticMult = repeatableBonuses.exoticResourcesMultiplier;
       
-      const dtFacilities = dt * speedMult * boostMult * interferenceMult * 
+      const dtFacilities = dt * speedMult * boostMult * interferenceMult * baseDamageMult *
         artifactBonuses.globalProduction * artifactBonuses.buildingEfficiency * 
         ascensionProdMult * repeatableProdMult;
 
@@ -4753,17 +4828,20 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Combat update (Phase 3)
       let nextCombat: CombatState = state.combat;
-      if (state.combat.baseHp.gt(0)) {
+      // Note: We now process combat even when baseHp <= 0 to handle regen
+      {
         let baseHp = state.combat.baseHp;
         let enemies = state.combat.enemies.map((e) => ({ ...e }));
         let nextWaveAt = state.combat.nextWaveAt;
         let waveEndsAt = state.combat.waveEndsAt;
         let nextSpawnAt = state.combat.nextSpawnAt;
+        let lastDamageAt = state.combat.lastDamageAt ?? 0;
 
         let defenseEnergyNeedPerSecond = D(0);
         let defenseEnergyUsedPerSecond = D(0);
         let defenseFireRatio = D(0);
         let baseDamageTaken = D(0);
+        let baseRegenPerSecond = D(0);
 
         const shieldBuilding = state.buildings.find((b) => b.id === 'shield_mk1');
         const shieldCount = shieldBuilding?.count ?? 0;
@@ -4779,17 +4857,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         let enemyPressurePerSecond = D(0);
         let enemyPressurePotentialPerSecond = D(0);
 
-        // Start a new wave
-        if (now >= nextWaveAt && enemies.length === 0) {
-          waveEndsAt = now + WAVE_DURATION_SECONDS * 1000;
-          nextSpawnAt = now;
-          nextWaveAt = now + WAVE_INTERVAL_SECONDS * 1000;
+        // Only process waves and combat if base is alive
+        if (baseHp.gt(0)) {
+          // Start a new wave
+          if (now >= nextWaveAt && enemies.length === 0) {
+            waveEndsAt = now + WAVE_DURATION_SECONDS * 1000;
+            nextSpawnAt = now;
+            nextWaveAt = now + WAVE_INTERVAL_SECONDS * 1000;
+          }
         }
 
         const waveActive = waveEndsAt > now;
 
         // Shield regen (only during active wave to create an energy conflict)
-        if (waveActive && shieldCount > 0 && shieldDef && shieldMaxHp.gt(0) && shieldHp.lt(shieldMaxHp) && dt > 0) {
+        if (baseHp.gt(0) && waveActive && shieldCount > 0 && shieldDef && shieldMaxHp.gt(0) && shieldHp.lt(shieldMaxHp) && dt > 0) {
           shieldEnergyNeedPerSecond = shieldDef.energyPerSecond.mul(shieldCount);
           const energyNeed = shieldEnergyNeedPerSecond.mul(dt);
           let ratio = D(1);
@@ -4812,7 +4893,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
             newResources.energy.amount = getBuf(buffers, baseKey, 'energy').min(newResources.energy.max);
 
-            const regen = shieldDef.shieldRegenPerSecond.mul(combatMult).mul(shieldCount).mul(dt).mul(ratio);
+            // Apply Shield Boost multiplier to regen
+            const regen = shieldDef.shieldRegenPerSecond.mul(combatMult).mul(aegisShieldBoostMult).mul(shieldCount).mul(dt).mul(ratio);
             shieldHp = shieldHp.add(regen).min(shieldMaxHp);
 
             shieldEnergyUsedPerSecond = shieldEnergyNeedPerSecond.mul(ratio);
@@ -4834,8 +4916,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
 
-        // Spawn enemies during active wave
-        if (waveEndsAt > now) {
+        // Spawn enemies during active wave (only if base is alive)
+        if (baseHp.gt(0) && waveEndsAt > now) {
           while (now >= nextSpawnAt && enemies.length < 40) {
             enemies.push(createEnemy());
             nextSpawnAt += SPAWN_INTERVAL_SECONDS * 1000;
@@ -4843,8 +4925,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
 
-        // Move enemies towards base; impact deals damage
-        if (enemies.length > 0) {
+        // Move enemies towards base; impact deals damage (only if base is alive)
+        if (baseHp.gt(0) && enemies.length > 0) {
           const moved: Enemy[] = [];
           for (const enemy of enemies) {
             const distance = enemy.distance - enemy.speed * dt;
@@ -4859,6 +4941,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               if (dmg.gt(0)) {
                 baseHp = baseHp.sub(dmg).max(D(0));
                 baseDamageTaken = baseDamageTaken.add(dmg);
+                lastDamageAt = now;
               }
               continue;
             }
@@ -4898,7 +4981,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
             newResources.energy.amount = getBuf(buffers, baseKey, 'energy').min(newResources.energy.max);
 
-            let damage = turretCombat.dps.mul(combatMult).mul(turretCount).mul(dt).mul(ratio);
+            // Apply Turret Overdrive multiplier to damage
+            let damage = turretCombat.dps.mul(combatMult).mul(aegisTurretOverdriveMult).mul(turretCount).mul(dt).mul(ratio);
             const nextEnemies: Enemy[] = enemies.map((e) => ({ ...e }));
 
             while (damage.gt(0) && nextEnemies.length > 0) {
@@ -4963,6 +5047,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (pierce.gt(0)) {
               baseHp = baseHp.sub(pierce).max(D(0));
               baseDamageTaken = baseDamageTaken.add(pierce);
+              lastDamageAt = now;
             }
           }
 
@@ -4977,6 +5062,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (dmg.gt(0)) {
               baseHp = baseHp.sub(dmg).max(D(0));
               baseDamageTaken = baseDamageTaken.add(dmg);
+              lastDamageAt = now;
             }
           }
         }
@@ -4993,6 +5079,33 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
 
+        // Auto Repair (Aegis) - works even during combat
+        const baseMaxHp = state.combat.baseMaxHp;
+        if (aegisAutoRepairPerSec > 0 && baseHp.gt(0) && baseHp.lt(baseMaxHp) && dt > 0) {
+          const autoRepairAmount = D(aegisAutoRepairPerSec).mul(dt);
+          baseHp = baseHp.add(autoRepairAmount).min(baseMaxHp);
+          baseRegenPerSecond = baseRegenPerSecond.add(aegisAutoRepairPerSec);
+        }
+
+        // Base HP regeneration when not in combat (after cooldown)
+        const timeSinceLastDamage = now - lastDamageAt;
+        const canRegen = enemies.length === 0 && 
+                         !waveActive && 
+                         timeSinceLastDamage >= BASE_REGEN_COOLDOWN_SECONDS * 1000 &&
+                         baseHp.lt(baseMaxHp) &&
+                         dt > 0;
+        
+        if (canRegen) {
+          const regenAmount = BASE_REGEN_PER_SECOND.mul(dt);
+          baseHp = baseHp.add(regenAmount).min(baseMaxHp);
+          baseRegenPerSecond = baseRegenPerSecond.add(BASE_REGEN_PER_SECOND);
+        }
+
+        // Clear enemies when base is destroyed
+        if (baseHp.lte(0) && enemies.length > 0) {
+          enemies = [];
+        }
+
         nextCombat = {
           ...state.combat,
           baseHp,
@@ -5002,6 +5115,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           nextWaveAt,
           waveEndsAt,
           nextSpawnAt,
+          lastDamageAt,
+          baseRegenPerSecond,
           defenseEnergyNeedPerSecond,
           defenseEnergyUsedPerSecond,
           defenseFireRatio,
@@ -6012,6 +6127,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextWaveAt: state.combat.nextWaveAt,
         waveEndsAt: state.combat.waveEndsAt,
         nextSpawnAt: state.combat.nextSpawnAt,
+        lastDamageAt: state.combat.lastDamageAt,
+        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
         enemies: state.combat.enemies.map((e) => ({
           id: e.id,
           type: e.type,
@@ -6154,6 +6271,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextWaveAt: state.combat.nextWaveAt,
         waveEndsAt: state.combat.waveEndsAt,
         nextSpawnAt: state.combat.nextSpawnAt,
+        lastDamageAt: state.combat.lastDamageAt,
+        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
         enemies: state.combat.enemies.map((e) => ({
           id: e.id,
           type: e.type,
@@ -6449,6 +6568,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               nextWaveAt: typeof save.combat.nextWaveAt === 'number' ? save.combat.nextWaveAt : state.combat.nextWaveAt,
               waveEndsAt: typeof save.combat.waveEndsAt === 'number' ? save.combat.waveEndsAt : state.combat.waveEndsAt,
               nextSpawnAt: typeof save.combat.nextSpawnAt === 'number' ? save.combat.nextSpawnAt : state.combat.nextSpawnAt,
+              lastDamageAt: typeof save.combat.lastDamageAt === 'number' ? save.combat.lastDamageAt : 0,
+              baseRegenPerSecond: D(save.combat.baseRegenPerSecond ?? 0),
               defenseEnergyNeedPerSecond: D(save.combat.defenseEnergyNeedPerSecond ?? 0),
               defenseEnergyUsedPerSecond: D(save.combat.defenseEnergyUsedPerSecond ?? 0),
               defenseFireRatio: D(save.combat.defenseFireRatio ?? 0),
@@ -6471,6 +6592,15 @@ export const useGameStore = create<GameState>((set, get) => ({
                 encryption: typeof save.aegis.levels?.encryption === 'number'
                   ? Math.max(0, save.aegis.levels.encryption)
                   : state.aegis.levels.encryption,
+                shield_boost: typeof save.aegis.levels?.shield_boost === 'number'
+                  ? Math.max(0, save.aegis.levels.shield_boost)
+                  : state.aegis.levels.shield_boost,
+                turret_overdrive: typeof save.aegis.levels?.turret_overdrive === 'number'
+                  ? Math.max(0, save.aegis.levels.turret_overdrive)
+                  : state.aegis.levels.turret_overdrive,
+                auto_repair: typeof save.aegis.levels?.auto_repair === 'number'
+                  ? Math.max(0, save.aegis.levels.auto_repair)
+                  : state.aegis.levels.auto_repair,
               },
             }
           : state.aegis;
@@ -6706,6 +6836,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextWaveAt: state.combat.nextWaveAt,
         waveEndsAt: state.combat.waveEndsAt,
         nextSpawnAt: state.combat.nextSpawnAt,
+        lastDamageAt: state.combat.lastDamageAt,
+        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
         enemies: state.combat.enemies.map((e) => ({
           id: e.id,
           type: e.type,
@@ -7167,6 +7299,9 @@ export const useGameStore = create<GameState>((set, get) => ({
               levels: {
                 smart_targeting: typeof save.aegis.levels?.smart_targeting === 'number' ? Math.max(0, save.aegis.levels.smart_targeting) : state.aegis.levels.smart_targeting,
                 encryption: typeof save.aegis.levels?.encryption === 'number' ? Math.max(0, save.aegis.levels.encryption) : state.aegis.levels.encryption,
+                shield_boost: typeof save.aegis.levels?.shield_boost === 'number' ? Math.max(0, save.aegis.levels.shield_boost) : state.aegis.levels.shield_boost,
+                turret_overdrive: typeof save.aegis.levels?.turret_overdrive === 'number' ? Math.max(0, save.aegis.levels.turret_overdrive) : state.aegis.levels.turret_overdrive,
+                auto_repair: typeof save.aegis.levels?.auto_repair === 'number' ? Math.max(0, save.aegis.levels.auto_repair) : state.aegis.levels.auto_repair,
               },
             }
           : state.aegis;
