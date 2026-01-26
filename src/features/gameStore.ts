@@ -375,7 +375,7 @@ const INITIAL_GALAXIES: import('../core/gameTypes').GalaxiesState = {
   unlockedGalaxies: ['galaxy_1_nebula_beginning'],
   platforms: [],
   autoTransportEnabled: false,
-  fuelReserve: D(0),
+  fuelReserve: D(1000), // Начальный запас топлива
   notifications: [],
 };
 
@@ -6275,6 +6275,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         eventsEnabled: state.randomEvents.eventsEnabled,
         eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
       },
+      achievements: {
+        unlocked: state.achievements.unlocked,
+        recentlyUnlocked: state.achievements.recentlyUnlocked,
+      },
       grid: state.grid,
       lastTick: state.lastTick,
     };
@@ -6418,6 +6422,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextEventAt: state.randomEvents.nextEventAt,
         eventsEnabled: state.randomEvents.eventsEnabled,
         eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
+      },
+      achievements: {
+        unlocked: state.achievements.unlocked,
+        recentlyUnlocked: state.achievements.recentlyUnlocked,
       },
       grid: state.grid,
       lastTick: state.lastTick,
@@ -6831,6 +6839,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           grid: expandedGrid,
           pollution: save.pollution ?? state.pollution,
           nanoSwarm: save.nanoSwarm ?? state.nanoSwarm,
+          achievements: save.achievements && typeof save.achievements === 'object'
+            ? {
+                unlocked: typeof save.achievements.unlocked === 'object' ? save.achievements.unlocked : {},
+                recentlyUnlocked: Array.isArray(save.achievements.recentlyUnlocked)
+                  ? save.achievements.recentlyUnlocked
+                  : [],
+              }
+            : INITIAL_ACHIEVEMENTS,
         };
       });
       
@@ -6983,6 +6999,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextEventAt: state.randomEvents.nextEventAt,
         eventsEnabled: state.randomEvents.eventsEnabled,
         eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
+      },
+      achievements: {
+        unlocked: state.achievements.unlocked,
+        recentlyUnlocked: state.achievements.recentlyUnlocked,
       },
       grid: state.grid,
       lastTick: state.lastTick,
@@ -7957,6 +7977,26 @@ export const useGameStore = create<GameState>((set, get) => ({
         autoTransportEnabled: !state.galaxies.autoTransportEnabled,
       },
     }));
+  },
+
+  buyFuel: (amount: number) => {
+    set((state) => {
+      const cost = D(amount * 10); // 10 кредитов за единицу топлива
+      if (state.currency.credits.lt(cost)) {
+        return state;
+      }
+      
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(cost),
+        },
+        galaxies: {
+          ...state.galaxies,
+          fuelReserve: state.galaxies.fuelReserve.add(amount),
+        },
+      };
+    });
   },
 
   setActivePlatform: (platformId: string | null) => {

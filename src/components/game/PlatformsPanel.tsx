@@ -125,10 +125,32 @@ export function PlatformsPanel() {
           </button>
         </div>
         {autoTransportEnabled && (
-          <div className="mt-3 pt-3 border-t border-gray-700 flex items-center gap-2 text-sm">
-            <span className="text-gray-400">Топливный резерв:</span>
-            <span className="text-cyan-400 font-semibold">{formatNumber(fuelReserve)}</span>
-            <span className="text-gray-500">единиц</span>
+          <div className="mt-3 pt-3 border-t border-gray-700">
+            <div className="flex items-center gap-2 text-sm mb-2">
+              <span className="text-gray-400">Топливный резерв:</span>
+              <span className={`font-semibold ${fuelReserve.lt(10) ? 'text-red-400' : 'text-cyan-400'}`}>
+                {formatNumber(fuelReserve)}
+              </span>
+              <span className="text-gray-500">единиц</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (credits.gte(1000)) {
+                    useGameStore.getState().buyFuel(100);
+                    notify.success('Куплено 100 единиц топлива!');
+                  } else {
+                    notify.warning('Недостаточно кредитов! (нужно 1,000)');
+                  }
+                }}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-all"
+              >
+                ⛽ +100 топлива (1,000💰)
+              </button>
+              <span className="text-xs text-gray-500">
+                Расход: 0.1/сек за платформу
+              </span>
+            </div>
           </div>
         )}
       </div>
@@ -395,12 +417,25 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
           const cost = calculateCost(level, upgradeType);
           const Icon = getUpgradeIcon(upgradeType);
           const label = getUpgradeLabel(upgradeType);
+          
+          // Описания для каждого типа улучшения
+          const getUpgradeDescription = (type: 'defense' | 'mining' | 'storage', lvl: number) => {
+            switch (type) {
+              case 'defense':
+                return `Увеличивает HP, броню и щит платформы.\nТекущий бонус: +${(lvl * 50)}% к защите`;
+              case 'mining':
+                return `Ускоряет добычу ресурсов зданиями на платформе.\nТекущий бонус: +${(lvl * 50)}% к скорости добычи`;
+              case 'storage':
+                return `Увеличивает максимальное хранилище ресурсов.\nТекущий бонус: +${(lvl * 50)}% к вместимости`;
+            }
+          };
 
           return (
             <button
               key={upgradeType}
               onClick={() => onUpgrade(platform.id, upgradeType)}
               className="bg-gray-700/50 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-lg p-3 transition-all group"
+              title={getUpgradeDescription(upgradeType, level)}
             >
               <div className="flex flex-col items-center gap-1">
                 <Icon className="text-gray-400 group-hover:text-white transition-colors" size={20} />
@@ -420,21 +455,21 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
       <div className="mt-4 pt-4 border-t border-gray-700">
         <div className="text-xs text-gray-400 space-y-1">
           <div className="flex items-center justify-between">
-            <span>Уровень защиты:</span>
+            <span>🛡️ Бонус защиты:</span>
             <span className="text-purple-400 font-semibold">
-              {defenseLevel}
+              +{(defenseLevel * 50)}%
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span>Скорость добычи:</span>
+            <span>⚡ Бонус добычи:</span>
             <span className="text-green-400 font-semibold">
-              +{((1 + miningLevel * 0.5) * 100).toFixed(0)}%
+              +{(miningLevel * 50)}%
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span>Вместимость:</span>
+            <span>📦 Бонус хранилища:</span>
             <span className="text-blue-400 font-semibold">
-              {1 + storageLevel}x
+              +{(storageLevel * 50)}%
             </span>
           </div>
         </div>

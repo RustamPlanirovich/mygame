@@ -1088,6 +1088,7 @@ export interface GameState {
   upgradePlatform: (platformId: string, upgradeType: 'defense' | 'mining' | 'storage') => void;
   removePlatform: (platformId: string) => void;
   toggleAutoTransport: () => void;
+  buyFuel: (amount: number) => void;
   setActivePlatform: (platformId: string | null) => void;
   // Fleet system actions
   buildShip: (shipType: ShipType) => void;
