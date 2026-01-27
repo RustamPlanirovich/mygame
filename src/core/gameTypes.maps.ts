@@ -27,7 +27,8 @@ export type MapModifier =
   | 'asteroid_field'      // Много мелких островков
   | 'trade_hub'           // Бонус к торговле
   | 'isolated'            // Нет торговли
-  | 'ancient_ruins';      // Можно найти артефакты
+  | 'ancient_ruins'       // Можно найти артефакты
+  | 'unlimited';          // Творческий режим - без ограничений
 
 // Тема оформления карты
 export interface MapTheme {

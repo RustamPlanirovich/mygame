@@ -3,7 +3,19 @@ import { formatNumber } from '../../core/math/format';
 import { TECHNOLOGIES } from '../../core/constants/technologies';
 import { ACHIEVEMENTS } from '../../core/constants/achievements';
 import { GALAXIES } from '../../core/constants/galaxies';
-import { UserCircle } from 'lucide-react';
+import { getMapDefinition } from '../../core/constants/maps';
+import { UserCircle, Clock, Map } from 'lucide-react';
+
+// Форматирование времени игры
+function formatPlaytime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  
+  if (hours > 0) {
+    return `${hours}ч ${minutes}м`;
+  }
+  return `${minutes}м`;
+}
 
 interface DashboardProps {
   onOpenProfile: () => void;
@@ -18,6 +30,15 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const combat = useGameStore(state => state.combat);
   const achievementsData = useGameStore(state => state.achievements);
   const artifacts = useGameStore(state => state.artifacts);
+  const stats = useGameStore(state => state.stats);
+  const maps = useGameStore(state => state.maps);
+  
+  // Вычисляем общее время игры (сохранённое + текущая сессия)
+  const totalPlaytimeSeconds = (stats?.totalPlayTime ?? 0) + 
+    (stats?.currentSessionStart ? Math.floor((Date.now() - stats.currentSessionStart) / 1000) : 0);
+  
+  // Текущая карта
+  const currentMap = maps?.currentMapId ? getMapDefinition(maps.currentMapId) : null;
 
   type StatItem = {
     label: string;
@@ -193,6 +214,26 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
         
         {/* Подсказка о справке и кнопка профиля */}
         <div className="shrink-0 flex items-center gap-2">
+          {/* Время игры */}
+          <div 
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/30 border border-cyber-gray/20"
+            title={`Общее время игры: ${formatPlaytime(totalPlaytimeSeconds)}`}
+          >
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-xs text-cyan-400 font-medium">{formatPlaytime(totalPlaytimeSeconds)}</span>
+          </div>
+          
+          {/* Текущая карта */}
+          {currentMap && (
+            <div 
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/30 border border-cyber-gray/20"
+              title={`Текущая карта: ${currentMap.name}`}
+            >
+              <span className="text-sm">{currentMap.emoji}</span>
+              <span className="text-xs text-cyber-text-dim">{currentMap.name}</span>
+            </div>
+          )}
+          
           <div className="text-[10px] text-cyber-text-dim px-2 py-1 bg-cyber-dark/30 rounded border border-cyber-gray/20">
             Нажмите <kbd className="px-1 py-0.5 bg-cyber-gray/50 text-cyber-green rounded text-[9px] font-mono">F1</kbd> для справки
           </div>

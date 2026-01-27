@@ -9,6 +9,7 @@ import {
   BUILDING_MODES,
   PRIORITY_LABELS,
   SETTINGS_PRESETS,
+  applyPreset,
   type BuildingMode,
   type ResourcePriority,
   type TileBuildingSettings,
@@ -208,8 +209,9 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
               <button
                 key={preset.id}
                 onClick={() => {
-                  setBuildingMode(tileKey, preset.mode);
-                  setOutputPriority(tileKey, preset.outputPriority);
+                  // Применяем пресет полностью через applyPreset
+                  const newSettings = applyPreset(settings, preset.id, producedResources);
+                  updateTileSettings(tileKey, newSettings);
                 }}
                 className="px-3 py-1.5 text-sm bg-cyber-dark border border-cyber-border rounded hover:border-cyber-blue transition-colors"
                 title={preset.description}

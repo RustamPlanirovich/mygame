@@ -423,10 +423,14 @@ export function createDefaultTileSettings(
 
 /**
  * Применить пресет к настройкам
+ * @param settings - текущие настройки
+ * @param presetId - ID пресета
+ * @param producedResources - список ресурсов, которые производит здание (для авто-продажи)
  */
 export function applyPreset(
   settings: TileBuildingSettings,
-  presetId: SettingsPresetId
+  presetId: SettingsPresetId,
+  producedResources?: ResourceType[]
 ): TileBuildingSettings {
   const preset = SETTINGS_PRESETS[presetId];
   if (!preset) return settings;
@@ -435,10 +439,16 @@ export function applyPreset(
   newSettings.mode = preset.mode;
   newSettings.outputPriority = preset.outputPriority;
   
-  // Если пресет предполагает авто-продажу
-  if (preset.autoSellThreshold !== undefined && newSettings.autoSell.length === 0) {
-    // Здесь можно добавить логику создания autoSell конфигов
-    // на основе производимых ресурсов здания
+  // Если пресет предполагает авто-продажу и есть ресурсы для продажи
+  if (preset.autoSellThreshold !== undefined && producedResources && producedResources.length > 0) {
+    // Создаём autoSell конфиги для всех производимых ресурсов
+    const newAutoSell: AutoSellConfig[] = producedResources.map(resource => ({
+      enabled: true,
+      resource,
+      threshold: preset.autoSellThreshold!,
+      keepAmount: '0',
+    }));
+    newSettings.autoSell = newAutoSell;
   }
   
   return newSettings;

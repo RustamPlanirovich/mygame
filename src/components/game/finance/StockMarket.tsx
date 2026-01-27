@@ -124,10 +124,10 @@ export function StockMarket() {
       )}
       
       {/* Фильтры */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1 flex-wrap">
         <button
           onClick={() => setFilterSector('all')}
-          className={`px-3 py-1.5 rounded text-sm ${
+          className={`px-2 py-1 rounded text-xs ${
             filterSector === 'all' ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
           }`}
         >
@@ -137,7 +137,7 @@ export function StockMarket() {
           <button
             key={sector}
             onClick={() => setFilterSector(sector)}
-            className={`px-3 py-1.5 rounded text-sm ${
+            className={`px-2 py-1 rounded text-xs ${
               filterSector === sector ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
             }`}
           >
@@ -148,35 +148,34 @@ export function StockMarket() {
       
       {/* Таблица акций */}
       <div className="bg-slate-800 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs">
           <thead className="bg-slate-700">
             <tr>
               <th 
-                className="text-left p-3 cursor-pointer hover:bg-slate-600"
+                className="text-left p-2 cursor-pointer hover:bg-slate-600"
                 onClick={() => handleSort('symbol')}
               >
                 Тикер {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
               <th 
-                className="text-right p-3 cursor-pointer hover:bg-slate-600"
+                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
                 onClick={() => handleSort('price')}
               >
                 Цена {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
               <th 
-                className="text-right p-3 cursor-pointer hover:bg-slate-600"
+                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
                 onClick={() => handleSort('change')}
               >
                 Изм. {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
               <th 
-                className="text-right p-3 cursor-pointer hover:bg-slate-600"
+                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
                 onClick={() => handleSort('dividend')}
               >
                 Див. {sortBy === 'dividend' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
-              <th className="text-right p-3">Ваши</th>
-              <th className="text-center p-3">Действия</th>
+              <th className="text-right p-2 whitespace-nowrap">Ваши</th>
             </tr>
           </thead>
           <tbody>
@@ -192,96 +191,91 @@ export function StockMarket() {
                   }`}
                   onClick={() => setSelectedStock(stock)}
                 >
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{stock.emoji}</span>
+                  <td className="p-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-base">{stock.emoji}</span>
                       <div>
-                        <div className="font-bold">{stock.symbol}</div>
-                        <div className="text-xs text-slate-400">{stock.name}</div>
+                        <div className="font-bold text-sm">{stock.symbol}</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[80px]">{stock.name}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="text-right p-3 font-mono">
+                  <td className="text-right p-2 font-mono whitespace-nowrap">
                     {formatNumber(D(stock.currentPrice))} ₡
                   </td>
-                  <td className={`text-right p-3 font-mono ${
+                  <td className={`text-right p-2 font-mono whitespace-nowrap ${
                     stock.dayChange > 0 ? 'text-green-400' : stock.dayChange < 0 ? 'text-red-400' : ''
                   }`}>
-                    {stock.dayChange > 0 ? '+' : ''}{stock.dayChange.toFixed(2)}%
+                    {stock.dayChange > 0 ? '+' : ''}{stock.dayChange.toFixed(1)}%
                   </td>
-                  <td className="text-right p-3 text-emerald-400">
+                  <td className="text-right p-2 text-emerald-400 whitespace-nowrap">
                     {stock.dividendYield > 0 ? `${(stock.dividendYield * 100).toFixed(1)}%` : '-'}
                   </td>
-                  <td className="text-right p-3">
+                  <td className="text-right p-2 whitespace-nowrap">
                     {position ? (
                       <div>
-                        <div>{formatNumber(D(position.shares))}</div>
-                        <div className={`text-xs ${
+                        <div className="font-medium">{formatNumber(D(position.shares))}</div>
+                        <div className={`text-[10px] ${
                           D(position.unrealizedPnL).gt(0) ? 'text-green-400' : 
                           D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
                         }`}>
                           {D(position.unrealizedPnL).gt(0) ? '+' : ''}
-                          {formatNumber(D(position.unrealizedPnL))} ₡
+                          {formatNumber(D(position.unrealizedPnL))}
                         </div>
                       </div>
                     ) : (
                       <span className="text-slate-500">-</span>
                     )}
                   </td>
-                  <td className="text-center p-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedStock(stock);
-                      }}
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs"
-                    >
-                      Торговать
-                    </button>
-                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        <div className="text-[10px] text-slate-500 text-center py-1 border-t border-slate-700">
+          Нажмите на акцию для торговли
+        </div>
       </div>
       
       {/* Панель торговли */}
       {selectedStock && (
         <div className="bg-slate-800 rounded-lg p-4">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                {selectedStock.emoji} {selectedStock.symbol}
-              </h3>
-              <div className="text-slate-400">{selectedStock.name}</div>
-              <div className="text-sm mt-1">{selectedStock.description}</div>
+          <div className="flex justify-between items-start mb-3">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{selectedStock.emoji}</span>
+              <div>
+                <h3 className="font-bold text-lg">{selectedStock.symbol}</h3>
+                <div className="text-sm text-slate-400">{selectedStock.name}</div>
+              </div>
             </div>
             <button
               onClick={() => setSelectedStock(null)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white text-xl"
             >
               ✕
             </button>
           </div>
           
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400 text-xs">Цена</div>
-              <div className="font-bold">{formatNumber(D(selectedStock.currentPrice))} ₡</div>
+          <p className="text-sm text-slate-300 mb-3">{selectedStock.description}</p>
+          
+          {/* Компактные метрики */}
+          <div className="grid grid-cols-4 gap-2 mb-3 text-xs">
+            <div className="bg-slate-700/70 rounded px-2 py-1.5">
+              <div className="text-slate-400">Цена</div>
+              <div className="font-bold text-sm">{formatNumber(D(selectedStock.currentPrice))} ₡</div>
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400 text-xs">Изменение</div>
-              <div className={`font-bold ${
+            <div className="bg-slate-700/70 rounded px-2 py-1.5">
+              <div className="text-slate-400">Изменение</div>
+              <div className={`font-bold text-sm ${
                 selectedStock.dayChange > 0 ? 'text-green-400' : 
                 selectedStock.dayChange < 0 ? 'text-red-400' : ''
               }`}>
                 {selectedStock.dayChange > 0 ? '+' : ''}{selectedStock.dayChange.toFixed(2)}%
               </div>
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400 text-xs">Волатильность</div>
-              <div className={`font-bold ${
+            <div className="bg-slate-700/70 rounded px-2 py-1.5">
+              <div className="text-slate-400">Волатильность</div>
+              <div className={`font-bold text-sm ${
                 selectedStock.volatility === 'extreme' ? 'text-red-400' :
                 selectedStock.volatility === 'very_high' ? 'text-orange-400' :
                 selectedStock.volatility === 'high' ? 'text-yellow-400' : ''
@@ -289,104 +283,111 @@ export function StockMarket() {
                 {selectedStock.volatility}
               </div>
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400 text-xs">Дивиденды</div>
-              <div className="font-bold text-emerald-400">
+            <div className="bg-slate-700/70 rounded px-2 py-1.5">
+              <div className="text-slate-400">Дивиденды</div>
+              <div className="font-bold text-sm text-emerald-400">
                 {selectedStock.dividendYield > 0 ? `${(selectedStock.dividendYield * 100).toFixed(1)}%` : '-'}
               </div>
             </div>
           </div>
           
-          {/* Ваша позиция */}
+          {/* Ваша позиция - компактно */}
           {(() => {
             const position = getPosition(selectedStock.id);
             if (!position) return null;
             
             return (
-              <div className="bg-slate-700/50 rounded p-3 mb-4">
-                <h4 className="font-medium mb-2">Ваша позиция</h4>
-                <div className="grid grid-cols-4 gap-2 text-sm">
-                  <div>
-                    <div className="text-slate-400">Акций</div>
-                    <div className="font-medium">{formatNumber(D(position.shares))}</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-400">Ср. цена</div>
-                    <div className="font-medium">{formatNumber(D(position.avgBuyPrice))} ₡</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-400">Стоимость</div>
-                    <div className="font-medium">{formatNumber(D(position.currentValue))} ₡</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-400">P&L</div>
-                    <div className={`font-medium ${
-                      D(position.unrealizedPnL).gt(0) ? 'text-green-400' : 
-                      D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
-                    }`}>
-                      {D(position.unrealizedPnL).gt(0) ? '+' : ''}
-                      {formatNumber(D(position.unrealizedPnL))} ₡
-                      ({position.unrealizedPnLPercent.toFixed(1)}%)
-                    </div>
-                  </div>
+              <div className="bg-slate-700/30 border border-slate-600 rounded p-2 mb-3 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Ваши акции:</span>
+                  <span className="font-medium">{formatNumber(D(position.shares))} шт.</span>
+                  <span className="text-slate-400">Ср. цена:</span>
+                  <span className="font-medium">{formatNumber(D(position.avgBuyPrice))} ₡</span>
+                  <span className="text-slate-400">P&L:</span>
+                  <span className={`font-medium ${
+                    D(position.unrealizedPnL).gt(0) ? 'text-green-400' : 
+                    D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
+                  }`}>
+                    {D(position.unrealizedPnL).gt(0) ? '+' : ''}
+                    {formatNumber(D(position.unrealizedPnL))} ₡
+                  </span>
                 </div>
               </div>
             );
           })()}
           
-          {/* Покупка/Продажа */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h4 className="font-medium mb-2 text-green-400">📈 Купить</h4>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={buyAmount}
-                  onChange={(e) => setBuyAmount(e.target.value)}
-                  placeholder="Кол-во акций"
-                  className="flex-1 bg-slate-700 rounded px-3 py-2"
-                />
-                <button
-                  onClick={handleBuy}
-                  disabled={!buyAmount || D(buyAmount).lte(0)}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 rounded"
-                >
-                  Купить
-                </button>
+          {/* Покупка/Продажа - улучшенный UI */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Покупка */}
+            <div className="bg-green-900/20 border border-green-700/30 rounded p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-green-400">📈</span>
+                <span className="font-medium text-green-400">Купить</span>
               </div>
-              {buyAmount && D(buyAmount).gt(0) && (
-                <div className="text-sm text-slate-400 mt-1">
-                  Итого: {formatNumber(D(buyAmount).mul(D(selectedStock.currentPrice)))} ₡
-                  <span className="text-xs ml-1">
-                    (+{(FINANCE_CONFIG.STOCK_TRADING_FEE * 100).toFixed(1)}% комиссия)
-                  </span>
-                </div>
-              )}
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={buyAmount}
+                onChange={(e) => setBuyAmount(e.target.value)}
+                placeholder="Кол-во акций"
+                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 mb-2 text-sm focus:border-green-500 focus:outline-none"
+              />
+              <div className="text-xs text-slate-400 mb-2 h-8">
+                {buyAmount && parseFloat(buyAmount) > 0 ? (
+                  <>
+                    Итого: {formatNumber(D(buyAmount).mul(D(selectedStock.currentPrice)))} ₡
+                    <span className="text-slate-500 ml-1">
+                      (+{(FINANCE_CONFIG.STOCK_TRADING_FEE * 100).toFixed(1)}% комиссия)
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-slate-500">Введите количество акций</span>
+                )}
+              </div>
+              <button
+                onClick={handleBuy}
+                disabled={!buyAmount || parseFloat(buyAmount) <= 0}
+                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded font-medium transition-colors"
+              >
+                Купить
+              </button>
             </div>
             
-            <div>
-              <h4 className="font-medium mb-2 text-red-400">📉 Продать</h4>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={sellAmount}
-                  onChange={(e) => setSellAmount(e.target.value)}
-                  placeholder="Кол-во акций"
-                  className="flex-1 bg-slate-700 rounded px-3 py-2"
-                />
-                <button
-                  onClick={handleSell}
-                  disabled={!sellAmount || D(sellAmount).lte(0) || !getPosition(selectedStock.id)}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-600 rounded"
-                >
-                  Продать
-                </button>
+            {/* Продажа */}
+            <div className="bg-red-900/20 border border-red-700/30 rounded p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-red-400">📉</span>
+                <span className="font-medium text-red-400">Продать</span>
               </div>
-              {sellAmount && D(sellAmount).gt(0) && (
-                <div className="text-sm text-slate-400 mt-1">
-                  Получите: {formatNumber(D(sellAmount).mul(D(selectedStock.currentPrice)).mul(1 - FINANCE_CONFIG.STOCK_TRADING_FEE))} ₡
-                </div>
-              )}
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={sellAmount}
+                onChange={(e) => setSellAmount(e.target.value)}
+                placeholder="Кол-во акций"
+                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 mb-2 text-sm focus:border-red-500 focus:outline-none"
+                disabled={!getPosition(selectedStock.id)}
+              />
+              <div className="text-xs text-slate-400 mb-2 h-8">
+                {sellAmount && parseFloat(sellAmount) > 0 ? (
+                  <>
+                    Получите: {formatNumber(D(sellAmount).mul(D(selectedStock.currentPrice)).mul(1 - FINANCE_CONFIG.STOCK_TRADING_FEE))} ₡
+                  </>
+                ) : getPosition(selectedStock.id) ? (
+                  <span className="text-slate-500">Введите количество акций</span>
+                ) : (
+                  <span className="text-slate-500">У вас нет этих акций</span>
+                )}
+              </div>
+              <button
+                onClick={handleSell}
+                disabled={!sellAmount || parseFloat(sellAmount) <= 0 || !getPosition(selectedStock.id)}
+                className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded font-medium transition-colors"
+              >
+                Продать
+              </button>
             </div>
           </div>
         </div>

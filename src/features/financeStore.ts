@@ -59,6 +59,8 @@ interface FinanceStore extends FinanceState {
   // Банковские операции
   depositToSavings: (amount: Decimal) => boolean;
   withdrawFromSavings: (amount: Decimal) => boolean;
+  depositToBank: (amount: Decimal) => void;  // Перевод кредитов игры -> bank.balance
+  withdrawFromBank: (amount: Decimal) => boolean;  // Перевод bank.balance -> кредиты игры
   processInterest: () => void;
   
   // Кредиты
@@ -178,6 +180,40 @@ export const useFinanceStore = create<FinanceStore>()(
         return true;
       },
       
+      // Перевод кредитов игры -> расчётный счёт банка
+      depositToBank: (amount: Decimal) => {
+        const state = get();
+        const newBalance = D(state.bank.balance).add(amount);
+        
+        set({
+          bank: {
+            ...state.bank,
+            balance: newBalance.toString(),
+          },
+        });
+      },
+      
+      // Перевод с расчётного счёта банка -> кредиты игры
+      withdrawFromBank: (amount: Decimal) => {
+        const state = get();
+        const currentBalance = D(state.bank.balance);
+        
+        if (amount.gt(currentBalance)) {
+          return false;
+        }
+        
+        const newBalance = currentBalance.sub(amount);
+        
+        set({
+          bank: {
+            ...state.bank,
+            balance: newBalance.toString(),
+          },
+        });
+        
+        return true;
+      },
+      
       processInterest: () => {
         const state = get();
         const now = Date.now();
@@ -199,10 +235,9 @@ export const useFinanceStore = create<FinanceStore>()(
         }
         
         // Рассчитываем проценты
+        // interestRate - это ставка за один период (5 минут), например 0.02 = 2%
         const periods = Math.floor(timeSinceLastInterest / FINANCE_CONFIG.INTEREST_INTERVAL_MS);
-        const yearMs = 365 * 24 * 60 * 60 * 1000;
-        const periodsPerYear = yearMs / FINANCE_CONFIG.INTEREST_INTERVAL_MS;
-        const ratePerPeriod = state.bank.interestRate / periodsPerYear;
+        const ratePerPeriod = state.bank.interestRate; // Ставка напрямую за период
         
         // Сложные проценты
         const multiplier = Math.pow(1 + ratePerPeriod, periods);
@@ -911,10 +946,6 @@ export const useFinanceStore = create<FinanceStore>()(
         }
         
         set({
-          bank: {
-            ...state.bank,
-            balance: creditsBalance.toString(),
-          },
           liquidAssets: liquidAssets.toString(),
           totalDebt: totalDebt.toString(),
           netWorth: netWorth.toString(),
@@ -978,6 +1009,12 @@ export const useFinanceStore = create<FinanceStore>()(
         lastDividendPayout: state.lastDividendPayout,
         stats: state.stats,
       }),
+      onRehydrateStorage: () => (state) => {
+        // После восстановления из storage, инициализируем акции и фонды
+        if (state && state.stocks.length === 0) {
+          state.initializeFinance();
+        }
+      },
     }
   )
 );

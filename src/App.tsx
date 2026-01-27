@@ -74,8 +74,14 @@ function App() {
   const maps = useGameStore(state => state.maps);
   const research = useGameStore(state => state.research);
   const ascension = useGameStore(state => state.ascension);
+  const stats = useGameStore(state => state.stats);
   const selectMap = useGameStore(state => state.selectMap);
   const startMap = useGameStore(state => state.startMap);
+  
+  // Вычисляем общее время игры в часах (сохранённое + текущая сессия)
+  const totalPlaytimeSeconds = (stats?.totalPlayTime ?? 0) + 
+    (stats?.currentSessionStart ? Math.floor((Date.now() - stats.currentSessionStart) / 1000) : 0);
+  const playtimeHours = totalPlaytimeSeconds / 3600;
   
   // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
   const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
@@ -393,7 +399,7 @@ function App() {
         <MapSelector
           unlockedTechnologies={new Set(research.unlocked)}
           ascensionLevel={ascension?.level ?? 0}
-          playtimeHours={0}
+          playtimeHours={playtimeHours}
           currentMapId={maps?.currentMapId ?? undefined}
           onSelectMap={(mapId) => {
             selectMap(mapId as any);

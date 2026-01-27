@@ -80,9 +80,15 @@ export function SidePanelTabs() {
   // Обёртка для передачи в FinancePanel
   const handleFinanceTransfer = (amount: Decimal, direction: 'toBank' | 'fromBank') => {
     if (direction === 'toBank') {
+      // Переводим кредиты игры в расчётный счёт банка
       spendCredits(amount);
+      useFinanceStore.getState().depositToBank(amount);
     } else {
-      addCredits(amount);
+      // Переводим с расчётного счёта банка в кредиты игры
+      const success = useFinanceStore.getState().withdrawFromBank(amount);
+      if (success) {
+        addCredits(amount);
+      }
     }
   };
   

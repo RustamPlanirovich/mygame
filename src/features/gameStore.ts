@@ -1935,7 +1935,7 @@ const initializeBuildingProximityRules = (buildings: Building[]): Building[] => 
 const BUILDINGS_WITH_PROXIMITY = initializeBuildingProximityRules(INITIAL_BUILDINGS);
 
 const INITIAL_RESOURCES = {
-  energy: { amount: D(50), max: D(100), production: D(0) },
+  energy: { amount: D(50), max: D(500), production: D(0) },
   ore: { amount: D(0), max: D(1000), production: D(0) },
   ice: { amount: D(0), max: D(800), production: D(0) },
   carbon: { amount: D(0), max: D(800), production: D(0) },
@@ -2156,101 +2156,9 @@ const recomputeCaps = (
 ) => {
   const next = { ...resources };
 
-  // Используем максимум между базовым значением и текущим max ресурса
-  // (текущий max может быть увеличен картой через startMap)
-  const caps: Record<ResourceType, Decimal> = {
-    energy: resources.energy.max.gt(BASE_RESOURCE_MAX.energy) ? resources.energy.max : BASE_RESOURCE_MAX.energy,
-    ore: resources.ore.max.gt(BASE_RESOURCE_MAX.ore) ? resources.ore.max : BASE_RESOURCE_MAX.ore,
-    ice: resources.ice.max.gt(BASE_RESOURCE_MAX.ice) ? resources.ice.max : BASE_RESOURCE_MAX.ice,
-    carbon: resources.carbon.max.gt(BASE_RESOURCE_MAX.carbon) ? resources.carbon.max : BASE_RESOURCE_MAX.carbon,
-    steel: resources.steel.max.gt(BASE_RESOURCE_MAX.steel) ? resources.steel.max : BASE_RESOURCE_MAX.steel,
-    dark_matter: resources.dark_matter.max.gt(BASE_RESOURCE_MAX.dark_matter) ? resources.dark_matter.max : BASE_RESOURCE_MAX.dark_matter,
-    // Фаза 2: Базовые новые ресурсы
-    natural_gas: resources.natural_gas.max.gt(BASE_RESOURCE_MAX.natural_gas) ? resources.natural_gas.max : BASE_RESOURCE_MAX.natural_gas,
-    oil: resources.oil.max.gt(BASE_RESOURCE_MAX.oil) ? resources.oil.max : BASE_RESOURCE_MAX.oil,
-    gasoline: resources.gasoline.max.gt(BASE_RESOURCE_MAX.gasoline) ? resources.gasoline.max : BASE_RESOURCE_MAX.gasoline,
-    plastic: resources.plastic.max.gt(BASE_RESOURCE_MAX.plastic) ? resources.plastic.max : BASE_RESOURCE_MAX.plastic,
-    glass: resources.glass.max.gt(BASE_RESOURCE_MAX.glass) ? resources.glass.max : BASE_RESOURCE_MAX.glass,
-    chemicals: resources.chemicals.max.gt(BASE_RESOURCE_MAX.chemicals) ? resources.chemicals.max : BASE_RESOURCE_MAX.chemicals,
-    sand: resources.sand.max.gt(BASE_RESOURCE_MAX.sand) ? resources.sand.max : BASE_RESOURCE_MAX.sand,
-    // Фаза 2.3: Металлические ресурсы
-    uranium: resources.uranium.max.gt(BASE_RESOURCE_MAX.uranium) ? resources.uranium.max : BASE_RESOURCE_MAX.uranium,
-    chrome: resources.chrome.max.gt(BASE_RESOURCE_MAX.chrome) ? resources.chrome.max : BASE_RESOURCE_MAX.chrome,
-    titanium: resources.titanium.max.gt(BASE_RESOURCE_MAX.titanium) ? resources.titanium.max : BASE_RESOURCE_MAX.titanium,
-    // Фаза 2.4-2.5: Продвинутые ресурсы
-    copper: resources.copper.max.gt(BASE_RESOURCE_MAX.copper) ? resources.copper.max : BASE_RESOURCE_MAX.copper,
-    semiconductors: resources.semiconductors.max.gt(BASE_RESOURCE_MAX.semiconductors) ? resources.semiconductors.max : BASE_RESOURCE_MAX.semiconductors,
-    dynamite: resources.dynamite.max.gt(BASE_RESOURCE_MAX.dynamite) ? resources.dynamite.max : BASE_RESOURCE_MAX.dynamite,
-    fiber: resources.fiber.max.gt(BASE_RESOURCE_MAX.fiber) ? resources.fiber.max : BASE_RESOURCE_MAX.fiber,
-    // Фаза 2.6: Сложные производственные ресурсы
-    integrated_circuit: resources.integrated_circuit.max.gt(BASE_RESOURCE_MAX.integrated_circuit) ? resources.integrated_circuit.max : BASE_RESOURCE_MAX.integrated_circuit,
-    battery: resources.battery.max.gt(BASE_RESOURCE_MAX.battery) ? resources.battery.max : BASE_RESOURCE_MAX.battery,
-    engine: resources.engine.max.gt(BASE_RESOURCE_MAX.engine) ? resources.engine.max : BASE_RESOURCE_MAX.engine,
-    display: resources.display.max.gt(BASE_RESOURCE_MAX.display) ? resources.display.max : BASE_RESOURCE_MAX.display,
-    computer: resources.computer.max.gt(BASE_RESOURCE_MAX.computer) ? resources.computer.max : BASE_RESOURCE_MAX.computer,
-    liquid_fuel: resources.liquid_fuel.max.gt(BASE_RESOURCE_MAX.liquid_fuel) ? resources.liquid_fuel.max : BASE_RESOURCE_MAX.liquid_fuel,
-    chrome_alloy: resources.chrome_alloy.max.gt(BASE_RESOURCE_MAX.chrome_alloy) ? resources.chrome_alloy.max : BASE_RESOURCE_MAX.chrome_alloy,
-    titanium_alloy: resources.titanium_alloy.max.gt(BASE_RESOURCE_MAX.titanium_alloy) ? resources.titanium_alloy.max : BASE_RESOURCE_MAX.titanium_alloy,
-    enriched_uranium: resources.enriched_uranium.max.gt(BASE_RESOURCE_MAX.enriched_uranium) ? resources.enriched_uranium.max : BASE_RESOURCE_MAX.enriched_uranium,
-    // Фаза 2.7: Военные ресурсы
-    weapon: resources.weapon.max.gt(BASE_RESOURCE_MAX.weapon) ? resources.weapon.max : BASE_RESOURCE_MAX.weapon,
-    artillery: resources.artillery.max.gt(BASE_RESOURCE_MAX.artillery) ? resources.artillery.max : BASE_RESOURCE_MAX.artillery,
-    radar: resources.radar.max.gt(BASE_RESOURCE_MAX.radar) ? resources.radar.max : BASE_RESOURCE_MAX.radar,
-    nuclear_bomb: resources.nuclear_bomb.max.gt(BASE_RESOURCE_MAX.nuclear_bomb) ? resources.nuclear_bomb.max : BASE_RESOURCE_MAX.nuclear_bomb,
-    // Фаза 2.8: Космические ресурсы
-    jet_engine: resources.jet_engine.max.gt(BASE_RESOURCE_MAX.jet_engine) ? resources.jet_engine.max : BASE_RESOURCE_MAX.jet_engine,
-    satellite: resources.satellite.max.gt(BASE_RESOURCE_MAX.satellite) ? resources.satellite.max : BASE_RESOURCE_MAX.satellite,
-    rocket: resources.rocket.max.gt(BASE_RESOURCE_MAX.rocket) ? resources.rocket.max : BASE_RESOURCE_MAX.rocket,
-    spaceship: resources.spaceship.max.gt(BASE_RESOURCE_MAX.spaceship) ? resources.spaceship.max : BASE_RESOURCE_MAX.spaceship,
-    console: resources.console.max.gt(BASE_RESOURCE_MAX.console) ? resources.console.max : BASE_RESOURCE_MAX.console,
-    space_station: resources.space_station.max.gt(BASE_RESOURCE_MAX.space_station) ? resources.space_station.max : BASE_RESOURCE_MAX.space_station,
-    // Фаза 2.9: Специальные ресурсы
-    robot: resources.robot.max.gt(BASE_RESOURCE_MAX.robot) ? resources.robot.max : BASE_RESOURCE_MAX.robot,
-    // Фаза 8.1: Экология
-    waste: resources.waste.max.gt(BASE_RESOURCE_MAX.waste) ? resources.waste.max : BASE_RESOURCE_MAX.waste,
-    radioactive_waste: resources.radioactive_waste.max.gt(BASE_RESOURCE_MAX.radioactive_waste) ? resources.radioactive_waste.max : BASE_RESOURCE_MAX.radioactive_waste,
-    // Фаза 3: T6 Entertainment
-    music_album: resources.music_album.max.gt(BASE_RESOURCE_MAX.music_album) ? resources.music_album.max : BASE_RESOURCE_MAX.music_album,
-    movie: resources.movie.max.gt(BASE_RESOURCE_MAX.movie) ? resources.movie.max : BASE_RESOURCE_MAX.movie,
-    video_game: resources.video_game.max.gt(BASE_RESOURCE_MAX.video_game) ? resources.video_game.max : BASE_RESOURCE_MAX.video_game,
-    streaming_service: resources.streaming_service.max.gt(BASE_RESOURCE_MAX.streaming_service) ? resources.streaming_service.max : BASE_RESOURCE_MAX.streaming_service,
-    vr_headset: resources.vr_headset.max.gt(BASE_RESOURCE_MAX.vr_headset) ? resources.vr_headset.max : BASE_RESOURCE_MAX.vr_headset,
-    ar_glasses: resources.ar_glasses.max.gt(BASE_RESOURCE_MAX.ar_glasses) ? resources.ar_glasses.max : BASE_RESOURCE_MAX.ar_glasses,
-    gaming_console: resources.gaming_console.max.gt(BASE_RESOURCE_MAX.gaming_console) ? resources.gaming_console.max : BASE_RESOURCE_MAX.gaming_console,
-    smart_tv: resources.smart_tv.max.gt(BASE_RESOURCE_MAX.smart_tv) ? resources.smart_tv.max : BASE_RESOURCE_MAX.smart_tv,
-    // Фаза 3: T6 Culture
-    artwork: resources.artwork.max.gt(BASE_RESOURCE_MAX.artwork) ? resources.artwork.max : BASE_RESOURCE_MAX.artwork,
-    sculpture: resources.sculpture.max.gt(BASE_RESOURCE_MAX.sculpture) ? resources.sculpture.max : BASE_RESOURCE_MAX.sculpture,
-    literature: resources.literature.max.gt(BASE_RESOURCE_MAX.literature) ? resources.literature.max : BASE_RESOURCE_MAX.literature,
-    architecture: resources.architecture.max.gt(BASE_RESOURCE_MAX.architecture) ? resources.architecture.max : BASE_RESOURCE_MAX.architecture,
-    fashion: resources.fashion.max.gt(BASE_RESOURCE_MAX.fashion) ? resources.fashion.max : BASE_RESOURCE_MAX.fashion,
-    jewelry: resources.jewelry.max.gt(BASE_RESOURCE_MAX.jewelry) ? resources.jewelry.max : BASE_RESOURCE_MAX.jewelry,
-    // Фаза 3: T7 Social
-    social_network: resources.social_network.max.gt(BASE_RESOURCE_MAX.social_network) ? resources.social_network.max : BASE_RESOURCE_MAX.social_network,
-    messaging_app: resources.messaging_app.max.gt(BASE_RESOURCE_MAX.messaging_app) ? resources.messaging_app.max : BASE_RESOURCE_MAX.messaging_app,
-    search_engine: resources.search_engine.max.gt(BASE_RESOURCE_MAX.search_engine) ? resources.search_engine.max : BASE_RESOURCE_MAX.search_engine,
-    cloud_service: resources.cloud_service.max.gt(BASE_RESOURCE_MAX.cloud_service) ? resources.cloud_service.max : BASE_RESOURCE_MAX.cloud_service,
-    ai_assistant: resources.ai_assistant.max.gt(BASE_RESOURCE_MAX.ai_assistant) ? resources.ai_assistant.max : BASE_RESOURCE_MAX.ai_assistant,
-    cryptocurrency: resources.cryptocurrency.max.gt(BASE_RESOURCE_MAX.cryptocurrency) ? resources.cryptocurrency.max : BASE_RESOURCE_MAX.cryptocurrency,
-    // Фаза 3: T7 Medical
-    medicine: resources.medicine.max.gt(BASE_RESOURCE_MAX.medicine) ? resources.medicine.max : BASE_RESOURCE_MAX.medicine,
-    vaccine: resources.vaccine.max.gt(BASE_RESOURCE_MAX.vaccine) ? resources.vaccine.max : BASE_RESOURCE_MAX.vaccine,
-    bioimplant: resources.bioimplant.max.gt(BASE_RESOURCE_MAX.bioimplant) ? resources.bioimplant.max : BASE_RESOURCE_MAX.bioimplant,
-    gene_therapy: resources.gene_therapy.max.gt(BASE_RESOURCE_MAX.gene_therapy) ? resources.gene_therapy.max : BASE_RESOURCE_MAX.gene_therapy,
-    cryonics: resources.cryonics.max.gt(BASE_RESOURCE_MAX.cryonics) ? resources.cryonics.max : BASE_RESOURCE_MAX.cryonics,
-    // Фаза 3: T8 Megastructures
-    orbital_habitat: resources.orbital_habitat.max.gt(BASE_RESOURCE_MAX.orbital_habitat) ? resources.orbital_habitat.max : BASE_RESOURCE_MAX.orbital_habitat,
-    dyson_component: resources.dyson_component.max.gt(BASE_RESOURCE_MAX.dyson_component) ? resources.dyson_component.max : BASE_RESOURCE_MAX.dyson_component,
-    warp_core: resources.warp_core.max.gt(BASE_RESOURCE_MAX.warp_core) ? resources.warp_core.max : BASE_RESOURCE_MAX.warp_core,
-    quantum_computer: resources.quantum_computer.max.gt(BASE_RESOURCE_MAX.quantum_computer) ? resources.quantum_computer.max : BASE_RESOURCE_MAX.quantum_computer,
-    antimatter: resources.antimatter.max.gt(BASE_RESOURCE_MAX.antimatter) ? resources.antimatter.max : BASE_RESOURCE_MAX.antimatter,
-    // Фаза 3: T9 Transcendence
-    singularity_core: resources.singularity_core.max.gt(BASE_RESOURCE_MAX.singularity_core) ? resources.singularity_core.max : BASE_RESOURCE_MAX.singularity_core,
-    time_crystal: resources.time_crystal.max.gt(BASE_RESOURCE_MAX.time_crystal) ? resources.time_crystal.max : BASE_RESOURCE_MAX.time_crystal,
-    dimensional_rift: resources.dimensional_rift.max.gt(BASE_RESOURCE_MAX.dimensional_rift) ? resources.dimensional_rift.max : BASE_RESOURCE_MAX.dimensional_rift,
-    omega_matter: resources.omega_matter.max.gt(BASE_RESOURCE_MAX.omega_matter) ? resources.omega_matter.max : BASE_RESOURCE_MAX.omega_matter,
-    ascension_essence: resources.ascension_essence.max.gt(BASE_RESOURCE_MAX.ascension_essence) ? resources.ascension_essence.max : BASE_RESOURCE_MAX.ascension_essence,
-  };
+  // Всегда начинаем с базовых значений, чтобы избежать накопительного эффекта
+  // Бонусы от зданий (складов, конденсаторов) добавляются ниже
+  const caps: Record<ResourceType, Decimal> = { ...BASE_RESOURCE_MAX };
 
   // ФАЗА 8.5: Добавляем вместимость от зданий с учетом их уровней
   for (const b of buildings) {
@@ -2910,6 +2818,19 @@ export const useGameStore = create<GameState>((set, get) => ({
   repeatableResearch: INITIAL_REPEATABLE_RESEARCH,
   proceduralGalaxies: INITIAL_PROCEDURAL_GALAXIES,
   artifacts: INITIAL_ARTIFACTS,
+  // Функция для списания кредитов
+  spendCredits: (amount) => {
+    set((state) => {
+      const decAmount = typeof amount === 'number' ? D(amount) : D(amount);
+      if (state.currency.credits.lt(decAmount)) return state;
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(decAmount).max(D(0)),
+        },
+      };
+    });
+  },
   retention: INITIAL_RETENTION,
   signalInterception: INITIAL_SIGNAL_INTERCEPTION,
   maps: INITIAL_MAPS,
@@ -4436,6 +4357,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       let energyDrainBuildingsConsumptionTick = D_ZERO;
       let energyDrainCombatShieldTick = D_ZERO;
       let energyDrainCombatTurretsTick = D_ZERO;
+      let autoSellCreditsEarned = D_ZERO; // Аккумулятор кредитов от autoSell
 
       const energyLegacyByBuilding: Record<string, Decimal> = {};
       const energyConsumptionByBuilding: Record<string, Decimal> = {};
@@ -5254,6 +5176,51 @@ export const useGameStore = create<GameState>((set, get) => ({
               }
             }
           }
+
+          // ФАЗА 5: Обработка авто-продажи из настроек здания (tileSettings.autoSell)
+          // Продаём ресурсы с БАЗЫ (baseKey) за кредиты
+          if (tileSettings?.autoSell && tileSettings.autoSell.length > 0) {
+            for (const autoSellConfig of tileSettings.autoSell) {
+              if (!autoSellConfig.enabled) continue;
+              
+              const r = autoSellConfig.resource;
+              // Проверяем что ресурс торгуемый
+              if (!(TRADEABLE as string[]).includes(r)) continue;
+              
+              // Проверяем ресурсы на БАЗЕ, а не в буфере здания
+              const have = getBuf(buffers, baseKey, r);
+              if (have.lte(0)) continue;
+              
+              // Получаем cap для этого ресурса
+              const resourceCap = newResources[r]?.max ?? D(0);
+              if (resourceCap.lte(0)) continue;
+              
+              // Продаём только если заполнение > порога
+              const fillPercent = have.div(resourceCap).mul(100);
+              if (fillPercent.lt(autoSellConfig.threshold)) continue;
+              
+              // Оставляем keepAmount
+              const keepAmount = D(autoSellConfig.keepAmount || '0');
+              const sellable = have.sub(keepAmount).max(D(0));
+              if (sellable.lte(0)) continue;
+              
+              // Проверяем минимальную цену если задана
+              const price = state.market.prices[r as TradeResourceType];
+              if (autoSellConfig.minPrice && price.lt(D(autoSellConfig.minPrice))) continue;
+              
+              const sellAmt = sellable.min(D(12).mul(dt));
+              if (sellAmt.lte(0)) continue;
+              
+              // Продажа за КРЕДИТЫ
+              const earned = price.mul(sellAmt).mul(D(tradeMult));
+              
+              // Вычитаем ресурсы с базы
+              buffers = setBuf(buffers, baseKey, r, have.sub(sellAmt).max(D(0)));
+              
+              // Накапливаем заработанные кредиты (добавим к nextCurrency позже)
+              autoSellCreditsEarned = autoSellCreditsEarned.add(earned);
+            }
+          }
         }
       }
 
@@ -5505,6 +5472,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         let orders = state.market.orders ?? [];
         const executedOrders: string[] = [];
         let nextCurrency = state.currency;
+        
+        // Добавляем кредиты от autoSell зданий
+        if (autoSellCreditsEarned.gt(0)) {
+          nextCurrency = {
+            ...nextCurrency,
+            credits: nextCurrency.credits.add(autoSellCreditsEarned)
+          };
+        }
         
         for (const order of orders) {
           // Check if order expired
@@ -7219,8 +7194,31 @@ export const useGameStore = create<GameState>((set, get) => ({
         unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
         aggregatedEffects: state.culture.aggregatedEffects,
       },
+      maps: {
+        currentMapId: state.maps.currentMapId,
+        unlockedMaps: state.maps.unlockedMaps,
+        mapProgress: state.maps.mapProgress,
+        activeMapData: state.maps.activeMapData,
+        mapSeed: state.maps.mapSeed,
+        currentEvent: state.maps.currentEvent,
+        eventHistory: state.maps.eventHistory,
+      },
+      quests: {
+        activeQuests: state.quests.activeQuests,
+        completedQuests: state.quests.completedQuests,
+      },
       grid: state.grid,
       lastTick: state.lastTick,
+      stats: {
+        // Обновляем totalPlayTime при сохранении (добавляем время текущей сессии)
+        totalPlayTime: state.stats.totalPlayTime + 
+          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
+        sessionsCount: state.stats.sessionsCount,
+        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
+        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
+        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
+        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
+      },
     };
 
     try {
@@ -7231,9 +7229,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       const currentSaveId = await loadCurrentSaveIdFromServer();
       
+      // Логируем автосохранение
+      console.log('💾 Auto-saving game:', {
+        hasMaps: !!save.maps,
+        currentMapId: save.maps?.currentMapId,
+        currentSaveId,
+      });
+      
       await fetch('http://127.0.0.1:5174/api/saves', {
         method: 'PUT',
-        headers: getAuthHeaders(),
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           saveType: 'auto',
           data: save,
@@ -7378,9 +7386,39 @@ export const useGameStore = create<GameState>((set, get) => ({
         unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
         aggregatedEffects: state.culture.aggregatedEffects,
       },
+      maps: {
+        currentMapId: state.maps.currentMapId,
+        unlockedMaps: state.maps.unlockedMaps,
+        mapProgress: state.maps.mapProgress,
+        activeMapData: state.maps.activeMapData,
+        mapSeed: state.maps.mapSeed,
+        currentEvent: state.maps.currentEvent,
+        eventHistory: state.maps.eventHistory,
+      },
+      quests: {
+        activeQuests: state.quests.activeQuests,
+        completedQuests: state.quests.completedQuests,
+      },
       grid: state.grid,
       lastTick: state.lastTick,
+      stats: {
+        totalPlayTime: state.stats.totalPlayTime + 
+          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
+        sessionsCount: state.stats.sessionsCount,
+        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
+        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
+        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
+        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
+      },
     };
+
+    // Логируем что сохраняем
+    console.log('💾 Saving game manually:', {
+      saveName,
+      hasMaps: !!save.maps,
+      currentMapId: save.maps?.currentMapId,
+      unlockedMaps: save.maps?.unlockedMaps,
+    });
 
     try {
       if (!isAuthenticated()) {
@@ -7391,6 +7429,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         method: 'PUT',
         headers: { 
           ...getAuthHeaders(),
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           name: saveName,
@@ -7400,6 +7439,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
 
       const result = await response.json();
+      console.log('💾 Save result:', result);
       if (!result.ok) {
         throw new Error(result.error);
       }
@@ -7820,10 +7860,50 @@ export const useGameStore = create<GameState>((set, get) => ({
             currentEvent: save.maps.currentEvent ?? null,
             eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
           } : INITIAL_MAPS,
+          stats: save.stats ? {
+            totalPlayTime: typeof save.stats.totalPlayTime === 'number' ? save.stats.totalPlayTime : 0,
+            sessionsCount: (typeof save.stats.sessionsCount === 'number' ? save.stats.sessionsCount : 0) + 1,
+            currentSessionStart: Date.now(),
+            lifetimeResourcesProduced: save.stats.lifetimeResourcesProduced ?? {},
+            lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
+            lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
+            lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
+          } : {
+            totalPlayTime: 0,
+            sessionsCount: 1,
+            currentSessionStart: Date.now(),
+            lifetimeResourcesProduced: {},
+            lifetimeResourcesSpent: {},
+            lifetimeCreditsEarned: D(0),
+            lifetimeCreditsSpent: D(0),
+          },
         };
       });
       
       console.log('✅ set() успешно выполнен');
+      
+      // После загрузки синхронизируем размеры grid с текущей картой
+      const state = get();
+      const currentMapId = state.maps.currentMapId;
+      if (currentMapId) {
+        const mapDef = getMapDefinition(currentMapId);
+        if (mapDef) {
+          const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
+          const currentGrid = state.grid;
+          
+          // Если размеры grid не соответствуют карте, обновляем их
+          if (currentGrid.width !== mapWidth || currentGrid.height !== mapHeight) {
+            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${mapWidth}x${mapHeight}`);
+            set((s) => ({
+              grid: {
+                ...s.grid,
+                width: mapWidth,
+                height: mapHeight,
+              },
+            }));
+          }
+        }
+      }
       
       // Сохраняем ID текущего активного сохранения
       console.log('💾 Сохраняем ID активного сохранения...');
@@ -7977,9 +8057,50 @@ export const useGameStore = create<GameState>((set, get) => ({
         unlocked: state.achievements.unlocked,
         recentlyUnlocked: state.achievements.recentlyUnlocked,
       },
+      culture: {
+        science: state.culture.science.toString(),
+        culture: state.culture.culture.toString(),
+        currentLevel: state.culture.currentLevel,
+        cultureProgress: state.culture.cultureProgress.toString(),
+        totalScienceProduced: state.culture.totalScienceProduced.toString(),
+        totalCultureProduced: state.culture.totalCultureProduced.toString(),
+        happiness: state.culture.happiness,
+        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
+        aggregatedEffects: state.culture.aggregatedEffects,
+      },
+      maps: {
+        currentMapId: state.maps.currentMapId,
+        unlockedMaps: state.maps.unlockedMaps,
+        mapProgress: state.maps.mapProgress,
+        activeMapData: state.maps.activeMapData,
+        mapSeed: state.maps.mapSeed,
+        currentEvent: state.maps.currentEvent,
+        eventHistory: state.maps.eventHistory,
+      },
+      quests: {
+        activeQuests: state.quests.activeQuests,
+        completedQuests: state.quests.completedQuests,
+      },
       grid: state.grid,
       lastTick: state.lastTick,
+      stats: {
+        totalPlayTime: state.stats.totalPlayTime + 
+          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
+        sessionsCount: state.stats.sessionsCount,
+        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
+        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
+        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
+        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
+      },
     };
+
+    // Логируем перезапись сохранения
+    console.log('💾 Overwriting save:', {
+      saveId,
+      saveName,
+      hasMaps: !!save.maps,
+      currentMapId: save.maps?.currentMapId,
+    });
 
     try {
       if (!isAuthenticated()) {
@@ -8047,6 +8168,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       save = payload.save.data;
+      // Логируем загруженные maps данные для отладки
+      console.log('📂 Loaded save info:', {
+        saveId: payload.save.id,
+        saveName: payload.save.name,
+        saveType: payload.save.save_type,
+        hasMaps: !!save.maps,
+        currentMapId: save.maps?.currentMapId,
+        unlockedMaps: save.maps?.unlockedMaps,
+      });
       // Сохраняем ID текущего активного сохранения
       await saveCurrentSaveIdToServer(payload.save.id);
     } catch (e) {
@@ -8831,9 +8961,49 @@ export const useGameStore = create<GameState>((set, get) => ({
             currentEvent: save.maps.currentEvent ?? null,
             eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
           } : INITIAL_MAPS,
+          stats: save.stats ? {
+            totalPlayTime: typeof save.stats.totalPlayTime === 'number' ? save.stats.totalPlayTime : 0,
+            sessionsCount: (typeof save.stats.sessionsCount === 'number' ? save.stats.sessionsCount : 0) + 1,
+            currentSessionStart: Date.now(), // Новая сессия начинается при загрузке
+            lifetimeResourcesProduced: save.stats.lifetimeResourcesProduced ?? {},
+            lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
+            lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
+            lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
+          } : {
+            totalPlayTime: 0,
+            sessionsCount: 1,
+            currentSessionStart: Date.now(),
+            lifetimeResourcesProduced: {},
+            lifetimeResourcesSpent: {},
+            lifetimeCreditsEarned: D(0),
+            lifetimeCreditsSpent: D(0),
+          },
           lastTick: Date.now(),
         };
       });
+      
+      // После загрузки синхронизируем размеры grid с текущей картой
+      const state = get();
+      const currentMapId = state.maps.currentMapId;
+      if (currentMapId) {
+        const mapDef = getMapDefinition(currentMapId);
+        if (mapDef) {
+          const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
+          const currentGrid = state.grid;
+          
+          // Если размеры grid не соответствуют карте, обновляем их
+          if (currentGrid.width !== mapWidth || currentGrid.height !== mapHeight) {
+            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${mapWidth}x${mapHeight}`);
+            set((s) => ({
+              grid: {
+                ...s.grid,
+                width: mapWidth,
+                height: mapHeight,
+              },
+            }));
+          }
+        }
+      }
       
       // Логируем загруженную карту
       console.log('🗺️ Loaded maps:', get().maps.currentMapId, 'Grid:', get().grid.width, 'x', get().grid.height);
