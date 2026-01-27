@@ -89,11 +89,20 @@ export function OrderForm() {
     setOrderFormPrice,
     createOrder,
     isLoading,
+    setSelectedResource,
   } = useMarketStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await createOrder();
+  };
+
+  // Синхронизируем ресурс формы с выбранным ресурсом
+  const handleResourceChange = (resource: TradeResourceType | null) => {
+    setOrderFormResource(resource);
+    if (resource) {
+      setSelectedResource(resource);
+    }
   };
 
   const totalCost = (() => {
@@ -103,22 +112,17 @@ export function OrderForm() {
   })();
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <span>📝</span>
-        <span>Создать ордер</span>
-      </h3>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Тип ордера */}
-        <div className="flex gap-2">
+    <div className="bg-gray-800 rounded-lg p-3">
+      {/* Компактный заголовок с типом ордера */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex bg-gray-900 rounded-lg p-0.5 flex-1">
           <button
             type="button"
             onClick={() => setOrderFormType('buy')}
-            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+            className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
               orderFormType === 'buy'
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-green-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white'
             }`}
           >
             🛒 Купить
@@ -126,90 +130,81 @@ export function OrderForm() {
           <button
             type="button"
             onClick={() => setOrderFormType('sell')}
-            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+            className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
               orderFormType === 'sell'
-                ? 'bg-red-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-red-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white'
             }`}
           >
             💰 Продать
           </button>
         </div>
+      </div>
 
-        {/* Выбор ресурса */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Ресурс</label>
-          <select
-            value={orderFormResource || ''}
-            onChange={(e) => setOrderFormResource(e.target.value as TradeResourceType || null)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-          >
-            <option value="">Выберите ресурс...</option>
-            {TRADEABLE_RESOURCES.map(resource => (
-              <option key={resource} value={resource}>
-                {RESOURCE_NAMES[resource]}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Количество */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">
-            Количество <span className="text-gray-500">(мин. 10)</span>
-          </label>
-          <input
-            type="number"
-            min="10"
-            step="1"
-            value={orderFormQuantity}
-            onChange={(e) => setOrderFormQuantity(e.target.value)}
-            placeholder="100"
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-          />
-        </div>
-
-        {/* Цена за единицу */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Цена за единицу (кредиты)</label>
-          <input
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={orderFormPrice}
-            onChange={(e) => setOrderFormPrice(e.target.value)}
-            placeholder="1.50"
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-          />
-        </div>
-
-        {/* Итого */}
-        {totalCost > 0 && (
-          <div className="bg-gray-700 rounded-lg p-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-400">Итого:</span>
-              <span className="text-xl font-bold text-yellow-400">
-                {totalCost.toLocaleString()} 💳
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              + комиссия 2% = {(totalCost * 0.02).toLocaleString()} 💳
-            </div>
-          </div>
-        )}
-
-        {/* Кнопка создания */}
-        <button
-          type="submit"
-          disabled={isLoading || !orderFormResource || !orderFormQuantity || !orderFormPrice}
-          className={`w-full py-3 px-4 rounded-lg font-bold transition-colors ${
-            orderFormType === 'buy'
-              ? 'bg-green-600 hover:bg-green-500 disabled:bg-green-800'
-              : 'bg-red-600 hover:bg-red-500 disabled:bg-red-800'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
+      <form onSubmit={handleSubmit} className="space-y-2">
+        {/* Ресурс - компактный */}
+        <select
+          value={orderFormResource || ''}
+          onChange={(e) => handleResourceChange(e.target.value as TradeResourceType || null)}
+          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm"
         >
-          {isLoading ? 'Создание...' : orderFormType === 'buy' ? '🛒 Создать ордер на покупку' : '💰 Создать ордер на продажу'}
-        </button>
+          <option value="">Выберите ресурс...</option>
+          {TRADEABLE_RESOURCES.map(resource => (
+            <option key={resource} value={resource}>
+              {RESOURCE_NAMES[resource]}
+            </option>
+          ))}
+        </select>
+
+        {/* Количество и Цена в одну строку */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Кол-во (мин. 10)</label>
+            <input
+              type="number"
+              min="10"
+              step="1"
+              value={orderFormQuantity}
+              onChange={(e) => setOrderFormQuantity(e.target.value)}
+              placeholder="100"
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-white text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Цена 💳</label>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={orderFormPrice}
+              onChange={(e) => setOrderFormPrice(e.target.value)}
+              placeholder="1.50"
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-white text-sm"
+            />
+          </div>
+        </div>
+
+        {/* Итого + Кнопка в одной строке */}
+        <div className="flex items-center gap-2 pt-1">
+          {totalCost > 0 && (
+            <div className="flex-1 text-sm">
+              <span className="text-gray-400">Итого: </span>
+              <span className="text-yellow-400 font-bold">{totalCost.toLocaleString()} 💳</span>
+              <span className="text-gray-500 text-xs ml-1">(+2%)</span>
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={isLoading || !orderFormResource || !orderFormQuantity || !orderFormPrice}
+            className={`${totalCost > 0 ? '' : 'flex-1'} py-2 px-4 rounded-lg font-bold text-sm transition-colors ${
+              orderFormType === 'buy'
+                ? 'bg-green-600 hover:bg-green-500 disabled:bg-green-800'
+                : 'bg-red-600 hover:bg-red-500 disabled:bg-red-800'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {isLoading ? '...' : orderFormType === 'buy' ? '🛒 Купить' : '💰 Продать'}
+          </button>
+        </div>
       </form>
     </div>
   );

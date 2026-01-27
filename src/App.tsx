@@ -7,7 +7,6 @@ import { EnergyBalancePanel } from './components/game/EnergyBalancePanel';
 import { PollutionPanel } from './components/game/PollutionPanel';
 import { FactoryGrid } from './components/game/FactoryGrid';
 import { SidePanelTabs } from './components/game/SidePanelTabs';
-import { ClickerZone } from './components/game/ClickerZone';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
 import { NotificationToast } from './components/game/NotificationToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
@@ -22,6 +21,7 @@ import { CheatPanel } from './components/game/CheatPanel';
 import { MapSelector } from './components/game/MapSelector';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
+import { useMarketTransactions } from './hooks/useMarketTransactions';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
 import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
 import { isAuthenticated, getCurrentSession } from './utils/settingsApi';
@@ -118,6 +118,9 @@ function App() {
 
   // Autosave every 30 seconds
   useAutosave(30, true);
+  
+  // Обработка pending транзакций биржи
+  useMarketTransactions();
 
   // Initialize hotkeys (только для desktop)
   if (device.isDesktop) {
@@ -164,9 +167,6 @@ function App() {
       console.log('Mobile device detected, recommended settings:', recommendedSettings);
     }
   }, [device.isMobile, settings, recommendedSettings]);
-
-  // Показываем кликер только если нет ни одного генератора
-  const showClicker = buildings.find(b => b.id === 'generator_mk1')?.count === 0;
 
   // Показываем форму авторизации, если не проверили авторизацию или пользователь не залогинен
   if (!isAuthChecked) {
@@ -248,24 +248,10 @@ function App() {
           </div>
         )}
         <section className="flex-1 overflow-hidden">
-          {showClicker ? (
-            <div className="h-full flex flex-col">
-              <div className="flex-1 relative">
-                <FactoryGrid />
-                {!device.isMobile && <Minimap />}
-              </div>
-              <div className={`shrink-0 border-t border-cyber-gray ${
-                device.isMobile ? 'h-[180px]' : 'h-[280px]'
-              }`}>
-                <ClickerZone />
-              </div>
-            </div>
-          ) : (
-            <div className="h-full relative">
-              <FactoryGrid />
-              {!device.isMobile && <Minimap />}
-            </div>
-          )}
+          <div className="h-full relative">
+            <FactoryGrid />
+            {!device.isMobile && <Minimap />}
+          </div>
         </section>
       </main>
 

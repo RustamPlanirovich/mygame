@@ -15,7 +15,7 @@ import type {
   OrderType,
 } from '../core/gameTypes.market';
 import * as api from '../utils/marketApi';
-import type { GuildChatMessage } from '../utils/marketApi';
+import type { GuildChatMessage, PendingTransaction } from '../utils/marketApi';
 
 // ==========================================
 // ТИПЫ СТЕЙТА
@@ -54,6 +54,9 @@ interface MarketState {
   selectedGuild: TradeGuildDTO | null;
   guildChat: GuildChatMessage[];
   
+  // Pending транзакции
+  pendingTransactions: PendingTransaction[];
+  
   // UI состояние
   activeTab: 'orders' | 'myOrders' | 'history' | 'prices' | 'leaderboard' | 'guild';
   orderFormType: OrderType;
@@ -91,6 +94,10 @@ interface MarketActions {
   // Чат гильдии
   fetchGuildChat: () => Promise<void>;
   sendGuildMessage: (message: string) => Promise<boolean>;
+  
+  // Pending транзакции
+  fetchPendingTransactions: () => Promise<PendingTransaction[]>;
+  markTransactionsApplied: (transactionIds: string[]) => Promise<boolean>;
   
   // UI
   setActiveTab: (tab: MarketState['activeTab']) => void;
@@ -135,6 +142,8 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   guildsTotal: 0,
   selectedGuild: null,
   guildChat: [],
+  
+  pendingTransactions: [],
   
   activeTab: 'orders',
   orderFormType: 'buy',
@@ -567,6 +576,43 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
       }
     } catch (e) {
       set({ error: String(e) });
+      return false;
+    }
+  },
+  
+  // ==========================================
+  // PENDING ТРАНЗАКЦИИ
+  // ==========================================
+  
+  fetchPendingTransactions: async () => {
+    try {
+      const result = await api.getPendingTransactions();
+      if (result.ok) {
+        set({ pendingTransactions: result.transactions });
+        return result.transactions;
+      }
+      return [];
+    } catch (e) {
+      console.error('Error fetching pending transactions:', e);
+      return [];
+    }
+  },
+  
+  markTransactionsApplied: async (transactionIds) => {
+    try {
+      const result = await api.applyTransactions(transactionIds);
+      if (result.ok) {
+        // Удаляем примененные транзакции из списка
+        set(state => ({
+          pendingTransactions: state.pendingTransactions.filter(
+            t => !result.appliedIds.includes(t.id)
+          )
+        }));
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Error applying transactions:', e);
       return false;
     }
   },

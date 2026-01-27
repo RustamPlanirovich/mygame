@@ -40,37 +40,37 @@ export function PriceList({ compact = false }: PriceListProps) {
 
   if (compact) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h3 className="text-sm font-bold mb-2 flex items-center gap-1.5">
           <span>💹</span>
           <span>Топ по объёму</span>
         </h3>
 
         {isLoading && (
-          <div className="text-center text-gray-400 py-4">Загрузка...</div>
+          <div className="text-center text-gray-400 py-2 text-sm">Загрузка...</div>
         )}
 
         {!isLoading && sortedPrices.length === 0 && (
-          <div className="text-center text-gray-400 py-4">
+          <div className="text-center text-gray-400 py-2 text-sm">
             Нет данных о ценах
           </div>
         )}
 
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
           {sortedPrices.slice(0, 10).map(price => (
             <button
               key={price.resource}
               onClick={() => handleResourceClick(price.resource)}
-              className="w-full flex items-center justify-between p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              className="flex flex-col p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-left"
             >
-              <span className="font-medium">
+              <span className="text-xs font-medium text-gray-300 truncate">
                 {RESOURCE_NAMES[price.resource as TradeResourceType] || price.resource}
               </span>
-              <div className="flex items-center gap-3">
-                <span className="text-yellow-400 font-bold">
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="text-yellow-400 font-bold text-sm">
                   {formatPrice(price.lastPrice)}
                 </span>
-                <span className={`text-sm ${getPriceChangeColor(price.priceChange24h)}`}>
+                <span className={`text-xs ${getPriceChangeColor(price.priceChange24h)}`}>
                   {formatPriceChange(price.priceChange24h)}
                 </span>
               </div>

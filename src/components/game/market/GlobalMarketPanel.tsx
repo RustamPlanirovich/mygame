@@ -1,5 +1,5 @@
 /**
- * Главная панель глобальной биржи
+ * Главная панель глобальной биржи - компактная версия
  */
 
 import { useEffect } from 'react';
@@ -16,6 +16,9 @@ const TABS = [
   { id: 'orders', label: '📊 Биржа' },
   { id: 'myOrders', label: '📋 Мои ордера' },
   { id: 'history', label: '📜 История' },
+] as const;
+
+const SECONDARY_TABS = [
   { id: 'prices', label: '💹 Цены' },
   { id: 'leaderboard', label: '🏆 Лидеры' },
   { id: 'guild', label: '🏰 Гильдия' },
@@ -32,7 +35,6 @@ export function GlobalMarketPanel() {
     fetchMyGuild,
   } = useMarketStore();
 
-  // Загружаем начальные данные при монтировании
   useEffect(() => {
     fetchPrices();
     fetchMyGuild();
@@ -40,63 +42,71 @@ export function GlobalMarketPanel() {
 
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white">
-      {/* Заголовок */}
-      <div className="p-4 border-b border-gray-700">
-        <h2 className="text-xl font-bold flex items-center gap-2">
+      {/* Компактный заголовок */}
+      <div className="px-3 py-2 border-b border-gray-700 flex items-center justify-between">
+        <h2 className="text-base font-bold flex items-center gap-1.5">
           <span>🌐</span>
-          <span>Глобальная торговая биржа</span>
+          <span>Глобальная биржа</span>
         </h2>
-        <p className="text-sm text-gray-400 mt-1">
-          Торгуйте ресурсами с другими игроками в реальном времени
-        </p>
+        <span className="text-xs text-gray-500">Торгуйте с другими игроками</span>
       </div>
 
-      {/* Вкладки */}
-      <div className="flex border-b border-gray-700 overflow-x-auto">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-              activeTab === tab.id
-                ? 'bg-blue-600 text-white border-b-2 border-blue-400'
-                : 'text-gray-400 hover:text-white hover:bg-gray-800'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Вкладки - две строки для компактности */}
+      <div className="border-b border-gray-700">
+        <div className="flex">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 px-2 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          {SECONDARY_TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 px-2 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-500 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Ошибка */}
+      {/* Ошибка - компактная */}
       {error && (
-        <div className="m-4 p-3 bg-red-900/50 border border-red-500 rounded-lg flex items-center justify-between">
+        <div className="mx-2 mt-2 p-2 bg-red-900/50 border border-red-500 rounded text-xs flex items-center justify-between">
           <span className="text-red-200">{error}</span>
-          <button
-            onClick={clearError}
-            className="text-red-400 hover:text-red-200"
-          >
-            ✕
-          </button>
+          <button onClick={clearError} className="text-red-400 hover:text-red-200 ml-2">✕</button>
         </div>
       )}
 
       {/* Индикатор загрузки */}
       {isLoading && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500 animate-pulse" />
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 animate-pulse" />
       )}
 
       {/* Контент */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-2">
         {activeTab === 'orders' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="space-y-4">
+          <div className="space-y-2">
+            {/* Форма и книга рядом */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <OrderForm />
               <OrderBook />
             </div>
-            <div>
-              <PriceList compact />
-            </div>
+            {/* Топ цен снизу */}
+            <PriceList compact />
           </div>
         )}
         

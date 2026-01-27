@@ -30,6 +30,25 @@ export const removeAuthToken = (): void => {
 };
 
 /**
+ * Очистить все пользовательские данные из localStorage
+ * Вызывается при logout и при входе нового пользователя
+ */
+export const clearAllUserData = (): void => {
+  // Удаляем данные персистентных сторов
+  localStorage.removeItem('finance-storage');
+  localStorage.removeItem('analytics-storage');
+  localStorage.removeItem('sync-store');
+  
+  // Удаляем данные игры
+  localStorage.removeItem('gameState');
+  localStorage.removeItem('currentSaveId');
+  localStorage.removeItem('currentSlotId');
+  localStorage.removeItem('user');
+  
+  console.log('[Auth] All user data cleared from localStorage');
+};
+
+/**
  * Получить заголовки для авторизованных запросов
  */
 export const getAuthHeaders = (): Record<string, string> => {
@@ -96,13 +115,15 @@ export const logout = async (): Promise<{ ok: boolean; error?: string }> => {
 
     const data = await response.json();
     
-    // Всегда удаляем токен локально, даже если запрос не удался
+    // Всегда удаляем токен и все данные локально, даже если запрос не удался
     removeAuthToken();
+    clearAllUserData();
     
     return data;
   } catch (err) {
     console.error('Ошибка выхода:', err);
     removeAuthToken();
+    clearAllUserData();
     return { ok: true };
   }
 };

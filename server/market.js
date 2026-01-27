@@ -767,6 +767,86 @@ export function createMarketRoutes(app, pool, authMiddleware) {
   });
 
   // ==========================================
+  // PENDING ТРАНЗАКЦИИ
+  // ==========================================
+
+  /**
+   * GET /api/market/pending-transactions - Получить ожидающие транзакции текущего игрока
+   */
+  app.get('/api/market/pending-transactions', authMiddleware, async (req, res) => {
+    try {
+      const playerId = req.userId;
+      
+      const result = await pool.query(`
+        SELECT 
+          pt.*,
+          mt.resource,
+          mt.quantity,
+          mt.price_per_unit,
+          mt.executed_at
+        FROM market_pending_transactions pt
+        JOIN market_trades mt ON pt.trade_id = mt.id
+        WHERE pt.player_id = $1 AND pt.status = 'pending'
+        ORDER BY pt.created_at ASC
+      `, [playerId]);
+      
+      res.json({
+        ok: true,
+        transactions: result.rows.map(row => ({
+          id: row.id,
+          tradeId: row.trade_id,
+          transactionType: row.transaction_type,
+          resource: row.resource,
+          resourceAmount: row.resource_amount.toString(),
+          creditsAmount: row.credits_amount.toString(),
+          feeAmount: row.fee_amount.toString(),
+          createdAt: new Date(row.created_at).getTime(),
+          tradeInfo: {
+            pricePerUnit: row.price_per_unit.toString(),
+            executedAt: new Date(row.executed_at).getTime()
+          }
+        }))
+      });
+    } catch (e) {
+      console.error('Error fetching pending transactions:', e);
+      res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+    }
+  });
+
+  /**
+   * POST /api/market/apply-transactions - Подтвердить применение транзакций
+   * Клиент вызывает этот endpoint после успешного применения транзакций к своему игровому состоянию
+   */
+  app.post('/api/market/apply-transactions', authMiddleware, async (req, res) => {
+    try {
+      const playerId = req.userId;
+      const { transactionIds } = req.body;
+      
+      if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
+        res.status(400).json({ ok: false, error: 'INVALID_TRANSACTION_IDS' });
+        return;
+      }
+      
+      // Обновляем статус транзакций только для этого игрока
+      const result = await pool.query(`
+        UPDATE market_pending_transactions 
+        SET status = 'applied', applied_at = NOW()
+        WHERE id = ANY($1::uuid[]) AND player_id = $2 AND status = 'pending'
+        RETURNING id
+      `, [transactionIds, playerId]);
+      
+      res.json({
+        ok: true,
+        appliedCount: result.rowCount,
+        appliedIds: result.rows.map(r => r.id)
+      });
+    } catch (e) {
+      console.error('Error applying transactions:', e);
+      res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+    }
+  });
+
+  // ==========================================
   // СЛУЖЕБНЫЕ
   // ==========================================
 
@@ -912,6 +992,26 @@ async function matchOrder(client, newOrder, playerId) {
       INSERT INTO market_price_history (resource, price, volume)
       VALUES ($1, $2, $3)
     `, [newOrder.resource, tradePrice, tradeQuantity]);
+    
+    // Создаём pending транзакции для обоих участников
+    // Покупатель: получает ресурс, отдаёт кредиты
+    const buyerFee = totalAmount * buyerFeePercent / 100;
+    await client.query(`
+      INSERT INTO market_pending_transactions 
+        (trade_id, player_id, transaction_type, resource, resource_amount, credits_amount, fee_amount)
+      VALUES ($1, $2, 'buy', $3, $4, $5, $6)
+      ON CONFLICT (trade_id, player_id) DO NOTHING
+    `, [tradeResult.rows[0].id, buyerId, newOrder.resource, tradeQuantity, totalAmount, buyerFee]);
+    
+    // Продавец: отдаёт ресурс, получает кредиты (минус комиссия)
+    const sellerFee = totalAmount * sellerFeePercent / 100;
+    const sellerReceives = totalAmount - sellerFee;
+    await client.query(`
+      INSERT INTO market_pending_transactions 
+        (trade_id, player_id, transaction_type, resource, resource_amount, credits_amount, fee_amount)
+      VALUES ($1, $2, 'sell', $3, $4, $5, $6)
+      ON CONFLICT (trade_id, player_id) DO NOTHING
+    `, [tradeResult.rows[0].id, sellerId, newOrder.resource, tradeQuantity, sellerReceives, sellerFee]);
     
     remainingQuantity -= tradeQuantity;
     newOrder.quantity_filled = newOrderFilled;

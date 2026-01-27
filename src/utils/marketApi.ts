@@ -347,6 +347,62 @@ export async function sendGuildMessage(
 }
 
 // ==========================================
+// PENDING ТРАНЗАКЦИИ
+// ==========================================
+
+export interface PendingTransaction {
+  id: string;
+  tradeId: string;
+  transactionType: 'buy' | 'sell';
+  resource: string;
+  resourceAmount: string;
+  creditsAmount: string;
+  feeAmount: string;
+  createdAt: number;
+  tradeInfo: {
+    pricePerUnit: string;
+    executedAt: number;
+  };
+}
+
+export interface PendingTransactionsResponse {
+  ok: boolean;
+  transactions: PendingTransaction[];
+  error?: string;
+}
+
+export interface ApplyTransactionsResponse {
+  ok: boolean;
+  appliedCount: number;
+  appliedIds: string[];
+  error?: string;
+}
+
+/**
+ * Получить ожидающие транзакции биржи
+ */
+export async function getPendingTransactions(): Promise<PendingTransactionsResponse> {
+  const response = await fetch(`${API_URL}/api/market/pending-transactions`, {
+    headers: getAuthHeaders(),
+  });
+  return response.json();
+}
+
+/**
+ * Подтвердить применение транзакций
+ */
+export async function applyTransactions(
+  transactionIds: string[]
+): Promise<ApplyTransactionsResponse> {
+  const response = await fetch(`${API_URL}/api/market/apply-transactions`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ transactionIds }),
+  });
+  return response.json();
+}
+
+// ==========================================
 // УТИЛИТЫ
 // ==========================================
 

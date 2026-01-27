@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { setAuthToken, loadSettingsFromServer, loadPinnedResourcesFromServer } from '../../utils/settingsApi';
+import { setAuthToken, loadSettingsFromServer, loadPinnedResourcesFromServer, clearAllUserData } from '../../utils/settingsApi';
 
 interface AuthFormProps {
   onSuccess: (user: { id: number; email: string }) => void;
@@ -38,6 +38,10 @@ export const AuthForm = ({ onSuccess }: AuthFormProps) => {
         return;
       }
 
+      // Очищаем все данные предыдущего пользователя перед входом/регистрацией нового
+      // Это критично для предотвращения утечки данных между пользователями
+      clearAllUserData();
+      
       // Сохраняем токен авторизации
       setAuthToken(data.token);
       console.log('Токен сохранен, истекает:', data.expiresAt);
@@ -59,7 +63,9 @@ export const AuthForm = ({ onSuccess }: AuthFormProps) => {
         }
       }
       
-      onSuccess(data.user);
+      // Перезагружаем страницу для чистой инициализации всех сторов
+      // Это гарантирует, что Zustand сторы загрузятся из чистого состояния
+      window.location.reload();
     } catch (err) {
       setError('Ошибка подключения к серверу');
       setLoading(false);

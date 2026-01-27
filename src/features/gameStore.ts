@@ -7811,6 +7811,15 @@ export const useGameStore = create<GameState>((set, get) => ({
             unlockedCultureBuildings: Array.isArray(save.culture.unlockedCultureBuildings) ? save.culture.unlockedCultureBuildings : [],
             aggregatedEffects: save.culture.aggregatedEffects ?? INITIAL_CULTURE.aggregatedEffects,
           } : INITIAL_CULTURE,
+          maps: save.maps ? {
+            currentMapId: save.maps.currentMapId ?? INITIAL_MAPS.currentMapId,
+            unlockedMaps: Array.isArray(save.maps.unlockedMaps) ? save.maps.unlockedMaps : INITIAL_MAPS.unlockedMaps,
+            mapProgress: save.maps.mapProgress ?? {},
+            activeMapData: save.maps.activeMapData ?? null,
+            mapSeed: typeof save.maps.mapSeed === 'number' ? save.maps.mapSeed : Date.now(),
+            currentEvent: save.maps.currentEvent ?? null,
+            eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
+          } : INITIAL_MAPS,
         };
       });
       
@@ -8813,9 +8822,21 @@ export const useGameStore = create<GameState>((set, get) => ({
             unlockedCultureBuildings: Array.isArray(save.culture.unlockedCultureBuildings) ? save.culture.unlockedCultureBuildings : [],
             aggregatedEffects: save.culture.aggregatedEffects ?? INITIAL_CULTURE.aggregatedEffects,
           } : INITIAL_CULTURE,
+          maps: save.maps ? {
+            currentMapId: save.maps.currentMapId ?? INITIAL_MAPS.currentMapId,
+            unlockedMaps: Array.isArray(save.maps.unlockedMaps) ? save.maps.unlockedMaps : INITIAL_MAPS.unlockedMaps,
+            mapProgress: save.maps.mapProgress ?? {},
+            activeMapData: save.maps.activeMapData ?? null,
+            mapSeed: typeof save.maps.mapSeed === 'number' ? save.maps.mapSeed : Date.now(),
+            currentEvent: save.maps.currentEvent ?? null,
+            eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
+          } : INITIAL_MAPS,
           lastTick: Date.now(),
         };
       });
+      
+      // Логируем загруженную карту
+      console.log('🗺️ Loaded maps:', get().maps.currentMapId, 'Grid:', get().grid.width, 'x', get().grid.height);
     } catch (e) {
       console.error("Failed to load save", e);
     }
@@ -10361,6 +10382,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       randomEvents: INITIAL_RANDOM_EVENTS,
       achievements: INITIAL_ACHIEVEMENTS,
       culture: INITIAL_CULTURE,
+      maps: INITIAL_MAPS,
       quests: {
         activeQuests: [...STARTER_QUESTS],
         completedQuests: [],
