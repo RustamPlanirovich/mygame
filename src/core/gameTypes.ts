@@ -1,4 +1,5 @@
 import type Decimal from 'break_eternity.js';
+import type { CultureState } from './gameTypes.culture';
 
 export type ResourceType = 
   | 'energy' 
@@ -50,7 +51,48 @@ export type ResourceType =
   | 'robot'
   // Фаза 8.1: Экология
   | 'waste'
-  | 'radioactive_waste';
+  | 'radioactive_waste'
+  // Фаза 3: T6 - Развлечения (Entertainment)
+  | 'music_album'
+  | 'movie'
+  | 'video_game'
+  | 'streaming_service'
+  | 'vr_headset'
+  | 'ar_glasses'
+  | 'gaming_console'
+  | 'smart_tv'
+  // Фаза 3: T6 - Культура (Culture)
+  | 'artwork'
+  | 'sculpture'
+  | 'literature'
+  | 'architecture'
+  | 'fashion'
+  | 'jewelry'
+  // Фаза 3: T7 - Социальные сети и коммуникации
+  | 'social_network'
+  | 'messaging_app'
+  | 'search_engine'
+  | 'cloud_service'
+  | 'ai_assistant'
+  | 'cryptocurrency'
+  // Фаза 3: T7 - Медицина и биотех
+  | 'medicine'
+  | 'vaccine'
+  | 'bioimplant'
+  | 'gene_therapy'
+  | 'cryonics'
+  // Фаза 3: T8 - Мегаструктуры и инфраструктура
+  | 'orbital_habitat'
+  | 'dyson_component'
+  | 'warp_core'
+  | 'quantum_computer'
+  | 'antimatter'
+  // Фаза 3: T9 - Трансцендентные ресурсы
+  | 'singularity_core'
+  | 'time_crystal'
+  | 'dimensional_rift'
+  | 'omega_matter'
+  | 'ascension_essence';
 
 // Explicit trade list (avoid automatically trading late-game / special resources).
 export type TradeResourceType = 
@@ -96,7 +138,23 @@ export type TradeResourceType =
   | 'console'
   | 'space_station'
   // Фаза 2.9: Специальные ресурсы
-  | 'robot';
+  | 'robot'
+  // Фаза 3: Торгуемые T6-T7 ресурсы
+  | 'music_album'
+  | 'movie'
+  | 'video_game'
+  | 'vr_headset'
+  | 'ar_glasses'
+  | 'gaming_console'
+  | 'smart_tv'
+  | 'artwork'
+  | 'sculpture'
+  | 'literature'
+  | 'fashion'
+  | 'jewelry'
+  | 'medicine'
+  | 'vaccine'
+  | 'cryptocurrency';
 
 export type UpgradeId =
   | 'kernel_speed'
@@ -151,12 +209,28 @@ export type TechnologyId =
   | 'quantum_tech'           // 300000 RP
   | 'advanced_colonies'      // 350000 RP
   | 'galactic_fleet'         // 500000 RP
+  // Era 6: Развлечения и Культура (Entertainment & Culture) - Фаза 3
+  | 'entertainment_industry' // 300000 RP
+  | 'digital_media'          // 400000 RP
+  | 'cultural_renaissance'   // 350000 RP
+  // Era 7: Социальные сети и Биотех (Social & Biotech) - Фаза 3
+  | 'social_engineering'     // 600000 RP
+  | 'cloud_computing'        // 700000 RP
+  | 'biotechnology'          // 800000 RP
+  | 'genetic_engineering'    // 1000000 RP
   // Era 7: Доминация (Domination)
   | 'megastructures'         // 600000 RP
   | 'time_control'           // 800000 RP
   | 'quantum_teleport'       // 1000000 RP
   | 'ai_restoration'         // 1500000 RP
-  | 'galactic_rule'          // 2000000 RP;
+  | 'galactic_rule'          // 2000000 RP
+  // Era 8: Мегаструктуры и Инфраструктура - Фаза 3
+  | 'megastructure_engineering' // 2000000 RP
+  | 'warp_physics'              // 3000000 RP
+  | 'antimatter_synthesis'      // 5000000 RP
+  // Era 9: Трансцендентность - Фаза 3
+  | 'singularity_science'       // 10000000 RP
+  | 'transcendence';            // 50000000 RP
 
 export interface Technology {
   id: TechnologyId;
@@ -767,6 +841,9 @@ export interface GridState {
   // key = "x,y"; value = per-resource toggles.
   marketPolicy?: Record<string, Partial<Record<TradeResourceType, { import?: boolean; export?: boolean }>>>;
   
+  // ФАЗА 5: Продвинутые настройки зданий (режимы, приоритеты, автопродажа, условия)
+  tileSettings?: Record<string, import('./gameTypes.buildings').TileBuildingSettings>;
+  
   // Camera persistence
   cameraX?: number;
   cameraY?: number;
@@ -1030,6 +1107,8 @@ export interface GameState {
   retention: RetentionState; // New: Daily rewards & retention mechanics (infinitely.md)
   signalInterception: SignalInterceptionState; // New: Active play bonuses (infinitely.md)
   quests: import('./gameTypes.tutorial').QuestState; // New: Quests system
+  maps: import('./gameTypes.maps').ActiveMapState; // New: Map system (Phase 4)
+  culture: CultureState; // New: Culture and Science system (Phase 7)
   lastTick: number;
   
   // Energy balance telemetry
@@ -1160,6 +1239,29 @@ export interface GameState {
   updateQuestProgress: (questId: string, amount: number) => void;
   claimQuestReward: (questId: string) => void;
   activateQuest: (questId: string) => void;
+  // Map system (Phase 4)
+  selectMap: (mapId: import('./gameTypes.maps').MapId) => void;
+  startMap: (mapId: import('./gameTypes.maps').MapId) => void;
+  completeMap: () => void;
+  abandonMap: () => void;
+  triggerMapEvent: () => void;
+  
+  // ФАЗА 5: Продвинутые настройки зданий
+  getTileSettings: (tileKey: string) => import('./gameTypes.buildings').TileBuildingSettings | null;
+  updateTileSettings: (tileKey: string, updates: Partial<import('./gameTypes.buildings').TileBuildingSettings>) => void;
+  setBuildingMode: (tileKey: string, mode: import('./gameTypes.buildings').BuildingMode) => void;
+  setBuildingEnabled: (tileKey: string, enabled: boolean) => void;
+  setInputPriority: (tileKey: string, resource: ResourceType, priority: import('./gameTypes.buildings').ResourcePriority) => void;
+  setOutputPriority: (tileKey: string, priority: import('./gameTypes.buildings').ResourcePriority) => void;
+  updateAutoSell: (tileKey: string, config: import('./gameTypes.buildings').AutoSellConfig) => void;
+  removeAutoSell: (tileKey: string, resource: ResourceType) => void;
+  addStorageLimit: (tileKey: string, limit: import('./gameTypes.buildings').StorageLimit) => void;
+  removeStorageLimit: (tileKey: string, resource: ResourceType) => void;
+  addBuildingCondition: (tileKey: string, condition: import('./gameTypes.buildings').BuildingCondition) => void;
+  removeBuildingCondition: (tileKey: string, conditionId: string) => void;
+  setBuildingModeForAll: (buildingId: string, mode: import('./gameTypes.buildings').BuildingMode) => void;
+  repairBuilding: (tileKey: string) => void;
+  repairAllBuildings: () => void;
 }
 
 // Фаза 8.7: Система достижений

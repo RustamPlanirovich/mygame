@@ -3,9 +3,10 @@ import { useGameStore } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type { TradeResourceType } from '../../core/gameTypes';
 import { TRADE_LABEL } from '../../core/constants/labels';
-import { ArrowLeftRight, TrendingUp, Gift } from 'lucide-react';
+import { ArrowLeftRight, TrendingUp, Gift, Globe } from 'lucide-react';
 import { ContractsPanel } from './ContractsPanel';
 import { TradingPanel } from './TradingPanel';
+import { GlobalMarketPanel } from './market/GlobalMarketPanel';
 
 const TRADEABLE: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
 
@@ -56,7 +57,7 @@ export function MarketPanel() {
   const sellResource = useGameStore((s) => s.sellResource);
   const buyResource = useGameStore((s) => s.buyResource);
 
-  const [tab, setTab] = useState<'spot' | 'contracts' | 'trading'>('spot');
+  const [tab, setTab] = useState<'spot' | 'contracts' | 'trading' | 'global'>('spot');
   const [selected, setSelected] = useState<TradeResourceType>('ore');
   const [qty, setQty] = useState<string>('10');
   const [now, setNow] = useState<number>(() => Date.now());
@@ -147,6 +148,17 @@ export function MarketPanel() {
           <TrendingUp className="w-4 h-4 inline mr-1" />
           Биржа
         </button>
+        <button
+          onClick={() => setTab('global')}
+          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+            tab === 'global'
+              ? 'bg-purple-500/10 border-purple-500 text-purple-400'
+              : 'border-cyber-gray/40 hover:border-purple-500/60 text-cyber-text'
+          }`}
+        >
+          <Globe className="w-4 h-4 inline mr-1" />
+          Глобальная
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -176,6 +188,7 @@ export function MarketPanel() {
       )}
       {tab === 'contracts' && <ContractsPanel />}
       {tab === 'trading' && <TradingPanel />}
+      {tab === 'global' && <GlobalMarketPanel />}
     </div>
   );
 }

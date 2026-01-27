@@ -73,6 +73,53 @@ export const DISABLEABLE_BUILDINGS = new Set<string>([
   'bitcoin_farm_mk1',             // Ферма Биткоинов v1 💰
   'cooling_system_mk1',           // Система Охлаждения v1 ❄️
   'dark_matter_condenser_mk1',    // Конденсатор Тёмной Материи Mk.I 🌌
+
+  // ==================== ФАЗА 3: РАЗВЛЕЧЕНИЯ ====================
+  'recording_studio_mk1',         // Студия Звукозаписи v1 🎵
+  'film_studio_mk1',              // Киностудия v1 🎬
+  'game_studio_mk1',              // Игровая Студия v1 🎮
+  'streaming_center_mk1',         // Стриминговый Центр v1 📺
+  'vr_factory_mk1',               // Завод VR-Гарнитур v1 🥽
+  'ar_factory_mk1',               // Завод AR-Очков v1 👓
+  'console_factory_mk2',          // Завод Игровых Консолей v1 🕹️
+  'tv_factory_mk1',               // Завод Умных Телевизоров v1 📺
+
+  // ==================== ФАЗА 3: КУЛЬТУРА ====================
+  'art_gallery_mk1',              // Художественная Галерея v1 🎨
+  'sculptor_workshop_mk1',        // Мастерская Скульптора v1 🗿
+  'publishing_house_mk1',         // Издательство v1 📚
+  'architecture_bureau_mk1',      // Архитектурное Бюро v1 🏛️
+  'fashion_house_mk1',            // Дом Моды v1 👗
+  'jewelry_workshop_mk1',         // Ювелирная Мастерская v1 💎
+
+  // ==================== ФАЗА 3: СОЦИАЛЬНЫЕ СЕТИ ====================
+  'data_center_mk1',              // Дата-Центр v1 📱
+  'comm_hub_mk1',                 // Коммуникационный Хаб v1 💬
+  'search_cluster_mk1',           // Поисковый Кластер v1 🔍
+  'cloud_farm_mk1',               // Облачная Ферма v1 ☁️
+  'ai_lab_mk1',                   // Лаборатория ИИ v1 🤖
+  'mining_rig_mk1',               // Майнинг-Ферма v1 ₿
+
+  // ==================== ФАЗА 3: МЕДИЦИНА И БИОТЕХ ====================
+  'pharma_factory_mk1',           // Фармацевтический Завод v1 💊
+  'biolab_mk1',                   // Биолаборатория v1 💉
+  'implant_factory_mk1',          // Завод Имплантов v1 🦾
+  'gene_lab_mk1',                 // Генетическая Лаборатория v1 🧬
+  'cryo_facility_mk1',            // Криогенный Комплекс v1 ❄️
+
+  // ==================== ФАЗА 3: МЕГАСТРУКТУРЫ ====================
+  'habitat_constructor_mk1',      // Конструктор Хабитатов v1 🛸
+  'dyson_forge_mk1',              // Кузница Дайсона v1 ☀️
+  'warp_assembly_mk1',            // Сборка Варп-Ядер v1 🌀
+  'quantum_lab_mk2',              // Квантовая Лаборатория v2 ⚛️
+  'antimatter_reactor_mk1',       // Реактор Антиматерии v1 ⚡
+
+  // ==================== ФАЗА 3: ТРАНСЦЕНДЕНТНОСТЬ ====================
+  'singularity_chamber_mk1',      // Камера Сингулярности v1 🕳️
+  'temporal_forge_mk1',           // Темпоральная Кузница v1 ⏳
+  'rift_generator_mk1',           // Генератор Разрывов v1 🌌
+  'omega_synthesizer_mk1',        // Синтезатор Омеги v1 Ω
+  'ascension_altar_mk1',          // Алтарь Вознесения v1 ✨
 ]);
 
 /**

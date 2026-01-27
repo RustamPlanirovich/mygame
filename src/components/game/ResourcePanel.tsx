@@ -8,7 +8,7 @@ import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { usePinnedResources } from '../../hooks/usePinnedResources';
 import { WarehousePopover } from './WarehousePopover';
 
-const ICON_BY_RESOURCE: Record<ResourceType, any> = {
+const ICON_BY_RESOURCE: Partial<Record<ResourceType, any>> = {
   energy: Zap,
   ore: Box,
   ice: Snowflake,

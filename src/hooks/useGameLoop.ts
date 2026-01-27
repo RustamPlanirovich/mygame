@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useGameStore } from '../features/gameStore';
+import { useAnalyticsStore } from '../features/analyticsStore';
 import { checkAchievements } from '../utils/achievementsHelpers';
 
 export const useGameLoop = () => {
@@ -9,6 +10,7 @@ export const useGameLoop = () => {
   const previousTimeRef = useRef<number>();
   const saveTimeRef = useRef<number>(0);
   const achievementCheckRef = useRef<number>(0);
+  const analyticsCheckRef = useRef<number>(0);
 
   const animate = (time: number) => {
     if (previousTimeRef.current !== undefined) {
@@ -32,6 +34,16 @@ export const useGameLoop = () => {
         const state = useGameStore.getState();
         checkAchievements(state);
         achievementCheckRef.current = 0;
+      }
+
+      // Collect analytics data every 60 seconds (store handles 5-min intervals internally)
+      analyticsCheckRef.current += cappedDelta;
+      if (analyticsCheckRef.current >= 60) {
+        const gameState = useGameStore.getState();
+        const analyticsStore = useAnalyticsStore.getState();
+        analyticsStore.collectData(gameState.buildings, gameState.resources);
+        analyticsStore.updateBottlenecks(gameState.buildings, gameState.resources);
+        analyticsCheckRef.current = 0;
       }
     }
     previousTimeRef.current = time;

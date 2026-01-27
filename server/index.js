@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const { initDb, pool } = await import('./db.js');
+import { createMarketRoutes, initMarketTables } from './market.js';
+import { createGuildRoutes } from './guilds.js';
+import { createSyncRoutes, initSyncTables, cleanupExpiredBackups } from './sync.js';
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -898,6 +901,23 @@ app.get('/api/saves/latest/manual', authMiddleware, async (req, res) => {
 });
 
 await initDb();
+
+// Инициализация таблиц для торговой биржи и гильдий
+await initMarketTables(pool);
+
+// Инициализация таблиц для синхронизации
+await initSyncTables();
+
+// Регистрация маршрутов для торговой биржи и гильдий
+createMarketRoutes(app, pool, authMiddleware);
+createGuildRoutes(app, pool, authMiddleware);
+
+// Регистрация маршрутов для синхронизации
+createSyncRoutes(app, authMiddleware);
+
+// Периодическая очистка истёкших бэкапов (каждый час)
+setInterval(cleanupExpiredBackups, 60 * 60 * 1000);
+
 app.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`[api] listening on http://${HOST}:${PORT}`);

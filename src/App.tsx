@@ -19,12 +19,13 @@ import { SaveManager } from './components/game/SaveManager';
 import { GameSlotsManager } from './components/game/GameSlotsManager';
 import { ProfilePanel } from './components/game/ProfilePanel';
 import { CheatPanel } from './components/game/CheatPanel';
+import { MapSelector } from './components/game/MapSelector';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
 import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
 import { isAuthenticated, getCurrentSession } from './utils/settingsApi';
-import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, Map } from 'lucide-react';
 
 function App() {
   const [user, setUser] = useState<{ id: number; email: string } | null>(null);
@@ -65,6 +66,16 @@ function App() {
   
   // Cheat panel state
   const [showCheatPanel, setShowCheatPanel] = useState(false);
+  
+  // Map selector state
+  const [showMapSelector, setShowMapSelector] = useState(false);
+  
+  // Get map-related state
+  const maps = useGameStore(state => state.maps);
+  const research = useGameStore(state => state.research);
+  const ascension = useGameStore(state => state.ascension);
+  const selectMap = useGameStore(state => state.selectMap);
+  const startMap = useGameStore(state => state.startMap);
   
   // Используем целевой FPS из настроек (по умолчанию 60 для desktop, 30 для mobile)
   const targetFPS = settings?.graphics?.targetFPS ?? recommendedSettings.targetFPS;
@@ -278,12 +289,24 @@ function App() {
                 <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
                 <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
               </div>
-              <button
-                onClick={() => setShowMobileMenu(false)}
-                className="p-1 hover:bg-cyber-gray rounded"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    setShowMapSelector(true);
+                  }}
+                  className="p-1 hover:bg-cyber-gray rounded text-cyber-text hover:text-cyber-green"
+                  title="Карты"
+                >
+                  <Map size={20} />
+                </button>
+                <button
+                  onClick={() => setShowMobileMenu(false)}
+                  className="p-1 hover:bg-cyber-gray rounded"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
             
             <div className="flex-1 overflow-y-auto">
@@ -294,9 +317,19 @@ function App() {
       ) : (
         // Desktop/Tablet: Fixed sidebar
         <aside className="w-[420px] shrink-0 border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden">
-          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3">
-            <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
-            <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
+          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
+            <div>
+              <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
+              <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
+            </div>
+            <button
+              onClick={() => setShowMapSelector(true)}
+              className="flex items-center gap-1 px-2 py-1 bg-cyber-gray/30 hover:bg-cyber-green/20 border border-cyber-gray hover:border-cyber-green rounded text-xs text-cyber-text hover:text-cyber-green transition-colors"
+              title="Выбрать карту"
+            >
+              <Map size={14} />
+              <span>Карты</span>
+            </button>
           </div>
           
           <div className="flex-1 overflow-y-auto">
@@ -367,6 +400,22 @@ function App() {
       {/* Cheat Panel - только в dev режиме */}
       {import.meta.env.DEV && showCheatPanel && (
         <CheatPanel onClose={() => setShowCheatPanel(false)} />
+      )}
+      
+      {/* Map Selector Modal */}
+      {showMapSelector && (
+        <MapSelector
+          unlockedTechnologies={new Set(research.unlocked)}
+          ascensionLevel={ascension?.level ?? 0}
+          playtimeHours={0}
+          currentMapId={maps?.currentMapId ?? undefined}
+          onSelectMap={(mapId) => {
+            selectMap(mapId as any);
+            startMap(mapId as any);
+            setShowMapSelector(false);
+          }}
+          onClose={() => setShowMapSelector(false)}
+        />
       )}
     </div>
   );

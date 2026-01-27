@@ -5,6 +5,7 @@ import { useGameStore, getBasePos } from '../../features/gameStore';
 import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
 import { formatNumber, D } from '../../core/math/format';
 import type { Building, ResourceType } from '../../core/gameTypes';
+import { getMapDefinition } from '../../core/constants/maps';
 import { ProximityWarningModal } from './ProximityWarningModal';
 import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
 import { getPowerSources, isInRadius, isBuildingPowered } from '../../utils/powerGridHelpers';
@@ -23,9 +24,9 @@ const HEX_VERT = HEX_SIZE * 1.5; // Vertical spacing between row centers
 const ISO_TILE_WIDTH = 64;
 const ISO_TILE_HEIGHT = 32;
 
-// Grid display mode
+// Grid display mode - теперь динамический на основе текущей карты
 type GridMode = 'square' | 'hex' | 'isometric';
-const GRID_MODE: GridMode = 'square'; // Квадратная сетка
+// GRID_MODE больше не константа - используется currentGridMode из хука
 
 // Legacy constants for square mode compatibility
 const CELL = 48; // Увеличен для лучшей видимости, как в Industry Idle
@@ -93,6 +94,14 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export function FactoryGrid() {
+  // Получаем тип сетки из текущей карты
+  const currentMapId = useGameStore((s) => s.maps.currentMapId);
+  const currentGridMode: GridMode = useMemo(() => {
+    if (!currentMapId) return 'square';
+    const mapDef = getMapDefinition(currentMapId);
+    return mapDef?.gridType ?? 'square';
+  }, [currentMapId]);
+  
   // Состояние для модального окна предупреждений
   const [pendingPlacement, setPendingPlacement] = useState<{
     x: number;
@@ -184,12 +193,12 @@ export function FactoryGrid() {
 
   // Convert grid coordinates to pixel coordinates based on mode
   const gridToPixel = (x: number, y: number): { px: number; py: number } => {
-    if (GRID_MODE === 'square') {
+    if (currentGridMode === 'square') {
       return {
         px: GAP + x * (CELL + GAP),
         py: GAP + y * (CELL + GAP),
       };
-    } else if (GRID_MODE === 'hex') {
+    } else if (currentGridMode === 'hex') {
       // Hexagonal grid (flat-top hexagons)
       // Odd columns are shifted down by HEX_VERT
       const offsetY = (x % 2 === 1) ? HEX_VERT : 0;
@@ -208,12 +217,12 @@ export function FactoryGrid() {
 
   // Convert pixel coordinates to grid coordinates
   const pixelToGrid = (px: number, py: number): { x: number; y: number } => {
-    if (GRID_MODE === 'square') {
+    if (currentGridMode === 'square') {
       return {
         x: Math.floor((px - GAP) / (CELL + GAP)),
         y: Math.floor((py - GAP) / (CELL + GAP)),
       };
-    } else if (GRID_MODE === 'hex') {
+    } else if (currentGridMode === 'hex') {
       // Approximate hexagonal conversion
       const col = Math.round(px / HEX_HORIZ);
       const offsetY = (col % 2 === 1) ? HEX_VERT : 0;
@@ -230,11 +239,11 @@ export function FactoryGrid() {
   };
 
   const worldSize = useMemo(() => {
-    if (GRID_MODE === 'square') {
+    if (currentGridMode === 'square') {
       const w = grid.width * (CELL + GAP) + GAP;
       const h = grid.height * (CELL + GAP) + GAP;
       return { w, h };
-    } else if (GRID_MODE === 'hex') {
+    } else if (currentGridMode === 'hex') {
       const w = (grid.width + 1) * HEX_HORIZ + HEX_WIDTH;
       const h = (grid.height + 1) * HEX_VERT * 2 + HEX_HEIGHT;
       return { w, h };
@@ -244,7 +253,7 @@ export function FactoryGrid() {
       const h = (grid.width + grid.height) * (ISO_TILE_HEIGHT / 2) + ISO_TILE_HEIGHT * 2;
       return { w, h };
     }
-  }, [grid.width, grid.height]);
+  }, [grid.width, grid.height, currentGridMode]);
 
   useEffect(() => {
     worldSizeRef.current = worldSize;
@@ -905,11 +914,11 @@ export function FactoryGrid() {
     const basePos = getBasePos(grid);
 
     // OPTIMIZATION: Prepare styles outside loop to avoid repeated object access 
-    const isSquare = GRID_MODE === 'square';
-    const isHex = GRID_MODE === 'hex';
+    const isSquare = currentGridMode === 'square';
+    const isHex = currentGridMode === 'hex';
     const cellHalf = CELL / 2;
     // Оптимизация смещения текста для изометрии (константа)
-    const textOffsetY = GRID_MODE === 'isometric' ? -8 : 0;
+    const textOffsetY = currentGridMode === 'isometric' ? -8 : 0;
     
     // Low zoom optimization flags
     const isZoomVeryLow = cam.zoom < 0.5;
@@ -1065,8 +1074,8 @@ export function FactoryGrid() {
 
             const t = getTextFromPool(emoji, isBlocked ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
             t.anchor.set(0.5, 0.5);
-            const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
-            const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+            const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
+            const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
             t.y = centerY + textOffsetY - (isBlocked ? 6 : 0);
             
@@ -1074,7 +1083,7 @@ export function FactoryGrid() {
             if (evolutionLevel > 0 && showDetailedText) {
               const star = getTextFromPool('⭐', TEXT_STYLES.warning);
               star.anchor.set(0.5, 0.5);
-              star.x = centerX + (GRID_MODE === 'hex' ? 12 : 18);
+              star.x = centerX + (currentGridMode === 'hex' ? 12 : 18);
               star.y = centerY + textOffsetY - 8;
             }
 
@@ -1082,7 +1091,7 @@ export function FactoryGrid() {
             if (isBlocked && showDetailedText) {
               const warning = getTextFromPool('⚠', TEXT_STYLES.warning);
               warning.anchor.set(0.5, 0.5);
-              warning.x = centerX - (GRID_MODE === 'hex' ? 10 : 15);
+              warning.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
               warning.y = centerY + textOffsetY - 6;
             }
 
@@ -1103,8 +1112,8 @@ export function FactoryGrid() {
               const t = getTextFromPool(getDepositEmoji(dep), TEXT_STYLES.deposit);
               t.alpha = 0.4;
               t.anchor.set(0.5, 0.5);
-              const centerX = GRID_MODE === 'hex' ? px : px + CELL / 2;
-              const centerY = GRID_MODE === 'hex' ? py : py + CELL / 2;
+              const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
+              const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
               t.x = centerX;
               t.y = centerY + textOffsetY;
             }
@@ -1319,9 +1328,9 @@ export function FactoryGrid() {
 
     if (grid.selected) {
       const selPos = gridToPixel(grid.selected.x, grid.selected.y);
-      if (GRID_MODE === 'square') {
+      if (currentGridMode === 'square') {
         g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
-      } else if (GRID_MODE === 'hex') {
+      } else if (currentGridMode === 'hex') {
         drawHexagon(g, selPos.px, selPos.py, HEX_SIZE + 2);
         g.stroke({ color: THEME_COLORS.cyberGreen, width: 2.5, alpha: 0.9 });
       } else {
@@ -1343,7 +1352,8 @@ export function FactoryGrid() {
       // Added new dependencies from top-level useMemo
       allBuildingsWithCoords,
       activeLogisticsHubs,
-      powerSources
+      powerSources,
+      currentGridMode
   ]);
 
   // Обработчики модального окна

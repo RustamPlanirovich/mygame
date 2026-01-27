@@ -447,6 +447,159 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
       buildings: [],
       special: ['game_endings'] // Разблокирует систему концовок
     }
+  },
+
+  // ERA 6: РАЗВЛЕЧЕНИЯ И КУЛЬТУРА (Entertainment & Culture) - Фаза 3
+  entertainment_industry: {
+    id: 'entertainment_industry',
+    name: 'Индустрия развлечений',
+    description: 'Создание музыки, фильмов и видеоигр для космических колоний',
+    era: 6,
+    cost: 300000,
+    prerequisites: ['space_stations'],
+    unlocks: {
+      buildings: ['recording_studio_mk1', 'film_studio_mk1', 'game_studio_mk1'],
+      resources: ['music_album', 'movie', 'video_game']
+    }
+  },
+  digital_media: {
+    id: 'digital_media',
+    name: 'Цифровые медиа',
+    description: 'Стриминговые сервисы и устройства виртуальной реальности',
+    era: 6,
+    cost: 400000,
+    prerequisites: ['entertainment_industry'],
+    unlocks: {
+      buildings: ['streaming_center_mk1', 'vr_factory_mk1', 'ar_factory_mk1', 'console_factory_mk2', 'tv_factory_mk1'],
+      resources: ['streaming_service', 'vr_headset', 'ar_glasses', 'gaming_console', 'smart_tv']
+    }
+  },
+  cultural_renaissance: {
+    id: 'cultural_renaissance',
+    name: 'Культурный ренессанс',
+    description: 'Расцвет искусства, литературы и моды в галактических колониях',
+    era: 6,
+    cost: 350000,
+    prerequisites: ['space_stations'],
+    unlocks: {
+      buildings: ['art_gallery_mk1', 'sculptor_workshop_mk1', 'publishing_house_mk1', 'architecture_bureau_mk1', 'fashion_house_mk1', 'jewelry_workshop_mk1'],
+      resources: ['artwork', 'sculpture', 'literature', 'architecture', 'fashion', 'jewelry']
+    }
+  },
+
+  // ERA 7: СОЦИАЛЬНЫЕ СЕТИ И БИОТЕХ (Social Networks & Biotech) - Фаза 3
+  social_engineering: {
+    id: 'social_engineering',
+    name: 'Социальная инженерия',
+    description: 'Глобальные социальные сети и системы коммуникации',
+    era: 7,
+    cost: 600000,
+    prerequisites: ['galactic_fleet'],
+    unlocks: {
+      buildings: ['data_center_mk1', 'comm_hub_mk1', 'search_cluster_mk1'],
+      resources: ['social_network', 'messaging_app', 'search_engine']
+    }
+  },
+  cloud_computing: {
+    id: 'cloud_computing',
+    name: 'Облачные вычисления',
+    description: 'Распределённые вычисления, ИИ-ассистенты и криптовалюты',
+    era: 7,
+    cost: 700000,
+    prerequisites: ['social_engineering'],
+    unlocks: {
+      buildings: ['cloud_farm_mk1', 'ai_lab_mk1', 'mining_rig_mk1'],
+      resources: ['cloud_service', 'ai_assistant', 'cryptocurrency']
+    }
+  },
+  biotechnology: {
+    id: 'biotechnology',
+    name: 'Биотехнологии',
+    description: 'Производство медикаментов и вакцин для космических колоний',
+    era: 7,
+    cost: 800000,
+    prerequisites: ['quantum_tech'],
+    unlocks: {
+      buildings: ['pharma_factory_mk1', 'biolab_mk1', 'implant_factory_mk1'],
+      resources: ['medicine', 'vaccine', 'bioimplant']
+    }
+  },
+  genetic_engineering: {
+    id: 'genetic_engineering',
+    name: 'Генная инженерия',
+    description: 'Генная терапия и технологии криоконсервации',
+    era: 7,
+    cost: 1000000,
+    prerequisites: ['biotechnology'],
+    unlocks: {
+      buildings: ['gene_lab_mk1', 'cryo_facility_mk1'],
+      resources: ['gene_therapy', 'cryonics']
+    }
+  },
+
+  // ERA 8: МЕГАСТРУКТУРЫ И ИНФРАСТРУКТУРА - Фаза 3
+  megastructure_engineering: {
+    id: 'megastructure_engineering',
+    name: 'Инженерия мегаструктур',
+    description: 'Создание орбитальных хабитатов и компонентов Сферы Дайсона',
+    era: 8,
+    cost: 2000000,
+    prerequisites: ['galactic_rule'],
+    unlocks: {
+      buildings: ['habitat_constructor_mk1', 'dyson_forge_mk1'],
+      resources: ['orbital_habitat', 'dyson_component']
+    }
+  },
+  warp_physics: {
+    id: 'warp_physics',
+    name: 'Варп-физика',
+    description: 'Искривление пространства-времени и квантовые вычисления нового поколения',
+    era: 8,
+    cost: 3000000,
+    prerequisites: ['megastructure_engineering'],
+    unlocks: {
+      buildings: ['warp_assembly_mk1', 'quantum_lab_mk2'],
+      resources: ['warp_core', 'quantum_computer']
+    }
+  },
+  antimatter_synthesis: {
+    id: 'antimatter_synthesis',
+    name: 'Синтез антиматерии',
+    description: 'Создание и хранение антиматерии - самого мощного источника энергии',
+    era: 8,
+    cost: 5000000,
+    prerequisites: ['warp_physics'],
+    unlocks: {
+      buildings: ['antimatter_reactor_mk1'],
+      resources: ['antimatter']
+    }
+  },
+
+  // ERA 9: ТРАНСЦЕНДЕНТНОСТЬ - Фаза 3
+  singularity_science: {
+    id: 'singularity_science',
+    name: 'Наука сингулярности',
+    description: 'Исследование чёрных дыр и манипуляция временем',
+    era: 9,
+    cost: 10000000,
+    prerequisites: ['antimatter_synthesis'],
+    unlocks: {
+      buildings: ['singularity_chamber_mk1', 'temporal_forge_mk1'],
+      resources: ['singularity_core', 'time_crystal']
+    }
+  },
+  transcendence: {
+    id: 'transcendence',
+    name: 'Трансцендентность',
+    description: 'Выход за пределы известной реальности. Создание измерительных разрывов и эссенции вознесения',
+    era: 9,
+    cost: 50000000,
+    prerequisites: ['singularity_science'],
+    unlocks: {
+      buildings: ['rift_generator_mk1', 'omega_synthesizer_mk1', 'ascension_altar_mk1'],
+      resources: ['dimensional_rift', 'omega_matter', 'ascension_essence'],
+      special: ['true_ascension'] // Финальная концовка
+    }
   }
 };
 
@@ -506,7 +659,9 @@ export const ERA_NAMES: Record<number, string> = {
   4: 'Эра 4: Военная промышленность',
   5: 'Эра 5: Космическая эра',
   6: 'Эра 6: Галактическая экспансия',
-  7: 'Эра 7: Доминация'
+  7: 'Эра 7: Доминация',
+  8: 'Эра 8: Мегаструктуры',
+  9: 'Эра 9: Трансцендентность'
 };
 
 // Check if a building is unlocked based on technologies

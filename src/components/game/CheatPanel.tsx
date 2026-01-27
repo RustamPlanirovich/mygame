@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import type { ResourceType } from '../../core/gameTypes';
+import { MAP_DEFINITIONS } from '../../core/constants/maps';
+import type { MapId } from '../../core/gameTypes.maps';
 
 // Список всех ресурсов по категориям
 const resourceCategories = {
@@ -12,6 +14,12 @@ const resourceCategories = {
   'Фаза 2: Военные': ['weapon', 'artillery', 'radar', 'nuclear_bomb'] as ResourceType[],
   'Фаза 2: Космические': ['jet_engine', 'satellite', 'rocket', 'spaceship', 'console', 'space_station'] as ResourceType[],
   'Фаза 2: Специальные': ['robot', 'waste', 'radioactive_waste'] as ResourceType[],
+  'Фаза 3: Развлечения': ['music_album', 'movie', 'video_game', 'streaming_service', 'vr_headset', 'ar_glasses', 'gaming_console', 'smart_tv'] as ResourceType[],
+  'Фаза 3: Культура': ['artwork', 'sculpture', 'literature', 'architecture', 'fashion', 'jewelry'] as ResourceType[],
+  'Фаза 3: Социальные': ['social_network', 'messaging_app', 'search_engine', 'cloud_service', 'ai_assistant', 'cryptocurrency'] as ResourceType[],
+  'Фаза 3: Медицина': ['medicine', 'vaccine', 'bioimplant', 'gene_therapy', 'cryonics'] as ResourceType[],
+  'Фаза 3: Мегаструктуры': ['orbital_habitat', 'dyson_component', 'warp_core', 'quantum_computer', 'antimatter'] as ResourceType[],
+  'Фаза 3: Трансцендентность': ['singularity_core', 'time_crystal', 'dimensional_rift', 'omega_matter', 'ascension_essence'] as ResourceType[],
 };
 
 // Русские названия ресурсов
@@ -58,6 +66,47 @@ const resourceNames: Record<ResourceType, string> = {
   robot: 'Робот',
   waste: 'Отходы',
   radioactive_waste: 'Радиоактивные отходы',
+  // Фаза 3: T6 Entertainment
+  music_album: 'Музыкальный альбом',
+  movie: 'Фильм',
+  video_game: 'Видеоигра',
+  streaming_service: 'Стриминговый сервис',
+  vr_headset: 'VR-гарнитура',
+  ar_glasses: 'AR-очки',
+  gaming_console: 'Игровая консоль',
+  smart_tv: 'Смарт-ТВ',
+  // Фаза 3: T6 Culture
+  artwork: 'Произведение искусства',
+  sculpture: 'Скульптура',
+  literature: 'Литература',
+  architecture: 'Архитектура',
+  fashion: 'Мода',
+  jewelry: 'Ювелирное украшение',
+  // Фаза 3: T7 Social
+  social_network: 'Социальная сеть',
+  messaging_app: 'Мессенджер',
+  search_engine: 'Поисковая система',
+  cloud_service: 'Облачный сервис',
+  ai_assistant: 'ИИ-ассистент',
+  cryptocurrency: 'Криптовалюта',
+  // Фаза 3: T7 Medical
+  medicine: 'Лекарство',
+  vaccine: 'Вакцина',
+  bioimplant: 'Биоимплант',
+  gene_therapy: 'Генная терапия',
+  cryonics: 'Криоконсервация',
+  // Фаза 3: T8 Megastructures
+  orbital_habitat: 'Орбитальный хабитат',
+  dyson_component: 'Компонент Дайсона',
+  warp_core: 'Варп-ядро',
+  quantum_computer: 'Квантовый компьютер',
+  antimatter: 'Антиматерия',
+  // Фаза 3: T9 Transcendence
+  singularity_core: 'Ядро сингулярности',
+  time_crystal: 'Кристалл времени',
+  dimensional_rift: 'Разлом измерения',
+  omega_matter: 'Омега-материя',
+  ascension_essence: 'Эссенция вознесения',
 };
 
 interface CheatPanelProps {
@@ -72,9 +121,39 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
   const addCredits = useGameStore((state) => state.addCredits);
   const addResearchPoints = useGameStore((state) => state.addResearchPoints);
   const addInfluence = useGameStore((state) => state.addInfluence);
+  
+  // Map system
+  const maps = useGameStore((state) => state.maps);
+  const startMap = useGameStore((state) => state.startMap);
 
   const traceFlows = useGameStore((state: any) => state.debug?.traceFlows ?? false);
   const lastFlow = useGameStore((state: any) => state.debug?.lastFlow ?? null);
+  
+  // Разблокировать все карты через прямое изменение стора
+  const unlockAllMaps = () => {
+    const allMapIds = MAP_DEFINITIONS.map(m => m.id) as MapId[];
+    useGameStore.setState((state) => ({
+      maps: {
+        ...state.maps,
+        unlockedMaps: allMapIds,
+      },
+    }));
+  };
+  
+  // Запустить карту напрямую (разблокирует и стартует)
+  const forceStartMap = (mapId: MapId) => {
+    // Сначала разблокируем карту
+    useGameStore.setState((state) => ({
+      maps: {
+        ...state.maps,
+        unlockedMaps: state.maps.unlockedMaps.includes(mapId) 
+          ? state.maps.unlockedMaps 
+          : [...state.maps.unlockedMaps, mapId],
+      },
+    }));
+    // Затем стартуем
+    startMap(mapId);
+  };
 
   const toggleAllProductionBuildingsExceptPower = (disabled: boolean) => {
     // Это dev-only панель, поэтому делаем прямое изменение стора.
@@ -314,6 +393,53 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
                 {preset >= 1000000 ? `${preset / 1000000}M` : preset >= 1000 ? `${preset / 1000}K` : preset}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Карты */}
+        <div className="mb-6 border border-cyan-700 rounded-lg p-4 bg-gray-800/50">
+          <h3 className="text-lg font-semibold text-cyan-300 mb-3">🗺️ Карты (Фаза 4)</h3>
+          <div className="mb-3 text-sm text-gray-400">
+            Текущая карта: <span className="text-cyan-400">{maps?.currentMapId ?? 'не выбрана'}</span>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button
+              onClick={unlockAllMaps}
+              className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm transition-colors"
+            >
+              🔓 Разблокировать все карты
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {MAP_DEFINITIONS.map((map) => {
+              const isUnlocked = maps?.unlockedMaps?.includes(map.id as MapId);
+              const isCurrent = maps?.currentMapId === map.id;
+              return (
+                <button
+                  key={map.id}
+                  onClick={() => forceStartMap(map.id as MapId)}
+                  className={`p-2 rounded text-left text-xs transition-colors border ${
+                    isCurrent
+                      ? 'bg-cyan-600 border-cyan-400 text-white'
+                      : isUnlocked
+                      ? 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600'
+                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+                  }`}
+                  title={`${map.name}\n${map.description}\nРазмер: ${map.gridDimensions.width}×${map.gridDimensions.height}\nСетка: ${map.gridType}\nСложность: ${map.difficulty}`}
+                >
+                  <div className="flex items-center gap-1">
+                    <span className="text-lg">{map.emoji}</span>
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{map.name}</div>
+                      <div className="text-[10px] text-gray-400">
+                        {map.gridDimensions.width}×{map.gridDimensions.height} • {map.difficulty}
+                      </div>
+                    </div>
+                  </div>
+                  {!isUnlocked && <span className="text-[10px] text-yellow-500">🔒</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
 

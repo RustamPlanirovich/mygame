@@ -22,7 +22,8 @@ export function ContractsPanel() {
     
     for (const [resType, amount] of Object.entries(contract.requirements)) {
       const rType = resType as ResourceType;
-      const have = state.grid.buffers.base?.[rType] || new Decimal(0);
+      const rawValue = state.grid.buffers.base?.[rType];
+      const have = rawValue != null ? new Decimal(rawValue) : new Decimal(0);
       if (have.lt(amount)) return false;
     }
     return true;

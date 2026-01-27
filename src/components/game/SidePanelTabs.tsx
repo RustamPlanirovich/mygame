@@ -22,8 +22,13 @@ import AchievementsPanel from './AchievementsPanel';
 import { MegastructuresPanel } from './MegastructuresPanel';
 import { QuestsPanel } from './QuestsPanel';
 import { HelpPanel } from './HelpPanel';
-import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Gift, CalendarDays, Network } from 'lucide-react';
+import { Search, Swords, Store, FlaskConical, Ghost, Sparkles, Rocket, Hammer, Landmark, ChevronLeft, Globe, Satellite, Ship, Truck, Zap, Trophy, Building2, ClipboardList, BookOpen, Gift, CalendarDays, Network, BarChart2, Wallet, Palette } from 'lucide-react';
+import { AnalyticsPanel } from './analytics';
+import { FinancePanel } from './finance';
+import { CulturePanel } from './culture/CulturePanel';
+import { useFinanceStore } from '../../features/financeStore';
 import type { DepositType } from '../../core/gameTypes';
+import Decimal from 'break_eternity.js';
 
 type TabId =
   | 'inspector'
@@ -47,6 +52,9 @@ type TabId =
   | 'achievements'
   | 'megastructures'
   | 'quests'
+  | 'analytics'
+  | 'finance'
+  | 'culture'
   | 'help';
 
 export function SidePanelTabs() {
@@ -63,6 +71,20 @@ export function SidePanelTabs() {
   // Получаем квесты из стора
   const quests = useGameStore(s => s.quests.activeQuests);
   const claimQuestReward = useGameStore(s => s.claimQuestReward);
+  
+  // Получаем кредиты для финансовой панели
+  const creditsBalance = useGameStore(s => s.currency.credits);
+  const addCredits = useGameStore(s => s.addCredits);
+  const spendCredits = useGameStore(s => s.spendCredits);
+  
+  // Обёртка для передачи в FinancePanel
+  const handleFinanceTransfer = (amount: Decimal, direction: 'toBank' | 'fromBank') => {
+    if (direction === 'toBank') {
+      spendCredits(amount);
+    } else {
+      addCredits(amount);
+    }
+  };
   
   // Получаем активный грид (платформа или основная база)
   const grid = activePlatformId 
@@ -84,10 +106,13 @@ export function SidePanelTabs() {
       [
         { id: 'building' as const, label: 'Строительство', icon: Hammer, Component: BuildingList },
         { id: 'inspector' as const, label: 'Инспектор', icon: Search, Component: TileInspector },
-        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Component: () => <QuestsPanel quests={quests} onClaimReward={claimQuestReward} /> },
+        { id: 'quests' as const, label: 'Квесты', icon: ClipboardList, Component: null }, // Рендерится отдельно
         { id: 'combat' as const, label: 'Бой', icon: Swords, Component: CombatPanel },
         { id: 'market' as const, label: 'Рынок', icon: Store, Component: MarketPanel },
+        { id: 'finance' as const, label: 'Финансы', icon: Wallet, Component: null }, // Рендерится отдельно
+        { id: 'analytics' as const, label: 'Аналитика', icon: BarChart2, Component: AnalyticsPanel },
         { id: 'research' as const, label: 'Исследования', icon: FlaskConical, Component: ResearchPanel },
+        { id: 'culture' as const, label: 'Культура', icon: Palette, Component: CulturePanel },
         { id: 'politics' as const, label: 'Политика', icon: Landmark, Component: PoliticsPanel },
         { id: 'galaxies' as const, label: 'Галактики', icon: Globe, Component: GalaxyMap },
         { id: 'platforms' as const, label: 'Платформы', icon: Satellite, Component: PlatformsPanel },
@@ -104,7 +129,7 @@ export function SidePanelTabs() {
         { id: 'chains' as const, label: 'Цепочки', icon: Network, Component: ProductionChainVisualizer },
         { id: 'expedition' as const, label: 'Экспедиция', icon: Rocket, Component: ExpeditionPanel },
       ],
-    [quests, claimQuestReward],
+    [],
   );
 
   const [active, setActive] = useState<TabId | null>(null);
@@ -131,10 +156,17 @@ export function SidePanelTabs() {
 
   const activeTab = tabs.find((t) => t.id === active);
 
-  // Специальный рендер для панели с месторождением
+  // Специальный рендер для панели с месторождением и компонентов с пропсами
   const renderContent = () => {
     if (active === 'deposit' && deposit) {
       return <DepositBuildPanel deposit={deposit as DepositType} />;
+    }
+    // Компоненты с пропсами рендерятся отдельно
+    if (active === 'finance') {
+      return <FinancePanel creditsBalance={creditsBalance} onTransfer={handleFinanceTransfer} />;
+    }
+    if (active === 'quests') {
+      return <QuestsPanel quests={quests} onClaimReward={claimQuestReward} />;
     }
     const Comp = activeTab?.Component;
     return Comp ? <Comp /> : null;
@@ -220,7 +252,7 @@ export function SidePanelTabs() {
           </div>
           
           {/* Контент */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {renderContent()}
           </div>
         </div>

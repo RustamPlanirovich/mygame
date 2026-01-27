@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useGameStore,
   calculateCost,
@@ -10,7 +10,8 @@ import { D, formatNumber } from '../../core/math/format.ts';
 import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Search, ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff } from 'lucide-react';
+import { Search, ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff, Settings } from 'lucide-react';
+import { BuildingSettingsPanel } from './building/BuildingSettingsPanel';
 import {
   computeBandwidth,
   computeCapsMultiplier,
@@ -178,6 +179,9 @@ export function TileInspector() {
   const downgradeBuildingAt = useGameStore((s) => s.downgradeBuildingAt);
   const evolveBuildingAt = useGameStore((s) => s.evolveBuildingAt);
   const toggleBuildingDisabled = useGameStore((s) => s.toggleBuildingDisabled);
+
+  // State for building settings modal
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const buildingId = selectedKey ? grid.tiles[selectedKey] : null;
@@ -589,6 +593,27 @@ export function TileInspector() {
               </div>
             )}
 
+            {/* ФАЗА 5: ПРОДВИНУТЫЕ НАСТРОЙКИ ЗДАНИЯ */}
+            {buildingId && selectedKey && isBuildingDisableable(buildingId) && (
+              <div className="bg-purple-900/20 p-2 rounded border border-purple-500/30">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <div className="font-bold text-purple-300">⚙️ Продвинутые настройки</div>
+                    <div className="text-[10px] text-cyber-gray-light mt-0.5">
+                      Режимы работы, приоритеты, автопродажа
+                    </div>
+                  </div>
+                  <button
+                    className="px-4 py-2 rounded text-xs font-bold flex items-center gap-2 transition-all bg-purple-600 hover:bg-purple-500 text-white"
+                    onClick={() => setShowSettingsPanel(true)}
+                  >
+                    <Settings size={14} />
+                    <span>НАСТРОЙКИ</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* ФАЗА 8.5: Система уровней зданий */}
             <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
               <div className="text-xs text-cyber-text-dim mb-2">⬆️ Улучшение здания</div>
@@ -723,9 +748,9 @@ export function TileInspector() {
 
                         return (
                           <>
-                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {fmt(buildingLevel)}</div>
+                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {formatNumber(buildingLevel)}</div>
                             {buildingLevel < 500 && (
-                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {fmt(buildingLevel + 1)}</div>
+                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {formatNumber(buildingLevel + 1)}</div>
                             )}
                           </>
                         );
@@ -1126,6 +1151,15 @@ export function TileInspector() {
           </div>
         )}
       </div>
+
+      {/* ФАЗА 5: Модальное окно настроек здания */}
+      {showSettingsPanel && selectedKey && buildingId && (
+        <BuildingSettingsPanel
+          tileKey={selectedKey}
+          buildingId={buildingId}
+          onClose={() => setShowSettingsPanel(false)}
+        />
+      )}
     </div>
   );
 }

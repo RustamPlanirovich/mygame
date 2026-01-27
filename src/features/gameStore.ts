@@ -117,7 +117,29 @@ import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredB
 import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
 import { BUILDING_EVOLUTIONS, getNextEvolution } from '../core/constants/buildingEvolutions';
 import { generateGalaxy, getDiscoveryCost } from '../utils/galaxyGenerator';
+import { generateMap } from '../utils/mapGenerator';
+import { getMapDefinition } from '../core/constants/maps';
+import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
+import { getCultureLevel, getCultureProgress } from '../core/constants/cultureLevels';
+import { calculateHappiness, calculateHappinessTrend, smoothHappinessTransition } from '../utils/happinessCalculator';
 import type { PrestigeUpgradeId } from '../core/gameTypes';
+import type { MapId } from '../core/gameTypes.maps';
+import type { 
+  TileBuildingSettings, 
+  BuildingMode,
+  ResourcePriority,
+  AutoSellConfig,
+  StorageLimit,
+  BuildingCondition 
+} from '../core/gameTypes.buildings';
+import { 
+  BUILDING_MODES,
+  createDefaultTileSettings,
+  getEffectiveProductionMultiplier,
+  getEffectiveConsumptionMultiplier,
+  getEffectiveEnergyMultiplier,
+  calculateHealthChange
+} from '../core/gameTypes.buildings';
 
 const MARKET_UPDATE_SECONDS = 30;
 
@@ -172,6 +194,8 @@ let productionRatesCache: {
   tilesCount: number;
   tileLevelsRef: any;
   tileEvolutionLevelsRef: any;
+  tileSettingsRef: any; // ФАЗА 5
+  tileDisabledRef: any; // ФАЗА 5
   buildingsCount: number;
   rates: Record<ResourceType, Decimal> | null;
   lastCalculatedAt: number;
@@ -179,6 +203,8 @@ let productionRatesCache: {
   tilesCount: 0,
   tileLevelsRef: null,
   tileEvolutionLevelsRef: null,
+  tileSettingsRef: null, // ФАЗА 5
+  tileDisabledRef: null, // ФАЗА 5
   buildingsCount: 0,
   rates: null,
   lastCalculatedAt: 0,
@@ -270,12 +296,28 @@ const INITIAL_RESEARCH: ResearchState = {
     quantum_tech: false,
     advanced_colonies: false,
     galactic_fleet: false,
+    // Era 6: Развлечения и Культура - Фаза 3
+    entertainment_industry: false,
+    digital_media: false,
+    cultural_renaissance: false,
     // Era 7
     megastructures: false,
     time_control: false,
     quantum_teleport: false,
     ai_restoration: false,
     galactic_rule: false,
+    // Era 7: Социальные сети и Биотех - Фаза 3
+    social_engineering: false,
+    cloud_computing: false,
+    biotechnology: false,
+    genetic_engineering: false,
+    // Era 8: Мегаструктуры - Фаза 3
+    megastructure_engineering: false,
+    warp_physics: false,
+    antimatter_synthesis: false,
+    // Era 9: Трансцендентность - Фаза 3
+    singularity_science: false,
+    transcendence: false,
   },
 };
 
@@ -542,6 +584,48 @@ const INITIAL_SIGNAL_INTERCEPTION: import('../core/gameTypes').SignalInterceptio
   totalSignalsMissed: 0,
   signalFrequency: 3.5, // Среднее между 2 и 5 минутами
   signalsEnabled: true,
+};
+
+// Maps - Initial State (Phase 4)
+// ============================================================================
+const INITIAL_MAPS: import('../core/gameTypes.maps').ActiveMapState = {
+  currentMapId: 'map_training_ground',
+  unlockedMaps: ['map_training_ground', 'map_barren_moon'],
+  mapProgress: {},
+  activeMapData: null,
+  mapSeed: Date.now(),
+  currentEvent: null,
+  eventHistory: [],
+};
+
+// Culture - Initial State (Phase 7)
+// ============================================================================
+const INITIAL_CULTURE: import('../core/gameTypes.culture').CultureState = {
+  science: D(0),
+  culture: D(0),
+  currentLevel: 1,
+  cultureProgress: D(0),
+  sciencePerSecond: D(0),
+  culturePerSecond: D(0),
+  totalScienceProduced: D(0),
+  totalCultureProduced: D(0),
+  happiness: {
+    current: 50,
+    factors: [],
+    productivityMultiplier: 1.0,
+    trend: 'stable',
+    lastUpdated: Date.now(),
+  },
+  unlockedCultureBuildings: [],
+  aggregatedEffects: {
+    globalProductivity: 1.0,
+    buildingDurability: 1.0,
+    researchSpeed: 1.0,
+    buildingCost: 1.0,
+    tradePrices: 1.0,
+    creditsPerSale: 1.0,
+    pollutionReduction: 1.0,
+  },
 };
 
 // Quests - Initial State
@@ -1395,6 +1479,444 @@ const INITIAL_BUILDINGS: Building[] = [
     energyConsumption: D(5.0),
     // Эффект: увеличение брони платформы будет реализован отдельно
     count: 0
+  },
+  // ============================================
+  // ФАЗА 3: РАЗВЛЕЧЕНИЯ (Entertainment) - T6
+  // ============================================
+  {
+    id: 'recording_studio_mk1',
+    name: 'Студия Звукозаписи v1',
+    description: 'Создаёт музыкальные альбомы для развлечения космических колонистов.',
+    baseCost: { steel: D(400), computer: D(80), display: D(60) },
+    creditCost: D(8000),
+    costFactor: 1.22,
+    production: { music_album: D(0.05) },
+    consumption: { computer: D(0.05), display: D(0.03) },
+    energyConsumption: D(12.0),
+    count: 0
+  },
+  {
+    id: 'film_studio_mk1',
+    name: 'Киностудия v1',
+    description: 'Производит кинофильмы — главное развлечение в далёких колониях.',
+    baseCost: { steel: D(600), computer: D(120), display: D(100), fiber: D(50) },
+    creditCost: D(15000),
+    costFactor: 1.25,
+    production: { movie: D(0.02) },
+    consumption: { computer: D(0.1), display: D(0.08), fiber: D(0.05) },
+    energyConsumption: D(25.0),
+    count: 0
+  },
+  {
+    id: 'game_studio_mk1',
+    name: 'Игровая Студия v1',
+    description: 'Разрабатывает видеоигры для виртуального досуга колонистов.',
+    baseCost: { steel: D(500), computer: D(150), integrated_circuit: D(80), display: D(60) },
+    creditCost: D(12000),
+    costFactor: 1.24,
+    production: { video_game: D(0.03) },
+    consumption: { computer: D(0.12), integrated_circuit: D(0.06), display: D(0.04) },
+    energyConsumption: D(20.0),
+    count: 0
+  },
+  {
+    id: 'streaming_center_mk1',
+    name: 'Стриминговый Центр v1',
+    description: 'Транслирует контент на все колонии галактики через спутниковую сеть.',
+    baseCost: { steel: D(700), computer: D(200), satellite: D(30), fiber: D(80) },
+    creditCost: D(25000),
+    costFactor: 1.28,
+    production: { streaming_service: D(0.01) },
+    consumption: { computer: D(0.2), satellite: D(0.05), fiber: D(0.1) },
+    energyConsumption: D(40.0),
+    count: 0
+  },
+  {
+    id: 'vr_factory_mk1',
+    name: 'Завод VR-Гарнитур v1',
+    description: 'Производит устройства виртуальной реальности для полного погружения.',
+    baseCost: { steel: D(450), display: D(80), integrated_circuit: D(60), battery: D(40) },
+    creditCost: D(10000),
+    costFactor: 1.23,
+    production: { vr_headset: D(0.04) },
+    consumption: { display: D(0.06), integrated_circuit: D(0.04), battery: D(0.03) },
+    energyConsumption: D(15.0),
+    count: 0
+  },
+  {
+    id: 'ar_factory_mk1',
+    name: 'Завод AR-Очков v1',
+    description: 'Производит очки дополненной реальности для работы и развлечений.',
+    baseCost: { steel: D(400), display: D(60), integrated_circuit: D(50), glass: D(40) },
+    creditCost: D(9000),
+    costFactor: 1.22,
+    production: { ar_glasses: D(0.05) },
+    consumption: { display: D(0.04), integrated_circuit: D(0.03), glass: D(0.02) },
+    energyConsumption: D(12.0),
+    count: 0
+  },
+  {
+    id: 'console_factory_mk2',
+    name: 'Завод Игровых Консолей v1',
+    description: 'Производит игровые консоли для домашнего развлечения.',
+    baseCost: { steel: D(350), computer: D(80), display: D(40), plastic: D(60) },
+    creditCost: D(7500),
+    costFactor: 1.20,
+    production: { gaming_console: D(0.06) },
+    consumption: { computer: D(0.06), display: D(0.03), plastic: D(0.04) },
+    energyConsumption: D(10.0),
+    count: 0
+  },
+  {
+    id: 'tv_factory_mk1',
+    name: 'Завод Умных Телевизоров v1',
+    description: 'Производит умные телевизоры со встроенным интерактивным интерфейсом.',
+    baseCost: { steel: D(380), display: D(70), computer: D(50), plastic: D(50), glass: D(40) },
+    creditCost: D(8500),
+    costFactor: 1.21,
+    production: { smart_tv: D(0.05) },
+    consumption: { display: D(0.05), computer: D(0.03), plastic: D(0.03), glass: D(0.02) },
+    energyConsumption: D(11.0),
+    count: 0
+  },
+  // ============================================
+  // ФАЗА 3: КУЛЬТУРА (Culture) - T6
+  // ============================================
+  {
+    id: 'art_gallery_mk1',
+    name: 'Художественная Галерея v1',
+    description: 'Создаёт произведения искусства. Бонус +5% к производству глобально.',
+    baseCost: { steel: D(300), plastic: D(100), glass: D(80) },
+    creditCost: D(6000),
+    costFactor: 1.20,
+    production: { artwork: D(0.03) },
+    consumption: { plastic: D(0.02), glass: D(0.015) },
+    energyConsumption: D(8.0),
+    count: 0
+  },
+  {
+    id: 'sculptor_workshop_mk1',
+    name: 'Мастерская Скульптора v1',
+    description: 'Создаёт скульптуры из металлических сплавов. Бонус +10% к прочности зданий.',
+    baseCost: { steel: D(400), chrome_alloy: D(80) },
+    creditCost: D(7500),
+    costFactor: 1.22,
+    production: { sculpture: D(0.02) },
+    consumption: { steel: D(0.1), chrome_alloy: D(0.04) },
+    energyConsumption: D(10.0),
+    count: 0
+  },
+  {
+    id: 'publishing_house_mk1',
+    name: 'Издательство v1',
+    description: 'Публикует литературу для образования колонистов. Бонус +3% к скорости исследований.',
+    baseCost: { steel: D(250), fiber: D(60), plastic: D(50) },
+    creditCost: D(5000),
+    costFactor: 1.18,
+    production: { literature: D(0.04) },
+    consumption: { fiber: D(0.03), plastic: D(0.02) },
+    energyConsumption: D(6.0),
+    count: 0
+  },
+  {
+    id: 'architecture_bureau_mk1',
+    name: 'Архитектурное Бюро v1',
+    description: 'Проектирует здания будущего. Бонус -5% к стоимости строительства.',
+    baseCost: { steel: D(350), computer: D(100), glass: D(60) },
+    creditCost: D(8000),
+    costFactor: 1.23,
+    production: { architecture: D(0.02) },
+    consumption: { computer: D(0.05), steel: D(0.02), glass: D(0.02) },
+    energyConsumption: D(9.0),
+    count: 0
+  },
+  {
+    id: 'fashion_house_mk1',
+    name: 'Дом Моды v1',
+    description: 'Создаёт галактическую моду. Бонус +2% к торговым ценам.',
+    baseCost: { steel: D(280), fiber: D(80), plastic: D(50), chemicals: D(40) },
+    creditCost: D(6500),
+    costFactor: 1.20,
+    production: { fashion: D(0.03) },
+    consumption: { fiber: D(0.04), plastic: D(0.02), chemicals: D(0.015) },
+    energyConsumption: D(7.0),
+    count: 0
+  },
+  {
+    id: 'jewelry_workshop_mk1',
+    name: 'Ювелирная Мастерская v1',
+    description: 'Создаёт изысканные украшения из редких металлов. Бонус +1% к кредитам с продаж.',
+    baseCost: { steel: D(320), chrome: D(60), titanium: D(50), glass: D(40) },
+    creditCost: D(7000),
+    costFactor: 1.21,
+    production: { jewelry: D(0.025) },
+    consumption: { chrome: D(0.02), titanium: D(0.015), glass: D(0.01) },
+    energyConsumption: D(8.0),
+    count: 0
+  },
+  // ============================================
+  // ФАЗА 3: СОЦИАЛЬНЫЕ СЕТИ (Social Networks) - T7
+  // ============================================
+  {
+    id: 'data_center_mk1',
+    name: 'Дата-Центр v1',
+    description: 'Управляет глобальными социальными сетями для всех колоний.',
+    baseCost: { steel: D(800), computer: D(300), satellite: D(50), fiber: D(100) },
+    creditCost: D(30000),
+    costFactor: 1.30,
+    production: { social_network: D(0.008) },
+    consumption: { computer: D(0.3), satellite: D(0.06), fiber: D(0.1) },
+    energyConsumption: D(60.0),
+    count: 0
+  },
+  {
+    id: 'comm_hub_mk1',
+    name: 'Коммуникационный Хаб v1',
+    description: 'Обеспечивает мгновенную связь между колониями через мессенджеры.',
+    baseCost: { steel: D(600), computer: D(180), satellite: D(35), fiber: D(70) },
+    creditCost: D(22000),
+    costFactor: 1.27,
+    production: { messaging_app: D(0.015) },
+    consumption: { computer: D(0.15), satellite: D(0.04), fiber: D(0.08) },
+    energyConsumption: D(40.0),
+    count: 0
+  },
+  {
+    id: 'search_cluster_mk1',
+    name: 'Поисковый Кластер v1',
+    description: 'Индексирует знания всей галактики для мгновенного поиска.',
+    baseCost: { steel: D(1200), computer: D(500), satellite: D(80), fiber: D(150) },
+    creditCost: D(50000),
+    costFactor: 1.35,
+    production: { search_engine: D(0.005) },
+    consumption: { computer: D(0.5), satellite: D(0.1), fiber: D(0.15) },
+    energyConsumption: D(100.0),
+    count: 0
+  },
+  {
+    id: 'cloud_farm_mk1',
+    name: 'Облачная Ферма v1',
+    description: 'Предоставляет облачные вычисления для всех колоний.',
+    baseCost: { steel: D(900), computer: D(350), satellite: D(60), fiber: D(100) },
+    creditCost: D(35000),
+    costFactor: 1.30,
+    production: { cloud_service: D(0.01) },
+    consumption: { computer: D(0.35), satellite: D(0.07), fiber: D(0.1) },
+    energyConsumption: D(70.0),
+    count: 0
+  },
+  {
+    id: 'ai_lab_mk1',
+    name: 'Лаборатория ИИ v1',
+    description: 'Разрабатывает ИИ-ассистентов для помощи колонистам.',
+    baseCost: { steel: D(700), computer: D(250), robot: D(40), integrated_circuit: D(100) },
+    creditCost: D(28000),
+    costFactor: 1.28,
+    production: { ai_assistant: D(0.012) },
+    consumption: { computer: D(0.25), robot: D(0.05), integrated_circuit: D(0.08) },
+    energyConsumption: D(55.0),
+    count: 0
+  },
+  {
+    id: 'mining_rig_mk1',
+    name: 'Майнинг-Ферма v1',
+    description: 'Добывает криптовалюту для межгалактических расчётов.',
+    baseCost: { steel: D(800), computer: D(300), integrated_circuit: D(120) },
+    creditCost: D(25000),
+    costFactor: 1.32,
+    production: { cryptocurrency: D(0.008) },
+    consumption: { computer: D(0.2), integrated_circuit: D(0.08) },
+    energyConsumption: D(120.0),
+    count: 0
+  },
+  // ============================================
+  // ФАЗА 3: МЕДИЦИНА И БИОТЕХ (Medicine & Biotech) - T7
+  // ============================================
+  {
+    id: 'pharma_factory_mk1',
+    name: 'Фармацевтический Завод v1',
+    description: 'Производит медикаменты для лечения колонистов.',
+    baseCost: { steel: D(500), chemicals: D(150), plastic: D(80), fiber: D(60) },
+    creditCost: D(18000),
+    costFactor: 1.25,
+    production: { medicine: D(0.04) },
+    consumption: { chemicals: D(0.08), plastic: D(0.03), fiber: D(0.02) },
+    energyConsumption: D(25.0),
+    count: 0
+  },
+  {
+    id: 'biolab_mk1',
+    name: 'Биолаборатория v1',
+    description: 'Разрабатывает вакцины против космических вирусов.',
+    baseCost: { steel: D(650), chemicals: D(200), medicine: D(50), robot: D(25) },
+    creditCost: D(25000),
+    costFactor: 1.28,
+    production: { vaccine: D(0.02) },
+    consumption: { chemicals: D(0.1), medicine: D(0.04), robot: D(0.02) },
+    energyConsumption: D(35.0),
+    count: 0
+  },
+  {
+    id: 'implant_factory_mk1',
+    name: 'Завод Имплантов v1',
+    description: 'Создаёт биомеханические импланты для усиления колонистов.',
+    baseCost: { steel: D(600), titanium_alloy: D(120), integrated_circuit: D(80), medicine: D(60) },
+    creditCost: D(28000),
+    costFactor: 1.30,
+    production: { bioimplant: D(0.015) },
+    consumption: { titanium_alloy: D(0.05), integrated_circuit: D(0.04), medicine: D(0.03) },
+    energyConsumption: D(40.0),
+    count: 0
+  },
+  {
+    id: 'gene_lab_mk1',
+    name: 'Генетическая Лаборатория v1',
+    description: 'Разрабатывает генную терапию для лечения наследственных заболеваний.',
+    baseCost: { steel: D(800), medicine: D(150), computer: D(200), robot: D(50) },
+    creditCost: D(40000),
+    costFactor: 1.33,
+    production: { gene_therapy: D(0.008) },
+    consumption: { medicine: D(0.08), computer: D(0.1), robot: D(0.03) },
+    energyConsumption: D(50.0),
+    count: 0
+  },
+  {
+    id: 'cryo_facility_mk1',
+    name: 'Криогенный Комплекс v1',
+    description: 'Технология криоконсервации для длительных космических путешествий.',
+    baseCost: { steel: D(700), medicine: D(100), chemicals: D(150), ice: D(200) },
+    creditCost: D(35000),
+    costFactor: 1.30,
+    production: { cryonics: D(0.01) },
+    consumption: { medicine: D(0.05), chemicals: D(0.08), ice: D(0.15) },
+    energyConsumption: D(45.0),
+    count: 0
+  },
+  // ============================================
+  // ФАЗА 3: МЕГАСТРУКТУРЫ (Megastructures) - T8
+  // ============================================
+  {
+    id: 'habitat_constructor_mk1',
+    name: 'Конструктор Хабитатов v1',
+    description: 'Строит гигантские орбитальные хабитаты для миллионов колонистов.',
+    baseCost: { steel: D(2000), space_station: D(20), titanium_alloy: D(300), glass: D(200) },
+    creditCost: D(100000),
+    costFactor: 1.40,
+    production: { orbital_habitat: D(0.003) },
+    consumption: { space_station: D(0.02), titanium_alloy: D(0.15), glass: D(0.1) },
+    energyConsumption: D(150.0),
+    count: 0
+  },
+  {
+    id: 'dyson_forge_mk1',
+    name: 'Кузница Дайсона v1',
+    description: 'Производит компоненты для Сферы Дайсона — величайшей мегаструктуры.',
+    baseCost: { steel: D(3000), satellite: D(100), titanium_alloy: D(500) },
+    creditCost: D(200000),
+    costFactor: 1.45,
+    production: { dyson_component: D(0.002) },
+    consumption: { satellite: D(0.1), titanium_alloy: D(0.2) },
+    energyConsumption: D(200.0),
+    count: 0
+  },
+  {
+    id: 'warp_assembly_mk1',
+    name: 'Сборка Варп-Ядер v1',
+    description: 'Создаёт варп-ядра для сверхсветовых перемещений.',
+    baseCost: { steel: D(2500), enriched_uranium: D(100), dark_matter: D(50), computer: D(300) },
+    creditCost: D(180000),
+    costFactor: 1.42,
+    production: { warp_core: D(0.002) },
+    consumption: { enriched_uranium: D(0.05), dark_matter: D(0.02), computer: D(0.15) },
+    energyConsumption: D(180.0),
+    count: 0
+  },
+  {
+    id: 'quantum_lab_mk2',
+    name: 'Квантовая Лаборатория v2',
+    description: 'Создаёт квантовые компьютеры — вершину вычислительных технологий.',
+    baseCost: { steel: D(1800), computer: D(400), dark_matter: D(80), integrated_circuit: D(200) },
+    creditCost: D(150000),
+    costFactor: 1.38,
+    production: { quantum_computer: D(0.003) },
+    consumption: { computer: D(0.25), dark_matter: D(0.03), integrated_circuit: D(0.1) },
+    energyConsumption: D(160.0),
+    count: 0
+  },
+  {
+    id: 'antimatter_reactor_mk1',
+    name: 'Реактор Антиматерии v1',
+    description: 'Синтезирует антиматерию — самый мощный источник энергии во вселенной.',
+    baseCost: { steel: D(4000), enriched_uranium: D(200), dark_matter: D(100) },
+    creditCost: D(300000),
+    costFactor: 1.50,
+    production: { antimatter: D(0.001) },
+    consumption: { enriched_uranium: D(0.1), dark_matter: D(0.05) },
+    energyConsumption: D(500.0),
+    count: 0
+  },
+  // ============================================
+  // ФАЗА 3: ТРАНСЦЕНДЕНТНОСТЬ (Transcendence) - T9
+  // ============================================
+  {
+    id: 'singularity_chamber_mk1',
+    name: 'Камера Сингулярности v1',
+    description: 'Создаёт микроскопические чёрные дыры для генерации ядер сингулярности.',
+    baseCost: { steel: D(6000), antimatter: D(30), dark_matter: D(200), quantum_computer: D(20) },
+    creditCost: D(500000),
+    costFactor: 1.55,
+    production: { singularity_core: D(0.0005) },
+    consumption: { antimatter: D(0.01), dark_matter: D(0.05), quantum_computer: D(0.005) },
+    energyConsumption: D(800.0),
+    count: 0
+  },
+  {
+    id: 'temporal_forge_mk1',
+    name: 'Темпоральная Кузница v1',
+    description: 'Кристаллизует время в твёрдую форму. Позволяет манипулировать временем.',
+    baseCost: { steel: D(5000), antimatter: D(25), quantum_computer: D(30) },
+    creditCost: D(450000),
+    costFactor: 1.52,
+    production: { time_crystal: D(0.0003) },
+    consumption: { antimatter: D(0.008), quantum_computer: D(0.008) },
+    energyConsumption: D(700.0),
+    count: 0
+  },
+  {
+    id: 'rift_generator_mk1',
+    name: 'Генератор Разрывов v1',
+    description: 'Создаёт разрывы в пространстве-времени для путешествий между измерениями.',
+    baseCost: { steel: D(8000), singularity_core: D(20), warp_core: D(15), time_crystal: D(10) },
+    creditCost: D(800000),
+    costFactor: 1.60,
+    production: { dimensional_rift: D(0.0002) },
+    consumption: { singularity_core: D(0.003), warp_core: D(0.002), time_crystal: D(0.001) },
+    energyConsumption: D(1200.0),
+    count: 0
+  },
+  {
+    id: 'omega_synthesizer_mk1',
+    name: 'Синтезатор Омеги v1',
+    description: 'Синтезирует омега-материю — субстанцию за пределами обычной физики.',
+    baseCost: { steel: D(10000), dimensional_rift: D(10), antimatter: D(50), dark_matter: D(300) },
+    creditCost: D(1000000),
+    costFactor: 1.65,
+    production: { omega_matter: D(0.0001) },
+    consumption: { dimensional_rift: D(0.001), antimatter: D(0.02), dark_matter: D(0.08) },
+    energyConsumption: D(1500.0),
+    count: 0
+  },
+  {
+    id: 'ascension_altar_mk1',
+    name: 'Алтарь Вознесения v1',
+    description: 'Последний шаг к вознесению. Создаёт эссенцию вознесения для трансцендентности.',
+    baseCost: { steel: D(15000), omega_matter: D(5), time_crystal: D(20), dark_matter: D(500) },
+    creditCost: D(2000000),
+    costFactor: 1.70,
+    production: { ascension_essence: D(0.00005) },
+    consumption: { omega_matter: D(0.0005), time_crystal: D(0.002), dark_matter: D(0.1) },
+    energyConsumption: D(2000.0),
+    count: 0
   }
 ];
 
@@ -1463,6 +1985,47 @@ const INITIAL_RESOURCES = {
   // Фаза 8.1: Экология
   waste: { amount: D(0), max: D(10000), production: D(0) },
   radioactive_waste: { amount: D(0), max: D(5000), production: D(0) },
+  // Фаза 3: T6 - Развлечения (Entertainment)
+  music_album: { amount: D(0), max: D(100), production: D(0) },
+  movie: { amount: D(0), max: D(60), production: D(0) },
+  video_game: { amount: D(0), max: D(80), production: D(0) },
+  streaming_service: { amount: D(0), max: D(30), production: D(0) },
+  vr_headset: { amount: D(0), max: D(70), production: D(0) },
+  ar_glasses: { amount: D(0), max: D(80), production: D(0) },
+  gaming_console: { amount: D(0), max: D(90), production: D(0) },
+  smart_tv: { amount: D(0), max: D(80), production: D(0) },
+  // Фаза 3: T6 - Культура (Culture)
+  artwork: { amount: D(0), max: D(50), production: D(0) },
+  sculpture: { amount: D(0), max: D(40), production: D(0) },
+  literature: { amount: D(0), max: D(80), production: D(0) },
+  architecture: { amount: D(0), max: D(40), production: D(0) },
+  fashion: { amount: D(0), max: D(60), production: D(0) },
+  jewelry: { amount: D(0), max: D(50), production: D(0) },
+  // Фаза 3: T7 - Социальные сети и коммуникации
+  social_network: { amount: D(0), max: D(20), production: D(0) },
+  messaging_app: { amount: D(0), max: D(30), production: D(0) },
+  search_engine: { amount: D(0), max: D(15), production: D(0) },
+  cloud_service: { amount: D(0), max: D(25), production: D(0) },
+  ai_assistant: { amount: D(0), max: D(25), production: D(0) },
+  cryptocurrency: { amount: D(0), max: D(20), production: D(0) },
+  // Фаза 3: T7 - Медицина и биотех
+  medicine: { amount: D(0), max: D(80), production: D(0) },
+  vaccine: { amount: D(0), max: D(50), production: D(0) },
+  bioimplant: { amount: D(0), max: D(40), production: D(0) },
+  gene_therapy: { amount: D(0), max: D(25), production: D(0) },
+  cryonics: { amount: D(0), max: D(30), production: D(0) },
+  // Фаза 3: T8 - Мегаструктуры и инфраструктура
+  orbital_habitat: { amount: D(0), max: D(15), production: D(0) },
+  dyson_component: { amount: D(0), max: D(10), production: D(0) },
+  warp_core: { amount: D(0), max: D(10), production: D(0) },
+  quantum_computer: { amount: D(0), max: D(15), production: D(0) },
+  antimatter: { amount: D(0), max: D(5), production: D(0) },
+  // Фаза 3: T9 - Трансцендентные ресурсы
+  singularity_core: { amount: D(0), max: D(3), production: D(0) },
+  time_crystal: { amount: D(0), max: D(3), production: D(0) },
+  dimensional_rift: { amount: D(0), max: D(2), production: D(0) },
+  omega_matter: { amount: D(0), max: D(1), production: D(0) },
+  ascension_essence: { amount: D(0), max: D(1), production: D(0) },
 };
 
 export const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
@@ -1516,6 +2079,47 @@ export const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   // Фаза 8.1: Экология
   waste: INITIAL_RESOURCES.waste.max,
   radioactive_waste: INITIAL_RESOURCES.radioactive_waste.max,
+  // Фаза 3: T6 - Развлечения (Entertainment)
+  music_album: INITIAL_RESOURCES.music_album.max,
+  movie: INITIAL_RESOURCES.movie.max,
+  video_game: INITIAL_RESOURCES.video_game.max,
+  streaming_service: INITIAL_RESOURCES.streaming_service.max,
+  vr_headset: INITIAL_RESOURCES.vr_headset.max,
+  ar_glasses: INITIAL_RESOURCES.ar_glasses.max,
+  gaming_console: INITIAL_RESOURCES.gaming_console.max,
+  smart_tv: INITIAL_RESOURCES.smart_tv.max,
+  // Фаза 3: T6 - Культура (Culture)
+  artwork: INITIAL_RESOURCES.artwork.max,
+  sculpture: INITIAL_RESOURCES.sculpture.max,
+  literature: INITIAL_RESOURCES.literature.max,
+  architecture: INITIAL_RESOURCES.architecture.max,
+  fashion: INITIAL_RESOURCES.fashion.max,
+  jewelry: INITIAL_RESOURCES.jewelry.max,
+  // Фаза 3: T7 - Социальные сети и коммуникации
+  social_network: INITIAL_RESOURCES.social_network.max,
+  messaging_app: INITIAL_RESOURCES.messaging_app.max,
+  search_engine: INITIAL_RESOURCES.search_engine.max,
+  cloud_service: INITIAL_RESOURCES.cloud_service.max,
+  ai_assistant: INITIAL_RESOURCES.ai_assistant.max,
+  cryptocurrency: INITIAL_RESOURCES.cryptocurrency.max,
+  // Фаза 3: T7 - Медицина и биотех
+  medicine: INITIAL_RESOURCES.medicine.max,
+  vaccine: INITIAL_RESOURCES.vaccine.max,
+  bioimplant: INITIAL_RESOURCES.bioimplant.max,
+  gene_therapy: INITIAL_RESOURCES.gene_therapy.max,
+  cryonics: INITIAL_RESOURCES.cryonics.max,
+  // Фаза 3: T8 - Мегаструктуры и инфраструктура
+  orbital_habitat: INITIAL_RESOURCES.orbital_habitat.max,
+  dyson_component: INITIAL_RESOURCES.dyson_component.max,
+  warp_core: INITIAL_RESOURCES.warp_core.max,
+  quantum_computer: INITIAL_RESOURCES.quantum_computer.max,
+  antimatter: INITIAL_RESOURCES.antimatter.max,
+  // Фаза 3: T9 - Трансцендентные ресурсы
+  singularity_core: INITIAL_RESOURCES.singularity_core.max,
+  time_crystal: INITIAL_RESOURCES.time_crystal.max,
+  dimensional_rift: INITIAL_RESOURCES.dimensional_rift.max,
+  omega_matter: INITIAL_RESOURCES.omega_matter.max,
+  ascension_essence: INITIAL_RESOURCES.ascension_essence.max,
 };
 
 export const expandWarehouseProductionMultipliers = (
@@ -1552,57 +2156,100 @@ const recomputeCaps = (
 ) => {
   const next = { ...resources };
 
+  // Используем максимум между базовым значением и текущим max ресурса
+  // (текущий max может быть увеличен картой через startMap)
   const caps: Record<ResourceType, Decimal> = {
-    energy: BASE_RESOURCE_MAX.energy,
-    ore: BASE_RESOURCE_MAX.ore,
-    ice: BASE_RESOURCE_MAX.ice,
-    carbon: BASE_RESOURCE_MAX.carbon,
-    steel: BASE_RESOURCE_MAX.steel,
-    dark_matter: BASE_RESOURCE_MAX.dark_matter,
+    energy: resources.energy.max.gt(BASE_RESOURCE_MAX.energy) ? resources.energy.max : BASE_RESOURCE_MAX.energy,
+    ore: resources.ore.max.gt(BASE_RESOURCE_MAX.ore) ? resources.ore.max : BASE_RESOURCE_MAX.ore,
+    ice: resources.ice.max.gt(BASE_RESOURCE_MAX.ice) ? resources.ice.max : BASE_RESOURCE_MAX.ice,
+    carbon: resources.carbon.max.gt(BASE_RESOURCE_MAX.carbon) ? resources.carbon.max : BASE_RESOURCE_MAX.carbon,
+    steel: resources.steel.max.gt(BASE_RESOURCE_MAX.steel) ? resources.steel.max : BASE_RESOURCE_MAX.steel,
+    dark_matter: resources.dark_matter.max.gt(BASE_RESOURCE_MAX.dark_matter) ? resources.dark_matter.max : BASE_RESOURCE_MAX.dark_matter,
     // Фаза 2: Базовые новые ресурсы
-    natural_gas: BASE_RESOURCE_MAX.natural_gas,
-    oil: BASE_RESOURCE_MAX.oil,
-    gasoline: BASE_RESOURCE_MAX.gasoline,
-    plastic: BASE_RESOURCE_MAX.plastic,
-    glass: BASE_RESOURCE_MAX.glass,
-    chemicals: BASE_RESOURCE_MAX.chemicals,
-    sand: BASE_RESOURCE_MAX.sand,
+    natural_gas: resources.natural_gas.max.gt(BASE_RESOURCE_MAX.natural_gas) ? resources.natural_gas.max : BASE_RESOURCE_MAX.natural_gas,
+    oil: resources.oil.max.gt(BASE_RESOURCE_MAX.oil) ? resources.oil.max : BASE_RESOURCE_MAX.oil,
+    gasoline: resources.gasoline.max.gt(BASE_RESOURCE_MAX.gasoline) ? resources.gasoline.max : BASE_RESOURCE_MAX.gasoline,
+    plastic: resources.plastic.max.gt(BASE_RESOURCE_MAX.plastic) ? resources.plastic.max : BASE_RESOURCE_MAX.plastic,
+    glass: resources.glass.max.gt(BASE_RESOURCE_MAX.glass) ? resources.glass.max : BASE_RESOURCE_MAX.glass,
+    chemicals: resources.chemicals.max.gt(BASE_RESOURCE_MAX.chemicals) ? resources.chemicals.max : BASE_RESOURCE_MAX.chemicals,
+    sand: resources.sand.max.gt(BASE_RESOURCE_MAX.sand) ? resources.sand.max : BASE_RESOURCE_MAX.sand,
     // Фаза 2.3: Металлические ресурсы
-    uranium: BASE_RESOURCE_MAX.uranium,
-    chrome: BASE_RESOURCE_MAX.chrome,
-    titanium: BASE_RESOURCE_MAX.titanium,
+    uranium: resources.uranium.max.gt(BASE_RESOURCE_MAX.uranium) ? resources.uranium.max : BASE_RESOURCE_MAX.uranium,
+    chrome: resources.chrome.max.gt(BASE_RESOURCE_MAX.chrome) ? resources.chrome.max : BASE_RESOURCE_MAX.chrome,
+    titanium: resources.titanium.max.gt(BASE_RESOURCE_MAX.titanium) ? resources.titanium.max : BASE_RESOURCE_MAX.titanium,
     // Фаза 2.4-2.5: Продвинутые ресурсы
-    copper: BASE_RESOURCE_MAX.copper,
-    semiconductors: BASE_RESOURCE_MAX.semiconductors,
-    dynamite: BASE_RESOURCE_MAX.dynamite,
-    fiber: BASE_RESOURCE_MAX.fiber,
+    copper: resources.copper.max.gt(BASE_RESOURCE_MAX.copper) ? resources.copper.max : BASE_RESOURCE_MAX.copper,
+    semiconductors: resources.semiconductors.max.gt(BASE_RESOURCE_MAX.semiconductors) ? resources.semiconductors.max : BASE_RESOURCE_MAX.semiconductors,
+    dynamite: resources.dynamite.max.gt(BASE_RESOURCE_MAX.dynamite) ? resources.dynamite.max : BASE_RESOURCE_MAX.dynamite,
+    fiber: resources.fiber.max.gt(BASE_RESOURCE_MAX.fiber) ? resources.fiber.max : BASE_RESOURCE_MAX.fiber,
     // Фаза 2.6: Сложные производственные ресурсы
-    integrated_circuit: BASE_RESOURCE_MAX.integrated_circuit,
-    battery: BASE_RESOURCE_MAX.battery,
-    engine: BASE_RESOURCE_MAX.engine,
-    display: BASE_RESOURCE_MAX.display,
-    computer: BASE_RESOURCE_MAX.computer,
-    liquid_fuel: BASE_RESOURCE_MAX.liquid_fuel,
-    chrome_alloy: BASE_RESOURCE_MAX.chrome_alloy,
-    titanium_alloy: BASE_RESOURCE_MAX.titanium_alloy,
-    enriched_uranium: BASE_RESOURCE_MAX.enriched_uranium,
+    integrated_circuit: resources.integrated_circuit.max.gt(BASE_RESOURCE_MAX.integrated_circuit) ? resources.integrated_circuit.max : BASE_RESOURCE_MAX.integrated_circuit,
+    battery: resources.battery.max.gt(BASE_RESOURCE_MAX.battery) ? resources.battery.max : BASE_RESOURCE_MAX.battery,
+    engine: resources.engine.max.gt(BASE_RESOURCE_MAX.engine) ? resources.engine.max : BASE_RESOURCE_MAX.engine,
+    display: resources.display.max.gt(BASE_RESOURCE_MAX.display) ? resources.display.max : BASE_RESOURCE_MAX.display,
+    computer: resources.computer.max.gt(BASE_RESOURCE_MAX.computer) ? resources.computer.max : BASE_RESOURCE_MAX.computer,
+    liquid_fuel: resources.liquid_fuel.max.gt(BASE_RESOURCE_MAX.liquid_fuel) ? resources.liquid_fuel.max : BASE_RESOURCE_MAX.liquid_fuel,
+    chrome_alloy: resources.chrome_alloy.max.gt(BASE_RESOURCE_MAX.chrome_alloy) ? resources.chrome_alloy.max : BASE_RESOURCE_MAX.chrome_alloy,
+    titanium_alloy: resources.titanium_alloy.max.gt(BASE_RESOURCE_MAX.titanium_alloy) ? resources.titanium_alloy.max : BASE_RESOURCE_MAX.titanium_alloy,
+    enriched_uranium: resources.enriched_uranium.max.gt(BASE_RESOURCE_MAX.enriched_uranium) ? resources.enriched_uranium.max : BASE_RESOURCE_MAX.enriched_uranium,
     // Фаза 2.7: Военные ресурсы
-    weapon: BASE_RESOURCE_MAX.weapon,
-    artillery: BASE_RESOURCE_MAX.artillery,
-    radar: BASE_RESOURCE_MAX.radar,
-    nuclear_bomb: BASE_RESOURCE_MAX.nuclear_bomb,
+    weapon: resources.weapon.max.gt(BASE_RESOURCE_MAX.weapon) ? resources.weapon.max : BASE_RESOURCE_MAX.weapon,
+    artillery: resources.artillery.max.gt(BASE_RESOURCE_MAX.artillery) ? resources.artillery.max : BASE_RESOURCE_MAX.artillery,
+    radar: resources.radar.max.gt(BASE_RESOURCE_MAX.radar) ? resources.radar.max : BASE_RESOURCE_MAX.radar,
+    nuclear_bomb: resources.nuclear_bomb.max.gt(BASE_RESOURCE_MAX.nuclear_bomb) ? resources.nuclear_bomb.max : BASE_RESOURCE_MAX.nuclear_bomb,
     // Фаза 2.8: Космические ресурсы
-    jet_engine: BASE_RESOURCE_MAX.jet_engine,
-    satellite: BASE_RESOURCE_MAX.satellite,
-    rocket: BASE_RESOURCE_MAX.rocket,
-    spaceship: BASE_RESOURCE_MAX.spaceship,
-    console: BASE_RESOURCE_MAX.console,
-    space_station: BASE_RESOURCE_MAX.space_station,
+    jet_engine: resources.jet_engine.max.gt(BASE_RESOURCE_MAX.jet_engine) ? resources.jet_engine.max : BASE_RESOURCE_MAX.jet_engine,
+    satellite: resources.satellite.max.gt(BASE_RESOURCE_MAX.satellite) ? resources.satellite.max : BASE_RESOURCE_MAX.satellite,
+    rocket: resources.rocket.max.gt(BASE_RESOURCE_MAX.rocket) ? resources.rocket.max : BASE_RESOURCE_MAX.rocket,
+    spaceship: resources.spaceship.max.gt(BASE_RESOURCE_MAX.spaceship) ? resources.spaceship.max : BASE_RESOURCE_MAX.spaceship,
+    console: resources.console.max.gt(BASE_RESOURCE_MAX.console) ? resources.console.max : BASE_RESOURCE_MAX.console,
+    space_station: resources.space_station.max.gt(BASE_RESOURCE_MAX.space_station) ? resources.space_station.max : BASE_RESOURCE_MAX.space_station,
     // Фаза 2.9: Специальные ресурсы
-    robot: BASE_RESOURCE_MAX.robot,
+    robot: resources.robot.max.gt(BASE_RESOURCE_MAX.robot) ? resources.robot.max : BASE_RESOURCE_MAX.robot,
     // Фаза 8.1: Экология
-    waste: BASE_RESOURCE_MAX.waste,
-    radioactive_waste: BASE_RESOURCE_MAX.radioactive_waste,
+    waste: resources.waste.max.gt(BASE_RESOURCE_MAX.waste) ? resources.waste.max : BASE_RESOURCE_MAX.waste,
+    radioactive_waste: resources.radioactive_waste.max.gt(BASE_RESOURCE_MAX.radioactive_waste) ? resources.radioactive_waste.max : BASE_RESOURCE_MAX.radioactive_waste,
+    // Фаза 3: T6 Entertainment
+    music_album: resources.music_album.max.gt(BASE_RESOURCE_MAX.music_album) ? resources.music_album.max : BASE_RESOURCE_MAX.music_album,
+    movie: resources.movie.max.gt(BASE_RESOURCE_MAX.movie) ? resources.movie.max : BASE_RESOURCE_MAX.movie,
+    video_game: resources.video_game.max.gt(BASE_RESOURCE_MAX.video_game) ? resources.video_game.max : BASE_RESOURCE_MAX.video_game,
+    streaming_service: resources.streaming_service.max.gt(BASE_RESOURCE_MAX.streaming_service) ? resources.streaming_service.max : BASE_RESOURCE_MAX.streaming_service,
+    vr_headset: resources.vr_headset.max.gt(BASE_RESOURCE_MAX.vr_headset) ? resources.vr_headset.max : BASE_RESOURCE_MAX.vr_headset,
+    ar_glasses: resources.ar_glasses.max.gt(BASE_RESOURCE_MAX.ar_glasses) ? resources.ar_glasses.max : BASE_RESOURCE_MAX.ar_glasses,
+    gaming_console: resources.gaming_console.max.gt(BASE_RESOURCE_MAX.gaming_console) ? resources.gaming_console.max : BASE_RESOURCE_MAX.gaming_console,
+    smart_tv: resources.smart_tv.max.gt(BASE_RESOURCE_MAX.smart_tv) ? resources.smart_tv.max : BASE_RESOURCE_MAX.smart_tv,
+    // Фаза 3: T6 Culture
+    artwork: resources.artwork.max.gt(BASE_RESOURCE_MAX.artwork) ? resources.artwork.max : BASE_RESOURCE_MAX.artwork,
+    sculpture: resources.sculpture.max.gt(BASE_RESOURCE_MAX.sculpture) ? resources.sculpture.max : BASE_RESOURCE_MAX.sculpture,
+    literature: resources.literature.max.gt(BASE_RESOURCE_MAX.literature) ? resources.literature.max : BASE_RESOURCE_MAX.literature,
+    architecture: resources.architecture.max.gt(BASE_RESOURCE_MAX.architecture) ? resources.architecture.max : BASE_RESOURCE_MAX.architecture,
+    fashion: resources.fashion.max.gt(BASE_RESOURCE_MAX.fashion) ? resources.fashion.max : BASE_RESOURCE_MAX.fashion,
+    jewelry: resources.jewelry.max.gt(BASE_RESOURCE_MAX.jewelry) ? resources.jewelry.max : BASE_RESOURCE_MAX.jewelry,
+    // Фаза 3: T7 Social
+    social_network: resources.social_network.max.gt(BASE_RESOURCE_MAX.social_network) ? resources.social_network.max : BASE_RESOURCE_MAX.social_network,
+    messaging_app: resources.messaging_app.max.gt(BASE_RESOURCE_MAX.messaging_app) ? resources.messaging_app.max : BASE_RESOURCE_MAX.messaging_app,
+    search_engine: resources.search_engine.max.gt(BASE_RESOURCE_MAX.search_engine) ? resources.search_engine.max : BASE_RESOURCE_MAX.search_engine,
+    cloud_service: resources.cloud_service.max.gt(BASE_RESOURCE_MAX.cloud_service) ? resources.cloud_service.max : BASE_RESOURCE_MAX.cloud_service,
+    ai_assistant: resources.ai_assistant.max.gt(BASE_RESOURCE_MAX.ai_assistant) ? resources.ai_assistant.max : BASE_RESOURCE_MAX.ai_assistant,
+    cryptocurrency: resources.cryptocurrency.max.gt(BASE_RESOURCE_MAX.cryptocurrency) ? resources.cryptocurrency.max : BASE_RESOURCE_MAX.cryptocurrency,
+    // Фаза 3: T7 Medical
+    medicine: resources.medicine.max.gt(BASE_RESOURCE_MAX.medicine) ? resources.medicine.max : BASE_RESOURCE_MAX.medicine,
+    vaccine: resources.vaccine.max.gt(BASE_RESOURCE_MAX.vaccine) ? resources.vaccine.max : BASE_RESOURCE_MAX.vaccine,
+    bioimplant: resources.bioimplant.max.gt(BASE_RESOURCE_MAX.bioimplant) ? resources.bioimplant.max : BASE_RESOURCE_MAX.bioimplant,
+    gene_therapy: resources.gene_therapy.max.gt(BASE_RESOURCE_MAX.gene_therapy) ? resources.gene_therapy.max : BASE_RESOURCE_MAX.gene_therapy,
+    cryonics: resources.cryonics.max.gt(BASE_RESOURCE_MAX.cryonics) ? resources.cryonics.max : BASE_RESOURCE_MAX.cryonics,
+    // Фаза 3: T8 Megastructures
+    orbital_habitat: resources.orbital_habitat.max.gt(BASE_RESOURCE_MAX.orbital_habitat) ? resources.orbital_habitat.max : BASE_RESOURCE_MAX.orbital_habitat,
+    dyson_component: resources.dyson_component.max.gt(BASE_RESOURCE_MAX.dyson_component) ? resources.dyson_component.max : BASE_RESOURCE_MAX.dyson_component,
+    warp_core: resources.warp_core.max.gt(BASE_RESOURCE_MAX.warp_core) ? resources.warp_core.max : BASE_RESOURCE_MAX.warp_core,
+    quantum_computer: resources.quantum_computer.max.gt(BASE_RESOURCE_MAX.quantum_computer) ? resources.quantum_computer.max : BASE_RESOURCE_MAX.quantum_computer,
+    antimatter: resources.antimatter.max.gt(BASE_RESOURCE_MAX.antimatter) ? resources.antimatter.max : BASE_RESOURCE_MAX.antimatter,
+    // Фаза 3: T9 Transcendence
+    singularity_core: resources.singularity_core.max.gt(BASE_RESOURCE_MAX.singularity_core) ? resources.singularity_core.max : BASE_RESOURCE_MAX.singularity_core,
+    time_crystal: resources.time_crystal.max.gt(BASE_RESOURCE_MAX.time_crystal) ? resources.time_crystal.max : BASE_RESOURCE_MAX.time_crystal,
+    dimensional_rift: resources.dimensional_rift.max.gt(BASE_RESOURCE_MAX.dimensional_rift) ? resources.dimensional_rift.max : BASE_RESOURCE_MAX.dimensional_rift,
+    omega_matter: resources.omega_matter.max.gt(BASE_RESOURCE_MAX.omega_matter) ? resources.omega_matter.max : BASE_RESOURCE_MAX.omega_matter,
+    ascension_essence: resources.ascension_essence.max.gt(BASE_RESOURCE_MAX.ascension_essence) ? resources.ascension_essence.max : BASE_RESOURCE_MAX.ascension_essence,
   };
 
   // ФАЗА 8.5: Добавляем вместимость от зданий с учетом их уровней
@@ -1835,6 +2482,8 @@ const DEFAULT_GRID = {
   tileLevels: {} as Record<string, number>,
   tileEvolutionLevels: {} as Record<string, number>,
   tileDisabled: {} as Record<string, boolean>,
+  // Фаза 5: Продвинутые настройки зданий
+  tileSettings: {} as Record<string, import('../core/gameTypes.buildings').TileBuildingSettings>,
 };
 
 const keyOf = (pos: GridCoord) => `${pos.x},${pos.y}`;
@@ -1971,6 +2620,22 @@ const BASE_MARKET_PRICES: Record<TradeResourceType, Decimal> = {
   space_station: D(1000),
   // Фаза 2.9: Специальные ресурсы
   robot: D(180),
+  // Фаза 3: Торгуемые T6-T7 ресурсы
+  music_album: D(250),
+  movie: D(450),
+  video_game: D(350),
+  vr_headset: D(280),
+  ar_glasses: D(220),
+  gaming_console: D(200),
+  smart_tv: D(180),
+  artwork: D(400),
+  sculpture: D(350),
+  literature: D(120),
+  fashion: D(180),
+  jewelry: D(500),
+  medicine: D(150),
+  vaccine: D(280),
+  cryptocurrency: D(600),
 };
 
 const INITIAL_MARKET = {
@@ -2022,6 +2687,22 @@ const INITIAL_MARKET = {
     space_station: [{ t: Date.now(), price: D(1000).toString() }],
     // Фаза 2.9: Специальные ресурсы
     robot: [{ t: Date.now(), price: D(180).toString() }],
+    // Фаза 3: Торгуемые T6-T7 ресурсы
+    music_album: [{ t: Date.now(), price: D(250).toString() }],
+    movie: [{ t: Date.now(), price: D(450).toString() }],
+    video_game: [{ t: Date.now(), price: D(350).toString() }],
+    vr_headset: [{ t: Date.now(), price: D(280).toString() }],
+    ar_glasses: [{ t: Date.now(), price: D(220).toString() }],
+    gaming_console: [{ t: Date.now(), price: D(200).toString() }],
+    smart_tv: [{ t: Date.now(), price: D(180).toString() }],
+    artwork: [{ t: Date.now(), price: D(400).toString() }],
+    sculpture: [{ t: Date.now(), price: D(350).toString() }],
+    literature: [{ t: Date.now(), price: D(120).toString() }],
+    fashion: [{ t: Date.now(), price: D(180).toString() }],
+    jewelry: [{ t: Date.now(), price: D(500).toString() }],
+    medicine: [{ t: Date.now(), price: D(150).toString() }],
+    vaccine: [{ t: Date.now(), price: D(280).toString() }],
+    cryptocurrency: [{ t: Date.now(), price: D(600).toString() }],
   } as Record<TradeResourceType, Array<{ t: number; price: string }>>,
 };
 
@@ -2087,6 +2768,22 @@ const pushMarketHistory = (
     space_station: [...(prev?.space_station ?? [])],
     // Фаза 2.9: Специальные ресурсы
     robot: [...(prev?.robot ?? [])],
+    // Фаза 3: Торгуемые T6-T7 ресурсы
+    music_album: [...(prev?.music_album ?? [])],
+    movie: [...(prev?.movie ?? [])],
+    video_game: [...(prev?.video_game ?? [])],
+    vr_headset: [...(prev?.vr_headset ?? [])],
+    ar_glasses: [...(prev?.ar_glasses ?? [])],
+    gaming_console: [...(prev?.gaming_console ?? [])],
+    smart_tv: [...(prev?.smart_tv ?? [])],
+    artwork: [...(prev?.artwork ?? [])],
+    sculpture: [...(prev?.sculpture ?? [])],
+    literature: [...(prev?.literature ?? [])],
+    fashion: [...(prev?.fashion ?? [])],
+    jewelry: [...(prev?.jewelry ?? [])],
+    medicine: [...(prev?.medicine ?? [])],
+    vaccine: [...(prev?.vaccine ?? [])],
+    cryptocurrency: [...(prev?.cryptocurrency ?? [])],
   };
 
   for (const r of TRADEABLE) {
@@ -2137,7 +2834,11 @@ const TRADEABLE: TradeResourceType[] = [
   'liquid_fuel', 'chrome_alloy', 'titanium_alloy', 'enriched_uranium',
   'weapon', 'artillery', 'radar', 'nuclear_bomb',
   'jet_engine', 'satellite', 'rocket', 'spaceship', 'console', 'space_station',
-  'robot'
+  'robot',
+  // Фаза 3: Торгуемые T6-T7 ресурсы
+  'music_album', 'movie', 'video_game', 'vr_headset', 'ar_glasses',
+  'gaming_console', 'smart_tv', 'artwork', 'sculpture', 'literature',
+  'fashion', 'jewelry', 'medicine', 'vaccine', 'cryptocurrency'
 ];
 
 const clampPrice = (p: Decimal) => {
@@ -2211,6 +2912,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   artifacts: INITIAL_ARTIFACTS,
   retention: INITIAL_RETENTION,
   signalInterception: INITIAL_SIGNAL_INTERCEPTION,
+  maps: INITIAL_MAPS,
+  culture: INITIAL_CULTURE,
   quests: {
     activeQuests: [...STARTER_QUESTS],
     completedQuests: [],
@@ -2361,12 +3064,26 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   expandGrid: (minWidth, minHeight) => {
     set((state) => {
+      // Получаем максимальный размер от текущей карты
+      const currentMapId = state.maps?.currentMapId;
+      let maxWidth = 100; // fallback
+      let maxHeight = 100;
+      
+      if (currentMapId) {
+        const mapDef = getMapDefinition(currentMapId);
+        if (mapDef) {
+          maxWidth = mapDef.gridDimensions.width;
+          maxHeight = mapDef.gridDimensions.height;
+        }
+      }
+      
+      // Ограничиваем расширение размером карты
       const desired = {
-        width: Math.max(state.grid.width, minWidth),
-        height: Math.max(state.grid.height, minHeight),
+        width: Math.min(maxWidth, Math.max(state.grid.width, minWidth)),
+        height: Math.min(maxHeight, Math.max(state.grid.height, minHeight)),
       };
       
-      // Если сетка уже достаточно большая, ничего не делаем
+      // Если сетка уже достаточно большая или достигла лимита, ничего не делаем
       if (desired.width <= state.grid.width && desired.height <= state.grid.height) {
         return state;
       }
@@ -3828,6 +4545,47 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Фаза 8.1: Экология
         waste: getBuf(buffers, baseKey, 'waste'),
         radioactive_waste: getBuf(buffers, baseKey, 'radioactive_waste'),
+        // Фаза 3: T6 Entertainment
+        music_album: getBuf(buffers, baseKey, 'music_album'),
+        movie: getBuf(buffers, baseKey, 'movie'),
+        video_game: getBuf(buffers, baseKey, 'video_game'),
+        streaming_service: getBuf(buffers, baseKey, 'streaming_service'),
+        vr_headset: getBuf(buffers, baseKey, 'vr_headset'),
+        ar_glasses: getBuf(buffers, baseKey, 'ar_glasses'),
+        gaming_console: getBuf(buffers, baseKey, 'gaming_console'),
+        smart_tv: getBuf(buffers, baseKey, 'smart_tv'),
+        // Фаза 3: T6 Culture
+        artwork: getBuf(buffers, baseKey, 'artwork'),
+        sculpture: getBuf(buffers, baseKey, 'sculpture'),
+        literature: getBuf(buffers, baseKey, 'literature'),
+        architecture: getBuf(buffers, baseKey, 'architecture'),
+        fashion: getBuf(buffers, baseKey, 'fashion'),
+        jewelry: getBuf(buffers, baseKey, 'jewelry'),
+        // Фаза 3: T7 Social
+        social_network: getBuf(buffers, baseKey, 'social_network'),
+        messaging_app: getBuf(buffers, baseKey, 'messaging_app'),
+        search_engine: getBuf(buffers, baseKey, 'search_engine'),
+        cloud_service: getBuf(buffers, baseKey, 'cloud_service'),
+        ai_assistant: getBuf(buffers, baseKey, 'ai_assistant'),
+        cryptocurrency: getBuf(buffers, baseKey, 'cryptocurrency'),
+        // Фаза 3: T7 Medical
+        medicine: getBuf(buffers, baseKey, 'medicine'),
+        vaccine: getBuf(buffers, baseKey, 'vaccine'),
+        bioimplant: getBuf(buffers, baseKey, 'bioimplant'),
+        gene_therapy: getBuf(buffers, baseKey, 'gene_therapy'),
+        cryonics: getBuf(buffers, baseKey, 'cryonics'),
+        // Фаза 3: T8 Megastructures
+        orbital_habitat: getBuf(buffers, baseKey, 'orbital_habitat'),
+        dyson_component: getBuf(buffers, baseKey, 'dyson_component'),
+        warp_core: getBuf(buffers, baseKey, 'warp_core'),
+        quantum_computer: getBuf(buffers, baseKey, 'quantum_computer'),
+        antimatter: getBuf(buffers, baseKey, 'antimatter'),
+        // Фаза 3: T9 Transcendence
+        singularity_core: getBuf(buffers, baseKey, 'singularity_core'),
+        time_crystal: getBuf(buffers, baseKey, 'time_crystal'),
+        dimensional_rift: getBuf(buffers, baseKey, 'dimensional_rift'),
+        omega_matter: getBuf(buffers, baseKey, 'omega_matter'),
+        ascension_essence: getBuf(buffers, baseKey, 'ascension_essence'),
       };
 
       // OPTIMIZATION: Rebuild Logistics Cache if grid changed
@@ -4051,6 +4809,22 @@ export const useGameStore = create<GameState>((set, get) => ({
             continue;
           }
 
+          // ФАЗА 5: Получаем настройки здания и множители режима
+          const tileSettings = state.grid.tileSettings?.[tileKey];
+          const buildingMode = tileSettings?.mode || 'normal';
+          const buildingEnabled = tileSettings?.enabled ?? true;
+          
+          // Если здание отключено через настройки - пропускаем
+          if (!buildingEnabled) {
+            continue;
+          }
+          
+          // Получаем множители из режима работы
+          const modeConfig = BUILDING_MODES[buildingMode];
+          const productionMult = modeConfig?.productionMultiplier ?? 1;
+          const consumptionMult = modeConfig?.consumptionMultiplier ?? 1;
+          const energyMult = modeConfig?.energyMultiplier ?? 1;
+
           // Если здание производственное, но его выходы уже заблокированы (переполнение),
           // то оно не должно тратить энергию/ресурсы «вхолостую».
           // ОПТИМИЗАЦИЯ: проверяем наличие production без Object.keys
@@ -4241,7 +5015,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               const perSecondAdj = rType === 'energy' ? D(perSecond).mul(D(coldFusionMult)) : D(perSecond);
-              const need = perSecondAdj.mul(dtFacilities).mul(buildingLevel); // Умножаем на уровень
+              // ФАЗА 5: Применяем множитель режима к потреблению
+              const modeMult = rType === 'energy' ? energyMult : consumptionMult;
+              const need = perSecondAdj.mul(dtFacilities).mul(buildingLevel).mul(modeMult); // Умножаем на уровень и режим
 
               if (need.lte(0)) continue;
 
@@ -4260,7 +5036,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Важно: иначе здания могли тратить энергию даже если не могут работать из-за отсутствия ресурсов.
           if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-            const energyNeed = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(buildingLevel);
+            // ФАЗА 5: Применяем множитель режима к энергопотреблению
+            const energyNeed = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(buildingLevel).mul(energyMult);
             const availableEnergy = getBuf(buffers, baseKey, 'energy');
 
             if (availableEnergy.lte(0)) {
@@ -4275,7 +5052,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Вычитаем энергию для зданий со старой системой energyConsumption
           if (ratio.gt(0) && b.energyConsumption && D(b.energyConsumption).gt(0)) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-            const energyConsume = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(ratio).mul(buildingLevel);
+            // ФАЗА 5: Применяем множитель режима к энергопотреблению
+            const energyConsume = D(b.energyConsumption).mul(D(coldFusionMult)).mul(dtFacilities).mul(ratio).mul(buildingLevel).mul(energyMult);
             const cur = getBuf(buffers, baseKey, 'energy');
             buffers = setBuf(buffers, baseKey, 'energy', cur.sub(energyConsume));
             if (energyConsume.gt(0)) {
@@ -4290,7 +5068,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               const perSecondAdj = rType === 'energy' ? D(perSecond).mul(D(coldFusionMult)) : D(perSecond);
-              const consume = perSecondAdj.mul(dtFacilities).mul(ratio).mul(buildingLevel); // Умножаем на уровень
+              // ФАЗА 5: Применяем множитель режима к потреблению
+              const modeMult = rType === 'energy' ? energyMult : consumptionMult;
+              const consume = perSecondAdj.mul(dtFacilities).mul(ratio).mul(buildingLevel).mul(modeMult); // Умножаем на уровень и режим
 
               if (rType === 'energy') {
                 const cur = getBuf(buffers, baseKey, 'energy');
@@ -4347,6 +5127,9 @@ export const useGameStore = create<GameState>((set, get) => ({
               // ФАЗА 8.5: Применяем множитель уровня здания (линейный рост производства)
               const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
               produced = produced.mul(buildingLevel);
+              
+              // ФАЗА 5: Применяем множитель режима к производству
+              produced = produced.mul(productionMult);
               
               // PHASE 4: Применяем множитель эволюции здания
               const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
@@ -4528,6 +5311,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         productionRatesCache.tilesCount !== currentTilesCount ||
         productionRatesCache.tileLevelsRef !== state.grid.tileLevels ||
         productionRatesCache.tileEvolutionLevelsRef !== state.grid.tileEvolutionLevels ||
+        productionRatesCache.tileSettingsRef !== state.grid.tileSettings || // ФАЗА 5: инвалидация при изменении настроек
+        productionRatesCache.tileDisabledRef !== state.grid.tileDisabled || // ФАЗА 5: инвалидация при отключении
         productionRatesCache.buildingsCount !== currentBuildingsCount ||
         !productionRatesCache.rates;
 
@@ -4544,6 +5329,20 @@ export const useGameStore = create<GameState>((set, get) => ({
           weapon: D_ZERO, artillery: D_ZERO, radar: D_ZERO, nuclear_bomb: D_ZERO,
           jet_engine: D_ZERO, satellite: D_ZERO, rocket: D_ZERO, spaceship: D_ZERO, console: D_ZERO, space_station: D_ZERO,
           robot: D_ZERO, waste: D_ZERO, radioactive_waste: D_ZERO,
+          // Фаза 3: T6 Entertainment
+          music_album: D_ZERO, movie: D_ZERO, video_game: D_ZERO, streaming_service: D_ZERO,
+          vr_headset: D_ZERO, ar_glasses: D_ZERO, gaming_console: D_ZERO, smart_tv: D_ZERO,
+          // Фаза 3: T6 Culture
+          artwork: D_ZERO, sculpture: D_ZERO, literature: D_ZERO, architecture: D_ZERO, fashion: D_ZERO, jewelry: D_ZERO,
+          // Фаза 3: T7 Social
+          social_network: D_ZERO, messaging_app: D_ZERO, search_engine: D_ZERO,
+          cloud_service: D_ZERO, ai_assistant: D_ZERO, cryptocurrency: D_ZERO,
+          // Фаза 3: T7 Medical
+          medicine: D_ZERO, vaccine: D_ZERO, bioimplant: D_ZERO, gene_therapy: D_ZERO, cryonics: D_ZERO,
+          // Фаза 3: T8 Megastructures
+          orbital_habitat: D_ZERO, dyson_component: D_ZERO, warp_core: D_ZERO, quantum_computer: D_ZERO, antimatter: D_ZERO,
+          // Фаза 3: T9 Transcendence
+          singularity_core: D_ZERO, time_crystal: D_ZERO, dimensional_rift: D_ZERO, omega_matter: D_ZERO, ascension_essence: D_ZERO,
         };
         
         // ОПТИМИЗАЦИЯ: Используем buildingsMap вместо find() каждый раз
@@ -4553,16 +5352,26 @@ export const useGameStore = create<GameState>((set, get) => ({
           const building = buildingsMap.get(buildingId);
           if (!building?.production) continue;
           
+          // ФАЗА 5: Проверяем disabled и enabled
+          if (tileDisabled[tileKey]) continue;
+          const tileSett = state.grid.tileSettings?.[tileKey];
+          if (tileSett && !tileSett.enabled) continue;
+          
           const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
           const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
           const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
+          
+          // ФАЗА 5: Получаем множитель режима
+          const modeKey = tileSett?.mode || 'normal';
+          const modeConf = BUILDING_MODES[modeKey];
+          const prodModeMult = modeConf?.productionMultiplier ?? 1;
           
           for (const resType in building.production) {
             const rType = resType as ResourceType;
             const baseRate = building.production[rType];
             if (!baseRate) continue;
             
-            let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult);
+            let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult).mul(prodModeMult);
             
             // Применяем proximity множитель
             if (building.proximityMultiplier && building.proximityMultiplier !== 1) {
@@ -4579,14 +5388,26 @@ export const useGameStore = create<GameState>((set, get) => ({
           const building = buildingsMap.get(buildingId);
           if (!building?.consumption) continue;
           
+          // ФАЗА 5: Проверяем disabled и enabled
+          if (tileDisabled[tileKey]) continue;
+          const tileSett = state.grid.tileSettings?.[tileKey];
+          if (tileSett && !tileSett.enabled) continue;
+          
           const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+          
+          // ФАЗА 5: Получаем множитель режима
+          const modeKey = tileSett?.mode || 'normal';
+          const modeConf = BUILDING_MODES[modeKey];
+          const consModeMult = modeConf?.consumptionMultiplier ?? 1;
+          const energyModeMult = modeConf?.energyMultiplier ?? 1;
           
           for (const resType in building.consumption) {
             const rType = resType as ResourceType;
             const baseRate = building.consumption[rType];
             if (!baseRate) continue;
             
-            const rate = D(baseRate).mul(buildingLevel);
+            const modeMult = rType === 'energy' ? energyModeMult : consModeMult;
+            const rate = D(baseRate).mul(buildingLevel).mul(modeMult);
             productionRates[rType] = productionRates[rType].sub(rate);
           }
         }
@@ -4596,6 +5417,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           tilesCount: currentTilesCount,
           tileLevelsRef: state.grid.tileLevels,
           tileEvolutionLevelsRef: state.grid.tileEvolutionLevels,
+          tileSettingsRef: state.grid.tileSettings, // ФАЗА 5
+          tileDisabledRef: state.grid.tileDisabled, // ФАЗА 5
           buildingsCount: currentBuildingsCount,
           rates: productionRates,
           lastCalculatedAt: now,
@@ -4872,9 +5695,13 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         let enemyPressurePerSecond = D(0);
         let enemyPressurePotentialPerSecond = D(0);
+        
+        // Проверяем модификатор peaceful текущей карты
+        const currentMapDef = state.maps?.currentMapId ? getMapDefinition(state.maps.currentMapId) : null;
+        const isPeacefulMap = currentMapDef?.modifiers?.includes('peaceful') ?? false;
 
-        // Only process waves and combat if base is alive
-        if (baseHp.gt(0)) {
+        // Only process waves and combat if base is alive AND map is not peaceful
+        if (baseHp.gt(0) && !isPeacefulMap) {
           // Start a new wave
           if (now >= nextWaveAt && enemies.length === 0) {
             waveEndsAt = now + WAVE_DURATION_SECONDS * 1000;
@@ -4883,7 +5710,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
 
-        const waveActive = waveEndsAt > now;
+        const waveActive = waveEndsAt > now && !isPeacefulMap;
 
         // Shield regen (only during active wave to create an energy conflict)
         if (baseHp.gt(0) && waveActive && shieldCount > 0 && shieldDef && shieldMaxHp.gt(0) && shieldHp.lt(shieldMaxHp) && dt > 0) {
@@ -4932,8 +5759,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           }
         }
 
-        // Spawn enemies during active wave (only if base is alive)
-        if (baseHp.gt(0) && waveEndsAt > now) {
+        // Spawn enemies during active wave (only if base is alive and not peaceful map)
+        if (baseHp.gt(0) && waveActive) {
           while (now >= nextSpawnAt && enemies.length < 40) {
             enemies.push(createEnemy());
             nextSpawnAt += SPAWN_INTERVAL_SECONDS * 1000;
@@ -6114,6 +6941,107 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Бонус к исследованиям применяется к начислению RP
       });
 
+      // ========================================================================
+      // CULTURE & SCIENCE SYSTEM (Phase 7)
+      // ========================================================================
+      let nextCulture = { ...state.culture };
+      
+      // Calculate culture production from culture buildings
+      let cultureProducedTick = D_ZERO;
+      let scienceProducedTick = D_ZERO;
+      
+      // Count culture buildings and calculate production
+      const cultureBuildingCounts: Record<string, number> = {};
+      for (const building of buildingsWithProximity) {
+        if (isCultureBuilding(building.id)) {
+          cultureBuildingCounts[building.id] = (cultureBuildingCounts[building.id] || 0) + building.count;
+          
+          const cultureDef = CULTURE_BUILDINGS[building.id as keyof typeof CULTURE_BUILDINGS];
+          if (cultureDef) {
+            // Apply happiness productivity multiplier and other bonuses
+            const happinessMult = nextCulture.happiness.productivityMultiplier;
+            
+            cultureProducedTick = cultureProducedTick.add(
+              cultureDef.culturePerSecond.mul(building.count).mul(dt).mul(happinessMult)
+            );
+            scienceProducedTick = scienceProducedTick.add(
+              cultureDef.sciencePerSecond.mul(building.count).mul(dt).mul(happinessMult)
+            );
+          }
+        }
+      }
+      
+      // Update culture and science
+      nextCulture.culture = nextCulture.culture.add(cultureProducedTick);
+      nextCulture.science = nextCulture.science.add(scienceProducedTick);
+      nextCulture.totalCultureProduced = nextCulture.totalCultureProduced.add(cultureProducedTick);
+      nextCulture.totalScienceProduced = nextCulture.totalScienceProduced.add(scienceProducedTick);
+      
+      // Update production rates for display
+      nextCulture.culturePerSecond = dt > 0 ? cultureProducedTick.div(dt) : D_ZERO;
+      nextCulture.sciencePerSecond = dt > 0 ? scienceProducedTick.div(dt) : D_ZERO;
+      
+      // Check for culture level up
+      const cultureLevelData = getCultureLevel(nextCulture.culture);
+      if (cultureLevelData.level > nextCulture.currentLevel) {
+        nextCulture.currentLevel = cultureLevelData.level;
+        // TODO: Add notification for culture level up
+      }
+      nextCulture.cultureProgress = D(getCultureProgress(nextCulture.culture, nextCulture.currentLevel));
+      
+      // Calculate aggregated effects from culture buildings
+      nextCulture.aggregatedEffects = aggregateCultureEffects(cultureBuildingCounts);
+      
+      // Calculate happiness
+      // Calculate pollution level from waste amounts (0-100 scale)
+      const pollutionLevel = nextPollution 
+        ? Math.min(100, nextPollution.wasteAmount.add(nextPollution.radioactiveWasteAmount.mul(5)).toNumber() / 1000 * 100)
+        : 0;
+      
+      const happinessInputs = {
+        buildings: buildingsWithProximity,
+        cultureLevel: nextCulture.currentLevel,
+        pollutionLevel: pollutionLevel,
+        cleanEnergyRatio: 0.5, // TODO: Calculate from actual energy sources
+        credits: nextCurrency.credits,
+        creditsPerSecond: D_ZERO, // TODO: Calculate actual credits/sec
+        isInDebt: nextCurrency.credits.lt(0),
+        isUnderAttack: nextCombat.enemies.length > 0,
+        recentDamage: nextCombat.baseHp.lt(nextCombat.baseMaxHp.mul(0.9)),
+        enemyCount: nextCombat.enemies.length,
+        overclockActive: false, // TODO: Check overclock mode
+        economyModeActive: false, // TODO: Check economy mode
+        overclockBuildings: 0,
+        totalBuildings: buildingsWithProximity.reduce((sum, b) => sum + b.count, 0),
+        temporaryFactors: nextCulture.happiness.factors.filter((f: any) => f.temporary),
+      };
+      
+      const calculatedHappiness = calculateHappiness(happinessInputs);
+      const previousHappiness = nextCulture.happiness.current;
+      const targetHappiness = calculatedHappiness.current;
+      const smoothedHappiness = smoothHappinessTransition(previousHappiness, targetHappiness, dt);
+      const trend = calculateHappinessTrend(previousHappiness, smoothedHappiness);
+      
+      nextCulture.happiness = {
+        ...calculatedHappiness,
+        current: smoothedHappiness,
+        trend,
+        lastUpdated: now,
+      };
+      
+      // Update unlocked buildings based on culture level
+      const unlockedBuildings: string[] = [];
+      for (const [id, building] of Object.entries(CULTURE_BUILDINGS)) {
+        const requiredLevel = (building as any).requiredCultureLevel || 1;
+        if (nextCulture.currentLevel >= requiredLevel) {
+          unlockedBuildings.push(id);
+        }
+      }
+      nextCulture.unlockedCultureBuildings = unlockedBuildings;
+      // ========================================================================
+      // END CULTURE SYSTEM
+      // ========================================================================
+
       return {
         resources: newResources,
         buildings: buildingsWithProximity,
@@ -6140,6 +7068,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         intergalacticLogistics: nextIntergalacticLogistics,
         randomEvents: nextRandomEvents,
         megastructures: nextMegastructures,
+        culture: nextCulture,
         lastTick: now,
         // Use real flow numbers so UI matches actual accumulation
         energyProduction: dt > 0 ? energyProducedTick.div(dt) : D(0),
@@ -6278,6 +7207,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       achievements: {
         unlocked: state.achievements.unlocked,
         recentlyUnlocked: state.achievements.recentlyUnlocked,
+      },
+      culture: {
+        science: state.culture.science.toString(),
+        culture: state.culture.culture.toString(),
+        currentLevel: state.culture.currentLevel,
+        cultureProgress: state.culture.cultureProgress.toString(),
+        totalScienceProduced: state.culture.totalScienceProduced.toString(),
+        totalCultureProduced: state.culture.totalCultureProduced.toString(),
+        happiness: state.culture.happiness,
+        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
+        aggregatedEffects: state.culture.aggregatedEffects,
       },
       grid: state.grid,
       lastTick: state.lastTick,
@@ -6426,6 +7366,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       achievements: {
         unlocked: state.achievements.unlocked,
         recentlyUnlocked: state.achievements.recentlyUnlocked,
+      },
+      culture: {
+        science: state.culture.science.toString(),
+        culture: state.culture.culture.toString(),
+        currentLevel: state.culture.currentLevel,
+        cultureProgress: state.culture.cultureProgress.toString(),
+        totalScienceProduced: state.culture.totalScienceProduced.toString(),
+        totalCultureProduced: state.culture.totalCultureProduced.toString(),
+        happiness: state.culture.happiness,
+        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
+        aggregatedEffects: state.culture.aggregatedEffects,
       },
       grid: state.grid,
       lastTick: state.lastTick,
@@ -6847,6 +7798,19 @@ export const useGameStore = create<GameState>((set, get) => ({
                   : [],
               }
             : INITIAL_ACHIEVEMENTS,
+          culture: save.culture ? {
+            science: D(save.culture.science ?? '0'),
+            culture: D(save.culture.culture ?? '0'),
+            currentLevel: typeof save.culture.currentLevel === 'number' ? save.culture.currentLevel : 1,
+            cultureProgress: D(save.culture.cultureProgress ?? '0'),
+            sciencePerSecond: D(0),
+            culturePerSecond: D(0),
+            totalScienceProduced: D(save.culture.totalScienceProduced ?? '0'),
+            totalCultureProduced: D(save.culture.totalCultureProduced ?? '0'),
+            happiness: save.culture.happiness ?? INITIAL_CULTURE.happiness,
+            unlockedCultureBuildings: Array.isArray(save.culture.unlockedCultureBuildings) ? save.culture.unlockedCultureBuildings : [],
+            aggregatedEffects: save.culture.aggregatedEffects ?? INITIAL_CULTURE.aggregatedEffects,
+          } : INITIAL_CULTURE,
         };
       });
       
@@ -7598,6 +8562,85 @@ export const useGameStore = create<GameState>((set, get) => ({
                       .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
                       .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
                   : (market.history?.robot ?? []),
+                // Фаза 3: T6 Entertainment (торговые)
+                music_album: Array.isArray(rawHistory.music_album)
+                  ? rawHistory.music_album
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.music_album ?? []),
+                movie: Array.isArray(rawHistory.movie)
+                  ? rawHistory.movie
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.movie ?? []),
+                video_game: Array.isArray(rawHistory.video_game)
+                  ? rawHistory.video_game
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.video_game ?? []),
+                vr_headset: Array.isArray(rawHistory.vr_headset)
+                  ? rawHistory.vr_headset
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.vr_headset ?? []),
+                ar_glasses: Array.isArray(rawHistory.ar_glasses)
+                  ? rawHistory.ar_glasses
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.ar_glasses ?? []),
+                gaming_console: Array.isArray(rawHistory.gaming_console)
+                  ? rawHistory.gaming_console
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.gaming_console ?? []),
+                smart_tv: Array.isArray(rawHistory.smart_tv)
+                  ? rawHistory.smart_tv
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.smart_tv ?? []),
+                // Фаза 3: T6 Culture (торговые)
+                artwork: Array.isArray(rawHistory.artwork)
+                  ? rawHistory.artwork
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.artwork ?? []),
+                sculpture: Array.isArray(rawHistory.sculpture)
+                  ? rawHistory.sculpture
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.sculpture ?? []),
+                literature: Array.isArray(rawHistory.literature)
+                  ? rawHistory.literature
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.literature ?? []),
+                fashion: Array.isArray(rawHistory.fashion)
+                  ? rawHistory.fashion
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.fashion ?? []),
+                jewelry: Array.isArray(rawHistory.jewelry)
+                  ? rawHistory.jewelry
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.jewelry ?? []),
+                // Фаза 3: T7 Medical (торговые)
+                medicine: Array.isArray(rawHistory.medicine)
+                  ? rawHistory.medicine
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.medicine ?? []),
+                vaccine: Array.isArray(rawHistory.vaccine)
+                  ? rawHistory.vaccine
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.vaccine ?? []),
+                // Фаза 3: T7 Social (торговый)
+                cryptocurrency: Array.isArray(rawHistory.cryptocurrency)
+                  ? rawHistory.cryptocurrency
+                      .map((p: any) => ({ t: Number(p?.t), price: String(p?.price) }))
+                      .filter((p: any) => Number.isFinite(p.t) && typeof p.price === 'string')
+                  : (market.history?.cryptocurrency ?? []),
               }
             : undefined;
 
@@ -7757,6 +8800,19 @@ export const useGameStore = create<GameState>((set, get) => ({
           randomEvents: loadedRandomEvents,
           achievements: loadedAchievements,
           quests: loadedQuests,
+          culture: save.culture ? {
+            science: D(save.culture.science ?? '0'),
+            culture: D(save.culture.culture ?? '0'),
+            currentLevel: typeof save.culture.currentLevel === 'number' ? save.culture.currentLevel : 1,
+            cultureProgress: D(save.culture.cultureProgress ?? '0'),
+            sciencePerSecond: D(0),
+            culturePerSecond: D(0),
+            totalScienceProduced: D(save.culture.totalScienceProduced ?? '0'),
+            totalCultureProduced: D(save.culture.totalCultureProduced ?? '0'),
+            happiness: save.culture.happiness ?? INITIAL_CULTURE.happiness,
+            unlockedCultureBuildings: Array.isArray(save.culture.unlockedCultureBuildings) ? save.culture.unlockedCultureBuildings : [],
+            aggregatedEffects: save.culture.aggregatedEffects ?? INITIAL_CULTURE.aggregatedEffects,
+          } : INITIAL_CULTURE,
           lastTick: Date.now(),
         };
       });
@@ -9304,6 +10360,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       intergalacticLogistics: INITIAL_INTERGALACTIC_LOGISTICS,
       randomEvents: INITIAL_RANDOM_EVENTS,
       achievements: INITIAL_ACHIEVEMENTS,
+      culture: INITIAL_CULTURE,
       quests: {
         activeQuests: [...STARTER_QUESTS],
         completedQuests: [],
@@ -11025,6 +12082,580 @@ export const useGameStore = create<GameState>((set, get) => ({
           activeQuests: state.quests.activeQuests.map(q =>
             q.id === questId ? { ...q, isActive: true } : q
           ),
+        },
+      };
+    });
+  },
+
+  // Map system actions (Phase 4)
+  selectMap: (mapId: MapId) => {
+    set((state) => ({
+      maps: {
+        ...state.maps,
+        currentMapId: mapId,
+      },
+    }));
+  },
+
+  startMap: (mapId: MapId) => {
+    set((state) => {
+      // Проверяем, разблокирована ли карта
+      if (!state.maps.unlockedMaps.includes(mapId)) {
+        return state;
+      }
+      
+      const mapDef = getMapDefinition(mapId);
+      if (!mapDef) return state;
+
+      // Генерируем новый seed для карты
+      const newSeed = Date.now();
+      
+      // Генерируем данные карты
+      const mapData = generateMap(mapDef, newSeed);
+
+      // Получаем размеры карты
+      const { width, height } = mapDef.gridDimensions;
+
+      // Генерируем депозиты для новой карты на основе доступных ресурсов
+      const newDeposits: Record<string, DepositType> = {};
+      const availableDeposits = mapDef.availableDeposits.filter(d => 
+        ['ore', 'ice', 'carbon', 'natural_gas', 'oil', 'sand', 'uranium', 'chrome', 'titanium', 'copper'].includes(d)
+      ) as DepositType[];
+      
+      // Базовая позиция в центре
+      const baseX = Math.floor(width / 2);
+      const baseY = Math.floor(height / 2);
+      
+      // Генерируем депозиты с учётом плотности карты
+      const depositCount = Math.floor(width * height * mapDef.depositDensity);
+      const seededRandom = (seed: number) => {
+        const x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+      };
+      
+      let seedCounter = newSeed;
+      for (let i = 0; i < depositCount && availableDeposits.length > 0; i++) {
+        const x = Math.floor(seededRandom(seedCounter++) * width);
+        const y = Math.floor(seededRandom(seedCounter++) * height);
+        const key = `${x},${y}`;
+        
+        // Не ставим депозит на базу
+        if (x === baseX && y === baseY) continue;
+        if (newDeposits[key]) continue;
+        
+        const depositIndex = Math.floor(seededRandom(seedCounter++) * availableDeposits.length);
+        newDeposits[key] = availableDeposits[depositIndex];
+      }
+
+      // Сбрасываем ресурсы и устанавливаем только стартовые ресурсы карты
+      const newResources = { ...state.resources };
+      const newBuffers: typeof state.grid.buffers = { base: {} };
+      
+      // Сначала обнуляем все ресурсы
+      for (const resType of Object.keys(newResources) as ResourceType[]) {
+        if (newResources[resType]) {
+          newResources[resType] = {
+            ...newResources[resType],
+            amount: D(0),
+          };
+        }
+      }
+      
+      // Затем устанавливаем только стартовые ресурсы карты
+      if (mapDef.startingResources) {
+        for (const [resType, amount] of Object.entries(mapDef.startingResources)) {
+          const type = resType as ResourceType;
+          if (newResources[type]) {
+            const startAmount = D(amount);
+            // Если стартовое значение больше max, увеличиваем max
+            const newMax = startAmount.gt(newResources[type].max) 
+              ? startAmount 
+              : newResources[type].max;
+            
+            newResources[type] = {
+              ...newResources[type],
+              amount: startAmount,
+              max: newMax,
+            };
+            
+            newBuffers.base![type] = startAmount.toString();
+          }
+        }
+      }
+      
+      // Устанавливаем только стартовые кредиты карты (не добавляем к текущим)
+      const newCurrency = {
+        ...state.currency,
+        credits: D(mapDef.startingCredits),
+      };
+      
+      // Сбрасываем боевое состояние для новой карты
+      const isPeaceful = mapDef.modifiers.includes('peaceful');
+      const newCombat = {
+        ...state.combat,
+        enemies: [], // Убираем всех врагов
+        waveEndsAt: 0,
+        nextWaveAt: isPeaceful ? Date.now() + 999999999 : Date.now() + WAVE_INTERVAL_SECONDS * 1000,
+      };
+
+      return {
+        maps: {
+          ...state.maps,
+          currentMapId: mapId,
+          activeMapData: mapData,
+          mapSeed: newSeed,
+          currentEvent: null,
+        },
+        grid: {
+          ...state.grid,
+          width,
+          height,
+          deposits: newDeposits,
+          tiles: {}, // Очищаем постройки для новой карты
+          tileLevels: {},
+          tileEvolutionLevels: {},
+          tileDisabled: {},
+          buffers: newBuffers,
+        },
+        resources: newResources,
+        currency: newCurrency,
+        combat: newCombat,
+      };
+    });
+  },
+
+  completeMap: () => {
+    set((state) => {
+      const { currentMapId, mapProgress } = state.maps;
+      if (!currentMapId) return state;
+
+      // Обновляем прогресс
+      const progress = mapProgress[currentMapId] || { completions: 0, bestTime: null, discovered: true };
+      
+      // Следующая карта для разблокировки
+      const mapOrder = ['map_training_ground', 'map_barren_moon', 'map_crystal_caves', 'map_volcanic_world', 'map_ice_giant', 'map_toxic_swamp', 'map_asteroid_belt', 'map_ancient_ruins'];
+      const currentIndex = mapOrder.indexOf(currentMapId);
+      const nextMapId = mapOrder[currentIndex + 1];
+
+      return {
+        maps: {
+          ...state.maps,
+          mapProgress: {
+            ...mapProgress,
+            [currentMapId]: {
+              ...progress,
+              completions: progress.completions + 1,
+            },
+          },
+          unlockedMaps: nextMapId && !state.maps.unlockedMaps.includes(nextMapId as any)
+            ? [...state.maps.unlockedMaps, nextMapId as import('../core/gameTypes.maps').MapId]
+            : state.maps.unlockedMaps,
+          activeMapData: null,
+        },
+      };
+    });
+  },
+
+  abandonMap: () => {
+    set((state) => ({
+      maps: {
+        ...state.maps,
+        activeMapData: null,
+        currentEvent: null,
+      },
+    }));
+  },
+
+  triggerMapEvent: () => {
+    set((state) => {
+      const { currentMapId, activeMapData } = state.maps;
+      if (!currentMapId || !activeMapData) return state;
+
+      const mapDef = getMapDefinition(currentMapId);
+      
+      if (!mapDef?.specialEvents?.length) return state;
+
+      // Случайно выбираем событие
+      const event = mapDef.specialEvents[Math.floor(Math.random() * mapDef.specialEvents.length)];
+
+      return {
+        maps: {
+          ...state.maps,
+          currentEvent: event.id,
+          eventHistory: [...state.maps.eventHistory, event.id],
+        },
+      };
+    });
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // ФАЗА 5: ПРОДВИНУТЫЕ НАСТРОЙКИ ЗДАНИЙ
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Получить или создать настройки для тайла
+   */
+  getTileSettings: (tileKey: string): TileBuildingSettings | null => {
+    const state = get();
+    const buildingId = state.grid.tiles[tileKey];
+    if (!buildingId) return null;
+    
+    // Если настройки уже есть - возвращаем
+    if (state.grid.tileSettings[tileKey]) {
+      return state.grid.tileSettings[tileKey];
+    }
+    
+    // Создаём дефолтные настройки
+    return createDefaultTileSettings(tileKey, buildingId);
+  },
+
+  /**
+   * Обновить настройки тайла
+   */
+  updateTileSettings: (tileKey: string, updates: Partial<TileBuildingSettings>) => {
+    set((state) => {
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId) return state;
+
+      const existing = state.grid.tileSettings[tileKey] 
+        ?? createDefaultTileSettings(tileKey, buildingId);
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              ...updates,
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Установить режим работы здания
+   */
+  setBuildingMode: (tileKey: string, mode: BuildingMode) => {
+    const updateTileSettings = get().updateTileSettings;
+    updateTileSettings(tileKey, { mode });
+  },
+
+  /**
+   * Включить/выключить здание
+   */
+  setBuildingEnabled: (tileKey: string, enabled: boolean) => {
+    const updateTileSettings = get().updateTileSettings;
+    updateTileSettings(tileKey, { enabled });
+    
+    // Также обновляем старый tileDisabled для совместимости
+    set((state) => ({
+      grid: {
+        ...state.grid,
+        tileDisabled: {
+          ...state.grid.tileDisabled,
+          [tileKey]: !enabled,
+        },
+      },
+    }));
+  },
+
+  /**
+   * Установить приоритет входящего ресурса
+   */
+  setInputPriority: (tileKey: string, resource: ResourceType, priority: ResourcePriority) => {
+    set((state) => {
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId) return state;
+
+      const existing = state.grid.tileSettings[tileKey] 
+        ?? createDefaultTileSettings(tileKey, buildingId);
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              inputPriorities: {
+                ...existing.inputPriorities,
+                [resource]: priority,
+              },
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Установить приоритет выходящего ресурса
+   */
+  setOutputPriority: (tileKey: string, priority: ResourcePriority) => {
+    const updateTileSettings = get().updateTileSettings;
+    updateTileSettings(tileKey, { outputPriority: priority });
+  },
+
+  /**
+   * Добавить/обновить конфигурацию авто-продажи
+   */
+  updateAutoSell: (tileKey: string, config: AutoSellConfig) => {
+    set((state) => {
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId) return state;
+
+      const existing = state.grid.tileSettings[tileKey] 
+        ?? createDefaultTileSettings(tileKey, buildingId);
+
+      // Ищем существующий конфиг для этого ресурса
+      const autoSell = [...existing.autoSell];
+      const idx = autoSell.findIndex(c => c.resource === config.resource);
+      
+      if (idx >= 0) {
+        autoSell[idx] = config;
+      } else {
+        autoSell.push(config);
+      }
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              autoSell,
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Удалить авто-продажу для ресурса
+   */
+  removeAutoSell: (tileKey: string, resource: ResourceType) => {
+    set((state) => {
+      const existing = state.grid.tileSettings[tileKey];
+      if (!existing) return state;
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              autoSell: existing.autoSell.filter(c => c.resource !== resource),
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Добавить лимит хранения
+   */
+  addStorageLimit: (tileKey: string, limit: StorageLimit) => {
+    set((state) => {
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId) return state;
+
+      const existing = state.grid.tileSettings[tileKey] 
+        ?? createDefaultTileSettings(tileKey, buildingId);
+
+      const storageLimits = [...existing.storageLimits];
+      const idx = storageLimits.findIndex(l => l.resource === limit.resource);
+      
+      if (idx >= 0) {
+        storageLimits[idx] = limit;
+      } else {
+        storageLimits.push(limit);
+      }
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              storageLimits,
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Удалить лимит хранения
+   */
+  removeStorageLimit: (tileKey: string, resource: ResourceType) => {
+    set((state) => {
+      const existing = state.grid.tileSettings[tileKey];
+      if (!existing) return state;
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              storageLimits: existing.storageLimits.filter(l => l.resource !== resource),
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Добавить условие работы
+   */
+  addBuildingCondition: (tileKey: string, condition: BuildingCondition) => {
+    set((state) => {
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId) return state;
+
+      const existing = state.grid.tileSettings[tileKey] 
+        ?? createDefaultTileSettings(tileKey, buildingId);
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              conditions: [...existing.conditions, condition],
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Удалить условие работы
+   */
+  removeBuildingCondition: (tileKey: string, conditionId: string) => {
+    set((state) => {
+      const existing = state.grid.tileSettings[tileKey];
+      if (!existing) return state;
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              conditions: existing.conditions.filter(c => c.id !== conditionId),
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Массовое обновление режима для всех зданий одного типа
+   */
+  setBuildingModeForAll: (buildingId: string, mode: BuildingMode) => {
+    set((state) => {
+      const newSettings = { ...state.grid.tileSettings };
+      
+      for (const [tileKey, tileBuildingId] of Object.entries(state.grid.tiles)) {
+        if (tileBuildingId === buildingId) {
+          const existing = newSettings[tileKey] 
+            ?? createDefaultTileSettings(tileKey, buildingId);
+          newSettings[tileKey] = { ...existing, mode };
+        }
+      }
+
+      return {
+        grid: {
+          ...state.grid,
+          tileSettings: newSettings,
+        },
+      };
+    });
+  },
+
+  /**
+   * Ремонт здания (восстановление health)
+   */
+  repairBuilding: (tileKey: string) => {
+    set((state) => {
+      const existing = state.grid.tileSettings[tileKey];
+      if (!existing) return state;
+
+      // Стоимость ремонта = (100 - health) * 10 кредитов
+      const repairCost = D((100 - existing.health) * 10);
+      
+      if (state.currency.credits.lt(repairCost)) {
+        return state; // Недостаточно кредитов
+      }
+
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(repairCost),
+        },
+        grid: {
+          ...state.grid,
+          tileSettings: {
+            ...state.grid.tileSettings,
+            [tileKey]: {
+              ...existing,
+              health: 100,
+            },
+          },
+        },
+      };
+    });
+  },
+
+  /**
+   * Ремонт всех зданий
+   */
+  repairAllBuildings: () => {
+    set((state) => {
+      let totalCost = D(0);
+      const newSettings = { ...state.grid.tileSettings };
+      
+      for (const [tileKey, settings] of Object.entries(state.grid.tileSettings)) {
+        if (settings.health < 100) {
+          const cost = D((100 - settings.health) * 10);
+          totalCost = totalCost.add(cost);
+        }
+      }
+
+      if (state.currency.credits.lt(totalCost)) {
+        return state; // Недостаточно кредитов
+      }
+
+      for (const [tileKey, settings] of Object.entries(newSettings)) {
+        if (settings.health < 100) {
+          newSettings[tileKey] = { ...settings, health: 100 };
+        }
+      }
+
+      return {
+        currency: {
+          ...state.currency,
+          credits: state.currency.credits.sub(totalCost),
+        },
+        grid: {
+          ...state.grid,
+          tileSettings: newSettings,
         },
       };
     });

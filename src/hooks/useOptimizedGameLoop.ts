@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '../features/gameStore';
+import { useFinanceStore } from '../features/financeStore';
 import { checkAchievements } from '../utils/achievementsHelpers';
 
 /**
@@ -22,6 +23,7 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   const saveTimeRef = useRef<number>(0);
   const achievementCheckRef = useRef<number>(0);
   const signalCheckRef = useRef<number>(0);
+  const financeCheckRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const fpsRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
@@ -93,6 +95,14 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         signalState.spawnNewSignal();
         signalState.updateSignals();
         signalCheckRef.current = 0;
+      }
+
+      // Finance update: раз в 5 секунд (обновление акций, процентов, кредитов)
+      financeCheckRef.current += dt;
+      if (financeCheckRef.current >= 5) {
+        const financeStore = useFinanceStore.getState();
+        queueMicrotask(() => financeStore.updateFinance());
+        financeCheckRef.current = 0;
       }
 
       accumulatedTimeRef.current -= logicFrameTime;
