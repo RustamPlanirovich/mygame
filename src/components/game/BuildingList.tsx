@@ -5,7 +5,7 @@ import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { isBuildingUnlocked, getTechnologyForBuilding } from '../../core/constants/technologies';
 import { X, Lock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { ResourceProductionChain } from './ResourceProductionChain';
 
 const requiredDepositForBuilding = (buildingId: string) => {
@@ -86,10 +86,30 @@ export function BuildingList() {
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [showOnlyAffordable, setShowOnlyAffordable] = useState(false);
   const [showOnlyUnlocked, setShowOnlyUnlocked] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'cost' | 'level'>('name');
   const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
+  
+  // Debounce для поискового запроса - оптимизация производительности
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  useEffect(() => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    
+    debounceTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 150); // 150ms debounce для быстрого отклика
+    
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
 
   // Подсчитываем количество зданий каждого типа на карте
   const buildingCounts = useMemo(() => {
@@ -128,13 +148,13 @@ export function BuildingList() {
     return map;
   }, [buildings, resources, currency, research.technologies]);
 
-  // Фильтрация и сортировка
+  // Фильтрация и сортировка (использует debouncedSearchQuery для производительности)
   const filteredBuildings = useMemo(() => {
     let filtered = buildings;
 
     // Поиск по названию или по производимым/потребляемым ресурсам
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
       filtered = filtered.filter(b => {
         // Поиск по названию здания
         if (b.name.toLowerCase().includes(query)) {
@@ -202,13 +222,13 @@ export function BuildingList() {
     });
 
     return sorted;
-  }, [buildings, searchQuery, showOnlyAffordable, showOnlyUnlocked, sortBy, affordability, research.technologies]);
+  }, [buildings, debouncedSearchQuery, showOnlyAffordable, showOnlyUnlocked, sortBy, affordability, research.technologies]);
 
-  // Определяем, ищет ли пользователь конкретный ресурс
+  // Определяем, ищет ли пользователь конкретный ресурс (использует debouncedSearchQuery)
   const searchedResource = useMemo<ResourceType | null>(() => {
-    if (!searchQuery) return null;
+    if (!debouncedSearchQuery) return null;
 
-    const query = searchQuery.toLowerCase();
+    const query = debouncedSearchQuery.toLowerCase();
     
     // Проверяем все ресурсы
     for (const [resKey, resLabel] of Object.entries(RESOURCE_LABEL)) {
@@ -218,7 +238,7 @@ export function BuildingList() {
     }
 
     return null;
-  }, [searchQuery]);
+  }, [debouncedSearchQuery]);
 
   const toggleChainExpansion = (buildingId: string) => {
     const newExpanded = new Set(expandedChains);
@@ -292,7 +312,7 @@ export function BuildingList() {
       {/* Список зданий */}
       <div className="flex-1 overflow-y-auto p-3">
         <div className="space-y-2">
-          {/* Показываем производственную цепочку для искомого ресурса */}
+          {/* Показываем производственную цепочку для искомого ресурса с debounce */}
           {searchedResource && (
             <div className="mb-3 p-3 bg-cyber-blue/5 border border-cyber-blue/30 rounded">
               <div className="text-xs font-medium text-cyber-blue mb-2">
@@ -301,6 +321,8 @@ export function BuildingList() {
               <ResourceProductionChain 
                 resource={searchedResource} 
                 buildings={buildings}
+                useDebounce={true}
+                debounceDelay={300}
               />
             </div>
           )}

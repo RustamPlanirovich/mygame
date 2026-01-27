@@ -1,32 +1,58 @@
-import { useMemo } from 'react';
-import { ChevronRight, Factory, CheckCircle2, XCircle, TrendingUp } from 'lucide-react';
+import { useMemo, useCallback } from 'react';
+import { ChevronRight, Factory, CheckCircle2, XCircle, TrendingUp, Pin, PinOff, Loader2 } from 'lucide-react';
 import type { Building, ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getResourceProductionChain, flattenProductionChain } from '../../utils/productionChainHelpers';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { formatNumber } from '../../core/math/format';
+import { usePinnedProductionChains, useDebouncedChain } from '../../hooks/usePinnedProductionChains';
 import Decimal from 'break_eternity.js';
 
 interface ResourceProductionChainProps {
   resource: ResourceType;
   buildings: Building[];
+  /** Использовать debounce для отложенной загрузки (для поиска) */
+  useDebounce?: boolean;
+  /** Задержка debounce в мс */
+  debounceDelay?: number;
 }
 
 /**
  * Компонент отображения производственной цепочки для ресурса
  * Показывает какие здания и материалы нужны для производства (оптимизированная версия)
  */
-export function ResourceProductionChain({ resource, buildings }: ResourceProductionChainProps) {
-  // Мемоизация цепочки для оптимизации
-  const chain = useMemo(() => 
-    getResourceProductionChain(resource, buildings),
-    [resource, buildings]
+export function ResourceProductionChain({ 
+  resource, 
+  buildings, 
+  useDebounce = false,
+  debounceDelay = 300,
+}: ResourceProductionChainProps) {
+  // Хук для закреплённых цепочек
+  const { isPinned, togglePin } = usePinnedProductionChains(buildings);
+  const pinned = isPinned(resource);
+
+  // Используем debounce если запрошено (для поиска)
+  const debouncedResult = useDebouncedChain(
+    useDebounce ? resource : null,
+    buildings,
+    debounceDelay
   );
 
-  const flatChain = useMemo(() => 
-    flattenProductionChain(chain),
-    [chain]
+  // Синхронная мемоизация цепочки для обычного режима
+  const syncChain = useMemo(() => 
+    useDebounce ? null : getResourceProductionChain(resource, buildings),
+    [resource, buildings, useDebounce]
   );
+
+  const syncFlatChain = useMemo(() => 
+    flattenProductionChain(syncChain),
+    [syncChain]
+  );
+
+  // Выбираем источник данных в зависимости от режима
+  const chain = useDebounce ? debouncedResult.chain : syncChain;
+  const flatChain = useDebounce ? debouncedResult.flatChain : syncFlatChain;
+  const isLoading = useDebounce ? debouncedResult.isLoading : false;
 
   // Подсчет статистики производства - мемоизировано
   const stats = useMemo(() => {
@@ -53,6 +79,22 @@ export function ResourceProductionChain({ resource, buildings }: ResourceProduct
     return { producing, total, missing, totalProduction };
   }, [flatChain, buildings]);
 
+  // Обработчик закрепления
+  const handleTogglePin = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    togglePin(resource);
+  }, [togglePin, resource]);
+
+  // Показываем лоадер при загрузке
+  if (isLoading) {
+    return (
+      <div className="mt-2 p-3 bg-cyber-black/50 border border-cyber-gray/30 rounded text-[10px] flex items-center justify-center gap-2">
+        <Loader2 size={14} className="animate-spin text-cyber-blue" />
+        <span className="text-cyber-text-dim">Загрузка цепочки...</span>
+      </div>
+    );
+  }
+
   if (!chain || flatChain.length === 0) {
     return null;
   }
@@ -66,6 +108,21 @@ export function ResourceProductionChain({ resource, buildings }: ResourceProduct
           <span className="font-medium">Цепочка производства</span>
         </div>
         <div className="flex items-center gap-2 text-[9px]">
+          {/* Кнопка закрепления */}
+          <button
+            type="button"
+            onClick={handleTogglePin}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+              pinned 
+                ? 'bg-cyber-green/20 text-cyber-green border border-cyber-green/30' 
+                : 'bg-cyber-gray/20 text-cyber-text-dim hover:bg-cyber-blue/20 hover:text-cyber-blue'
+            }`}
+            title={pinned ? 'Открепить с экрана' : 'Закрепить на экране (как HelMod)'}
+          >
+            {pinned ? <PinOff size={10} /> : <Pin size={10} />}
+            <span>{pinned ? 'Закреплено' : 'Закрепить'}</span>
+          </button>
+          
           <div className="flex items-center gap-0.5">
             <CheckCircle2 size={10} className="text-green-500" />
             <span className="text-green-400">{stats.producing}/{stats.total}</span>

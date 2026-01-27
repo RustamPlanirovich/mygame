@@ -86,12 +86,6 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
       color: 'text-blue-400',
     },
     {
-      label: 'Клеток занято',
-      value: totalTileCount,
-      icon: '📐',
-      color: 'text-purple-400',
-    },
-    {
       label: 'Технологий',
       value: `${unlockedTech}/${totalTech}`,
       icon: '🔬',

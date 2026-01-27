@@ -33,10 +33,12 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
 
     const cargo: Partial<Record<ResourceType, import('break_eternity.js').default>> = {};
     let hasAnyCargo = false;
+    let totalCargoAmount = D(0);
     
     Object.entries(cargoResources).forEach(([res, amount]) => {
       if (amount && amount > 0) {
         cargo[res as ResourceType] = D(amount);
+        totalCargoAmount = totalCargoAmount.plus(amount);
         hasAnyCargo = true;
       }
     });
@@ -46,9 +48,65 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
       return;
     }
 
+    // Pre-check: Do we have enough fuel?
+    const fromGalaxyId = selectedFrom === 'main_base' 
+      ? 'galaxy_1_nebula_beginning' 
+      : galaxies.platforms.find(p => p.id === selectedFrom)?.galaxyId || 'galaxy_1_nebula_beginning';
+    const toGalaxyId = selectedTo === 'main_base'
+      ? 'galaxy_1_nebula_beginning'
+      : galaxies.platforms.find(p => p.id === selectedTo)?.galaxyId || 'galaxy_1_nebula_beginning';
+    
+    const fuelCost = totalCargoAmount.mul(0.01).mul(fromGalaxyId === toGalaxyId ? 1 : 3);
+    const liquidFuel = resources.liquid_fuel?.amount || D(0);
+    const gasoline = resources.gasoline?.amount || D(0);
+    const totalFuel = liquidFuel.plus(gasoline);
+    
+    if (totalFuel.lt(fuelCost)) {
+      notify.error(`Недостаточно топлива! Нужно: ${formatNumber(fuelCost)}, есть: ${formatNumber(totalFuel)}`);
+      return;
+    }
+
+    // Pre-check: Do we have enough resources at source?
+    if (selectedFrom === 'main_base') {
+      for (const [resType, amount] of Object.entries(cargo)) {
+        if (amount) {
+          const available = resources[resType as ResourceType]?.amount || D(0);
+          if (available.lt(amount)) {
+            notify.error(`Недостаточно ${RESOURCE_EMOJI[resType as ResourceType] || resType}! Нужно: ${formatNumber(amount)}, есть: ${formatNumber(available)}`);
+            return;
+          }
+        }
+      }
+    } else {
+      const sourcePlatform = galaxies.platforms.find(p => p.id === selectedFrom);
+      if (!sourcePlatform) {
+        notify.error('Платформа-источник не найдена');
+        return;
+      }
+      for (const [resType, amount] of Object.entries(cargo)) {
+        if (amount) {
+          const available = sourcePlatform.resources[resType as ResourceType]?.amount || D(0);
+          if (available.lt(amount)) {
+            notify.error(`Недостаточно ${RESOURCE_EMOJI[resType as ResourceType] || resType} на платформе! Нужно: ${formatNumber(amount)}, есть: ${formatNumber(available)}`);
+            return;
+          }
+        }
+      }
+    }
+
+    // All checks passed, send the caravan
+    const caravanCountBefore = intergalacticLogistics.caravans.length;
     sendCaravan(selectedFrom, selectedTo, cargo);
-    setCargoResources({});
-    notify.success('Караван отправлен!');
+    
+    // Check if caravan was actually added by subscribing to store update
+    // Since sendCaravan is synchronous with zustand, we can check immediately after
+    const currentState = useGameStore.getState();
+    if (currentState.intergalacticLogistics.caravans.length > caravanCountBefore) {
+      setCargoResources({});
+      notify.success('Караван отправлен!');
+    } else {
+      notify.error('Не удалось отправить караван');
+    }
   };
 
   const handleUpgrade = (upgradeType: 'speed' | 'capacity' | 'defense') => {

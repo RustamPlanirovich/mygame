@@ -10,6 +10,7 @@ import { SidePanelTabs } from './components/game/SidePanelTabs';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
 import { NotificationToast } from './components/game/NotificationToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
+import { ProductionChainOverlay } from './components/game/ProductionChainOverlay';
 import { Dashboard } from './components/game/Dashboard';
 import { Minimap } from './components/game/Minimap';
 import { HelpModal } from './components/game/HelpPanel';
@@ -338,6 +339,9 @@ function App() {
       
       {/* Signal Interception Overlay */}
       <SignalOverlay />
+      
+      {/* Production Chain Overlay (HelMod-style) */}
+      <ProductionChainOverlay buildings={buildings} />
       
       {/* Help Modal - открывается по F1 */}
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />

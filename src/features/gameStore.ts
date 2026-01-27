@@ -846,7 +846,7 @@ const INITIAL_BUILDINGS: Building[] = [
     id: 'oil_refinery_mk1',
     name: 'Нефтеперерабатывающий Завод v1',
     description: 'Переработка: Нефть -> Бензин + Пластик.',
-    baseCost: { energy: D(600), steel: D(50), plastic: D(20) },
+    baseCost: { energy: D(600), steel: D(50), glass: D(30) },
     creditCost: D(1800),
     costFactor: 1.15,
     consumption: { energy: D(2.0), oil: D(0.5) },
@@ -9939,6 +9939,34 @@ export const useGameStore = create<GameState>((set, get) => ({
         return state;
       }
       
+      // Check if source has enough resources BEFORE deducting
+      if (fromId === 'main_base') {
+        for (const [resType, amount] of Object.entries(resources)) {
+          if (amount) {
+            const available = state.resources[resType as import('../core/gameTypes').ResourceType]?.amount || D(0);
+            if (available.lt(amount)) {
+              console.warn(`Not enough ${resType} for caravan`);
+              return state;
+            }
+          }
+        }
+      } else {
+        const sourcePlatform = galaxies.platforms.find(p => p.id === fromId);
+        if (!sourcePlatform) {
+          console.warn('Source platform not found');
+          return state;
+        }
+        for (const [resType, amount] of Object.entries(resources)) {
+          if (amount) {
+            const available = sourcePlatform.resources[resType as import('../core/gameTypes').ResourceType]?.amount || D(0);
+            if (available.lt(amount)) {
+              console.warn(`Not enough ${resType} on platform for caravan`);
+              return state;
+            }
+          }
+        }
+      }
+      
       // Deduct fuel
       let remainingFuelCost = fuelCost;
       let newResources = { ...state.resources };
@@ -9959,6 +9987,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         };
       }
       
+      // Create a copy of galaxies to avoid mutation
+      const newGalaxies = { ...galaxies, platforms: [...galaxies.platforms] };
+      
       // Deduct resources from source
       if (fromId === 'main_base') {
         Object.entries(resources).forEach(([resType, amount]) => {
@@ -9971,20 +10002,22 @@ export const useGameStore = create<GameState>((set, get) => ({
         });
       } else {
         // Deduct from platform
-        const platformIndex = galaxies.platforms.findIndex(p => p.id === fromId);
+        const platformIndex = newGalaxies.platforms.findIndex(p => p.id === fromId);
         if (platformIndex >= 0) {
-          const platform = { ...galaxies.platforms[platformIndex] };
+          const platform = { ...newGalaxies.platforms[platformIndex] };
+          const updatedPlatformResources = { ...platform.resources };
+          
           Object.entries(resources).forEach(([resType, amount]) => {
-            if (amount && platform.resources[resType as import('../core/gameTypes').ResourceType]) {
-              platform.resources[resType as import('../core/gameTypes').ResourceType] = {
-                ...platform.resources[resType as import('../core/gameTypes').ResourceType]!,
-                amount: platform.resources[resType as import('../core/gameTypes').ResourceType]!.amount.minus(amount),
+            if (amount && updatedPlatformResources[resType as import('../core/gameTypes').ResourceType]) {
+              updatedPlatformResources[resType as import('../core/gameTypes').ResourceType] = {
+                ...updatedPlatformResources[resType as import('../core/gameTypes').ResourceType]!,
+                amount: updatedPlatformResources[resType as import('../core/gameTypes').ResourceType]!.amount.minus(amount),
               };
             }
           });
-          const newPlatforms = [...galaxies.platforms];
-          newPlatforms[platformIndex] = platform;
-          galaxies.platforms = newPlatforms;
+          
+          platform.resources = updatedPlatformResources;
+          newGalaxies.platforms[platformIndex] = platform;
         }
       }
       
@@ -10017,7 +10050,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       return {
         ...state,
         resources: newResources,
-        galaxies,
+        galaxies: newGalaxies,
         intergalacticLogistics: {
           ...intergalacticLogistics,
           caravans: [...intergalacticLogistics.caravans, newCaravan],
