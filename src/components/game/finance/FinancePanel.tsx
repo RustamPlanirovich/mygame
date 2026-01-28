@@ -11,10 +11,12 @@ import { StockMarket } from './StockMarket';
 import { Portfolio } from './Portfolio';
 import { CreditScore } from './CreditScore';
 import { NetWorthTracker } from './NetWorthTracker';
+import { AIAdvisor } from './AIAdvisor';
+import { P2PLending } from './P2PLending';
 import { formatNumber } from '../../../core/math/format';
 import Decimal from 'break_eternity.js';
 
-type FinanceTab = 'overview' | 'bank' | 'stocks' | 'funds' | 'loans';
+type FinanceTab = 'overview' | 'bank' | 'stocks' | 'funds' | 'loans' | 'advisor' | 'p2p';
 
 interface FinancePanelProps {
   creditsBalance: Decimal;
@@ -56,6 +58,8 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
     { id: 'stocks', label: 'Акции', icon: '📈' },
     { id: 'funds', label: 'Фонды', icon: '💼' },
     { id: 'loans', label: 'Кредиты', icon: '💳' },
+    { id: 'advisor', label: 'AI', icon: '🤖' },
+    { id: 'p2p', label: 'P2P', icon: '💱' },
   ];
   
   const activeLoans = loans.filter(l => l.status === 'active').length;
@@ -201,6 +205,14 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
         
         {activeTab === 'loans' && (
           <LoanManager />
+        )}
+        
+        {activeTab === 'advisor' && (
+          <AIAdvisor />
+        )}
+        
+        {activeTab === 'p2p' && (
+          <P2PLending />
         )}
       </div>
     </div>

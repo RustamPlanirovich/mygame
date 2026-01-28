@@ -7,6 +7,8 @@ const { initDb, pool } = await import('./db.js');
 import { createMarketRoutes, initMarketTables } from './market.js';
 import { createGuildRoutes } from './guilds.js';
 import { createSyncRoutes, initSyncTables, cleanupExpiredBackups } from './sync.js';
+import { createAIRoutes } from './ai.js';
+import { createP2PLendingRoutes, initP2PLendingTables } from './p2p-lending.js';
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -908,12 +910,21 @@ await initMarketTables(pool);
 // Инициализация таблиц для синхронизации
 await initSyncTables();
 
+// Инициализация таблиц для P2P кредитования
+await initP2PLendingTables(pool);
+
 // Регистрация маршрутов для торговой биржи и гильдий
 createMarketRoutes(app, pool, authMiddleware);
 createGuildRoutes(app, pool, authMiddleware);
 
 // Регистрация маршрутов для синхронизации
 createSyncRoutes(app, authMiddleware);
+
+// Регистрация маршрутов для AI
+createAIRoutes(app, pool, authMiddleware);
+
+// Регистрация маршрутов для P2P кредитования
+createP2PLendingRoutes(app, pool, authMiddleware);
 
 // Периодическая очистка истёкших бэкапов (каждый час)
 setInterval(cleanupExpiredBackups, 60 * 60 * 1000);

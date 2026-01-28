@@ -10,3 +10,5 @@ export { StockMarket } from './StockMarket';
 export { Portfolio } from './Portfolio';
 export { CreditScore } from './CreditScore';
 export { NetWorthTracker } from './NetWorthTracker';
+export { AIAdvisor } from './AIAdvisor';
+export { P2PLending } from './P2PLending';

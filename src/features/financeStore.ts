@@ -29,7 +29,6 @@ import {
   updateAllFundNavs,
   generateRandomMarketEvent,
   applyMarketEvent,
-  calculateDividends,
   type MarketEvent,
 } from '../utils/stockSimulator';
 import {
@@ -678,12 +677,27 @@ export const useFinanceStore = create<FinanceStore>()(
           return;
         }
         
+        // Получаем AI дивиденды через глобальный объект (избегаем циклических зависимостей)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const advisorState = (window as any).__advisorStore?.getState?.();
+        
         let totalDividends = D(0);
         const updatedPositions = state.positions.map(position => {
           const stock = state.stocks.find(s => s.id === position.stockId);
-          if (!stock || stock.dividendYield <= 0) return position;
+          if (!stock) return position;
           
-          const dividends = calculateDividends(position, stock);
+          // Используем AI дивиденды если доступны, иначе базовые
+          const aiYield = advisorState?.getAIDividendYield?.(position.stockId);
+          const effectiveYield = aiYield !== null && aiYield !== undefined ? aiYield : stock.dividendYield;
+          
+          if (effectiveYield <= 0) return position;
+          
+          // Рассчитываем дивиденды с новой ставкой
+          const shares = D(position.shares);
+          const price = D(stock.currentPrice);
+          const positionValue = shares.mul(price);
+          const dividends = positionValue.mul(effectiveYield);
+          
           totalDividends = totalDividends.add(dividends);
           
           return {
