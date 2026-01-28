@@ -14,7 +14,8 @@ import {
   TrendingUp,
   Clock,
   Settings,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { useGameStore } from '../../../features/gameStore';
@@ -25,10 +26,12 @@ import { EfficiencyScore } from './EfficiencyScore';
 import { ResourceDistribution } from './ResourceDistribution';
 import { LossTracker } from './LossTracker';
 import { ProfitLossChart } from './ProfitLossChart';
-import type { TimeRange, ResourceType } from '../../../core/gameTypes.analytics';
+import { EnergyBreakdown } from './EnergyBreakdown';
+import type { TimeRange } from '../../../core/gameTypes.analytics';
+import type { ResourceType } from '../../../core/gameTypes';
 import { getTimeRangeLabel } from '../../../core/gameTypes.analytics';
 
-type TabId = 'overview' | 'production' | 'bottlenecks' | 'roi' | 'losses' | 'financials';
+type TabId = 'overview' | 'production' | 'energy' | 'bottlenecks' | 'roi' | 'losses' | 'financials';
 
 interface Tab {
   id: TabId;
@@ -39,6 +42,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'overview', label: 'Обзор', icon: Gauge },
   { id: 'production', label: 'Производство', icon: BarChart2 },
+  { id: 'energy', label: 'Энергия', icon: Zap },
   { id: 'bottlenecks', label: 'Узкие места', icon: AlertTriangle },
   { id: 'roi', label: 'ROI', icon: Calculator },
   { id: 'losses', label: 'Потери', icon: TrendingUp },
@@ -162,6 +166,7 @@ export function AnalyticsPanel() {
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'production' && <ProductionTab />}
+        {activeTab === 'energy' && <EnergyBreakdown />}
         {activeTab === 'bottlenecks' && <BottleneckAnalyzer />}
         {activeTab === 'roi' && <ROICalculator />}
         {activeTab === 'losses' && <LossTracker />}

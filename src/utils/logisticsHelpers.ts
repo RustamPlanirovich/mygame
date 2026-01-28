@@ -11,6 +11,31 @@ import type { Building, GridCoord } from '../core/gameTypes';
 const BASE_MAX_DISTANCE = 5;
 
 /**
+ * Список добывающих зданий (привязаны к месторождениям)
+ * Эти здания НЕ получают логистический штраф, так как их местоположение
+ * определяется расположением месторождений, а не выбором игрока
+ */
+export const EXTRACTOR_BUILDING_IDS = new Set([
+  'miner_mk1',
+  'ice_extractor_mk1',
+  'carbon_harvester_mk1',
+  'gas_well_mk1',
+  'oil_well_mk1',
+  'sand_quarry_mk1',
+  'uranium_mine_mk1',
+  'chrome_mine_mk1',
+  'titanium_mine_mk1',
+  'copper_mine_mk1',
+]);
+
+/**
+ * Проверяет, является ли здание добывающим (привязано к месторождению)
+ */
+export function isExtractorBuilding(buildingId: string): boolean {
+  return EXTRACTOR_BUILDING_IDS.has(buildingId);
+}
+
+/**
  * Штраф за каждую клетку свыше базовой дистанции (15% за клетку)
  */
 const DISTANCE_PENALTY_PER_CELL = 0.15;
@@ -101,13 +126,23 @@ export function calculateDistance(from: GridCoord, to: GridCoord): number {
  * @param buildingCoord Координаты здания
  * @param baseCoord Координаты базы
  * @param buildingsOrHubs Список всех зданий или оптимизированный список хабов
+ * @param buildingId ID здания (опционально) - добывающие здания не получают штраф
+ * @param logisticsPenaltyReduction Бонус снижения штрафа от артефактов (0-1, например 0.3 = снижение на 30%)
  * @returns Множитель эффективности (1.0 = 100%, 0.85 = 85%, и т.д.)
  */
 export function calculateLogisticsEfficiency(
   buildingCoord: GridCoord,
   baseCoord: GridCoord,
-  buildingsOrHubs: Building[] | SimpleLogisticsHub[]
+  buildingsOrHubs: Building[] | SimpleLogisticsHub[],
+  buildingId?: string,
+  logisticsPenaltyReduction: number = 0
 ): number {
+  // Добывающие здания не получают логистический штраф
+  // Они привязаны к месторождениям и не могут быть размещены рядом с базой
+  if (buildingId && isExtractorBuilding(buildingId)) {
+    return 1.0;
+  }
+  
   // Если здание в зоне логистического узла, штрафов нет
   if (isInLogisticsNetwork(buildingCoord, buildingsOrHubs)) {
     return 1.0;
@@ -123,7 +158,13 @@ export function calculateLogisticsEfficiency(
 
   // Рассчитываем штраф
   const excessDistance = distance - BASE_MAX_DISTANCE;
-  const penalty = excessDistance * DISTANCE_PENALTY_PER_CELL;
+  let penalty = excessDistance * DISTANCE_PENALTY_PER_CELL;
+  
+  // Применяем бонус снижения штрафа от артефактов
+  if (logisticsPenaltyReduction > 0) {
+    penalty = penalty * (1 - Math.min(logisticsPenaltyReduction, 0.9)); // Максимум 90% снижения
+  }
+  
   const efficiency = Math.max(MIN_EFFICIENCY, 1.0 - penalty);
 
   return efficiency;
@@ -164,6 +205,7 @@ export interface LogisticsInfo {
   distanceToBase: number; // Расстояние до базы
   nearestHub: Building | null; // Ближайший логистический узел
   penaltyPercent: number; // Штраф в процентах (0-60%)
+  isExtractor: boolean; // Добывающее здание (нет штрафа)
 }
 
 /**
@@ -172,10 +214,12 @@ export interface LogisticsInfo {
 export function getLogisticsInfo(
   buildingCoord: GridCoord,
   baseCoord: GridCoord,
-  buildings: Building[]
+  buildings: Building[],
+  buildingId?: string
 ): LogisticsInfo {
   const inNetwork = isInLogisticsNetwork(buildingCoord, buildings);
-  const efficiency = calculateLogisticsEfficiency(buildingCoord, baseCoord, buildings);
+  const isExtractor = buildingId ? isExtractorBuilding(buildingId) : false;
+  const efficiency = calculateLogisticsEfficiency(buildingCoord, baseCoord, buildings, buildingId);
   const distanceToBase = calculateDistance(buildingCoord, baseCoord);
   const nearestHub = getNearestLogisticsHub(buildingCoord, buildings);
   const penaltyPercent = Math.round((1 - efficiency) * 100);
@@ -185,12 +229,14 @@ export function getLogisticsInfo(
     inNetwork,
     distanceToBase,
     nearestHub,
-    penaltyPercent
+    penaltyPercent,
+    isExtractor
   };
 }
 
 /**
  * Получает все здания с логистическими штрафами
+ * Добывающие здания не включаются, так как не получают штраф
  */
 export function getBuildingsWithLogisticsPenalty(
   buildings: Building[],
@@ -201,7 +247,8 @@ export function getBuildingsWithLogisticsPenalty(
   for (const building of buildings) {
     if (!building.coord) continue;
 
-    const efficiency = calculateLogisticsEfficiency(building.coord, baseCoord, buildings);
+    // Передаём ID здания для корректной проверки добывающих зданий
+    const efficiency = calculateLogisticsEfficiency(building.coord, baseCoord, buildings, building.id);
     
     if (efficiency < 1.0) {
       result.push({

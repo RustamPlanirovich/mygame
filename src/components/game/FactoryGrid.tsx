@@ -126,8 +126,8 @@ export function FactoryGrid() {
       selectedBuildId: activeGrid.selectedBuildId,
       highlightedBuildingId: (mainGrid as any).highlightedBuildingId,
       buffers: activeGrid.buffers,
-      activeTransports: (mainGrid as any).activeTransports || [],
       tileEvolutionLevels: (mainGrid as any).tileEvolutionLevels || {},
+      tileDisabled: (mainGrid as any).tileDisabled || {},
       width: activeGrid.width,
       height: activeGrid.height,
     };
@@ -139,8 +139,8 @@ export function FactoryGrid() {
            a.selectedBuildId === b.selectedBuildId &&
            a.highlightedBuildingId === b.highlightedBuildingId &&
            a.buffers === b.buffers &&
-           a.activeTransports === b.activeTransports &&
            a.tileEvolutionLevels === b.tileEvolutionLevels &&
+           a.tileDisabled === b.tileDisabled &&
            a.width === b.width &&
            a.height === b.height;
   });
@@ -1067,17 +1067,50 @@ export function FactoryGrid() {
             // Используем visualUpgrade emoji если есть эволюция, иначе базовую эмодзи здания
             const emoji = currentEvolution?.visualUpgrade || getBuildingEmoji(buildingId);
             
-            // Restore missingResources definition
-            const missingResources = grid.missingResources?.[k] || [];
-            const isBlocked = missingResources.length > 0;
+            // Проверяем, отключено ли здание вручную
+            const isDisabled = grid.tileDisabled?.[k] || false;
             
 
-            const t = getTextFromPool(emoji, isBlocked ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
+            const t = getTextFromPool(emoji, isDisabled ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
             t.anchor.set(0.5, 0.5);
             const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
             const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
-            t.y = centerY + textOffsetY - (isBlocked ? 6 : 0);
+            t.y = centerY + textOffsetY - (isDisabled ? 6 : 0);
+            
+            // КРУГОВОЙ ИНДИКАТОР ЗАГРУЗКИ для работающих зданий
+            // Здание работает если не отключено вручную
+            if (!isDisabled && showDetailedText) {
+              const bRef = buildingsById[buildingId];
+              // Показываем индикатор только для зданий с производством или потреблением
+              if (bRef && (bRef.production || bRef.consumption)) {
+                const time = Date.now() / 1000;
+                const rotationSpeed = 0.1; // Полный оборот за 10 секунд (медленнее)
+                const startAngle = (time * rotationSpeed * Math.PI * 2) % (Math.PI * 2);
+                const arcLength = Math.PI * 0.5; // Длина дуги (90 градусов)
+                const endAngle = startAngle + arcLength;
+                
+                const indicatorRadius = currentGridMode === 'hex' ? HEX_SIZE * 0.7 : CELL / 2 - 4;
+                const cx = centerX;
+                const cy = centerY + textOffsetY;
+                
+                // Рисуем вращающуюся дугу вокруг иконки здания (начинаем новый путь для каждой дуги)
+                // Основная дуга - более тусклый цвет
+                const mainStartX = cx + Math.cos(startAngle) * indicatorRadius;
+                const mainStartY = cy + Math.sin(startAngle) * indicatorRadius;
+                g.moveTo(mainStartX, mainStartY);
+                g.arc(cx, cy, indicatorRadius, startAngle, endAngle)
+                  .stroke({ color: THEME_COLORS.cyberGreen, width: 1.5, alpha: 0.35 });
+                
+                // Дополнительная полупрозрачная дуга для эффекта "хвоста"
+                const tailAngle = startAngle - arcLength * 0.5;
+                const tailStartX = cx + Math.cos(tailAngle) * indicatorRadius;
+                const tailStartY = cy + Math.sin(tailAngle) * indicatorRadius;
+                g.moveTo(tailStartX, tailStartY);
+                g.arc(cx, cy, indicatorRadius, tailAngle, startAngle)
+                  .stroke({ color: THEME_COLORS.cyberGreen, width: 1.5, alpha: 0.15 });
+              }
+            }
             
             // Добавляем звездочку для эволюционированных зданий
             if (evolutionLevel > 0 && showDetailedText) {
@@ -1087,23 +1120,12 @@ export function FactoryGrid() {
               star.y = centerY + textOffsetY - 8;
             }
 
-            // Warning icon когда заблокировано
-            if (isBlocked && showDetailedText) {
-              const warning = getTextFromPool('⚠', TEXT_STYLES.warning);
-              warning.anchor.set(0.5, 0.5);
-              warning.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
-              warning.y = centerY + textOffsetY - 6;
-            }
-
-            if (missingResources.length > 0 && showDetailedText) {
-              const label = missingResources
-                .slice(0, 3)
-                .map((r) => RESOURCE_SHORT[r] ?? r.toUpperCase())
-                .join(',');
-              const miss = getTextFromPool(`НЕТ: ${label}`, TEXT_STYLES.missing);
-              miss.anchor.set(0.5, 0.5);
-              miss.x = centerX;
-              miss.y = centerY + textOffsetY + 10;
+            // Иконка паузы когда здание отключено
+            if (isDisabled && showDetailedText) {
+              const pauseIcon = getTextFromPool('⏸️', TEXT_STYLES.warning);
+              pauseIcon.anchor.set(0.5, 0.5);
+              pauseIcon.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
+              pauseIcon.y = centerY + textOffsetY - 6;
             }
           } else {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
@@ -1200,6 +1222,7 @@ export function FactoryGrid() {
       }
 
       // Подсвечиваем здания с логистическим штрафом оранжевой рамкой
+      // ВАЖНО: Добывающие здания (привязаны к месторождениям) НЕ получают штраф
       for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
           const k = `${x},${y}`;
@@ -1212,11 +1235,12 @@ export function FactoryGrid() {
           // Пропускаем логистические узлы
           if (building.logisticsRadius && building.logisticsRadius > 0) continue;
 
-          // Проверяем логистическую эффективность
+          // Проверяем логистическую эффективность (передаём buildingId для добывающих зданий)
           const logisticsEfficiency = calculateLogisticsEfficiency(
             { x, y },
             basePos,
-            activeLogisticsHubs
+            activeLogisticsHubs,
+            buildingId // ID здания для проверки добывающих
           );
           
           if (logisticsEfficiency < 1.0 && showDetailedText) {
@@ -1240,54 +1264,7 @@ export function FactoryGrid() {
       }
     }
 
-    // АВТОМАТИЧЕСКАЯ ЛОГИСТИКА: Рисуем летящие частицы для активных транспортов
-    if (grid.activeTransports && grid.activeTransports.length > 0 && showDetailedText) {
-      for (const transport of grid.activeTransports) {
-        const fromPos = gridToPixel(transport.from.x, transport.from.y);
-        const toPos = gridToPixel(transport.to.x, transport.to.y);
-        
-        const fromX = fromPos.px + CELL / 2;
-        const fromY = fromPos.py + CELL / 2;
-        const toX = toPos.px + CELL / 2;
-        const toY = toPos.py + CELL / 2;
-        
-        // Цвет частицы в зависимости от ресурса
-        const color = transport.resource === 'energy'
-          ? THEME_COLORS.cyberText
-          : transport.resource === 'ore'
-            ? THEME_COLORS.cyberGray
-            : transport.resource === 'ice'
-              ? THEME_COLORS.cyberBlue
-              : transport.resource === 'carbon'
-                ? THEME_COLORS.cyberRed
-                : THEME_COLORS.cyberGreen;
-        
-        // Анимация движения частицы
-        const time = Date.now() / 1000;
-        const speed = 0.5; // Скорость 0.5 = 2 секунды на полный путь
-        const progress = (time * speed) % 1;
-        
-        const particleX = fromX + (toX - fromX) * progress;
-        const particleY = fromY + (toY - fromY) * progress;
-        
-        // Рисуем частицу с эффектом свечения (масштабируем размер в зависимости от зума)
-        const particleSize = Math.max(2, 5 / cam.zoom);
-        const innerParticleSize = Math.max(1, 3 / cam.zoom);
-        g.circle(particleX, particleY, particleSize).fill({ color, alpha: 0.9 });
-        g.circle(particleX, particleY, innerParticleSize).fill({ color: 0xffffff, alpha: 0.7 });
-        
-        // Текст с количеством (только при высоком зуме)
-        if (cam.zoom > 1.2 && showText) {
-          const flowStyle = TEXT_STYLES.flow.clone();
-          flowStyle.fill = color;
-          const amount = typeof transport.amount === 'string' ? D(transport.amount) : transport.amount;
-          const flowText = getTextFromPool(formatNumber(amount), flowStyle);
-          flowText.anchor.set(0.5, 0.5);
-          flowText.x = particleX;
-          flowText.y = particleY - 10;
-        }
-      }
-    }
+
 
     // Base marker (target) - центр карты
     const baseMarkerPos = getBasePos(grid);
@@ -1342,10 +1319,10 @@ export function FactoryGrid() {
       grid.tiles, 
       grid.deposits, 
       grid.selected, 
-      grid.activeTransports, 
       grid.buffers, 
       grid.width, 
       grid.height, 
+      grid.tileDisabled,
       combat.enemies.length, 
       worldSize, 
       buildingsById,

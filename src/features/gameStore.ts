@@ -4590,6 +4590,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       let totalEnergyConsumption = D_ZERO;
       
       // tileDisabled уже объявлен выше
+      const tileLevels = state.grid.tileLevels || {};
+      const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
       
       for (const b of buildingsWithProximity) {
         if (b.count <= 0) continue;
@@ -4598,29 +4600,37 @@ export const useGameStore = create<GameState>((set, get) => ({
         const placedKeys = tilesByBuildingId.get(b.id);
         if (!placedKeys || placedKeys.length === 0) continue;
         
-        // Считаем только активные (не отключенные) здания
-        let activePlacedCount = 0;
+        // Суммируем с учётом уровней каждого здания
         for (const key of placedKeys) {
-          if (!tileDisabled[key]) {
-            activePlacedCount++;
+          // Пропускаем отключенные здания
+          if (tileDisabled[key]) continue;
+          const tileSett = state.grid.tileSettings?.[key];
+          if (tileSett && !tileSett.enabled) continue;
+          
+          const buildingLevel = tileLevels[key] || 1;
+          const evolutionLevel = tileEvolutionLevels[key] || 0;
+          const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(b.id, evolutionLevel) : 1;
+          
+          // Energy production (с учётом уровня и эволюции)
+          if (b.production?.energy) {
+            totalEnergyProduction = totalEnergyProduction.add(
+              D(b.production.energy).mul(buildingLevel).mul(evolutionMult)
+            );
           }
-        }
-        
-        if (activePlacedCount === 0) continue;
-        
-        // Energy production
-        if (b.production?.energy) {
-          totalEnergyProduction = totalEnergyProduction.add(D(b.production.energy).mul(activePlacedCount));
-        }
-        
-        // Passive energy consumption
-        if (b.energyConsumption) {
-          totalEnergyConsumption = totalEnergyConsumption.add(D(b.energyConsumption).mul(activePlacedCount));
-        }
-        
-        // Active consumption (from consumption field, not energyConsumption)
-        if (b.consumption?.energy) {
-          totalEnergyConsumption = totalEnergyConsumption.add(D(b.consumption.energy).mul(activePlacedCount));
+          
+          // Passive energy consumption (с учётом уровня)
+          if (b.energyConsumption) {
+            totalEnergyConsumption = totalEnergyConsumption.add(
+              D(b.energyConsumption).mul(buildingLevel)
+            );
+          }
+          
+          // Active consumption (from consumption field, not energyConsumption)
+          if (b.consumption?.energy) {
+            totalEnergyConsumption = totalEnergyConsumption.add(
+              D(b.consumption.energy).mul(buildingLevel)
+            );
+          }
         }
       }
       
@@ -5088,11 +5098,14 @@ export const useGameStore = create<GameState>((set, get) => ({
               
               // ФАЗА 8.3: Применяем логистический штраф за дальность
               // Здания далеко от базы/складов работают менее эффективно
+              // ВАЖНО: Добывающие здания (привязаны к месторождениям) НЕ получают штраф
               if (rType !== 'energy') {
                 const logisticsEfficiency = calculateLogisticsEfficiency(
                   tilePos,
                   basePosition,
-                  activeLogisticsHubs
+                  activeLogisticsHubs,
+                  b.id, // ID здания для проверки добывающих
+                  artifactBonuses.logisticsPenaltyReduction // Бонус артефактов
                 );
                 if (logisticsEfficiency < 1.0) {
                   produced = produced.mul(logisticsEfficiency);
@@ -5535,6 +5548,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Smart-Broker: auto-sell surplus (only if rent was paid)
+      // Сначала заполняет энергию, потом продаёт за кредиты
       if (demonsPaid.smart_broker) {
         const energyCap = newResources.energy.max;
         const threshold = D('0.90');
@@ -5544,34 +5558,36 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (state.demons.brokerExcludeFromAutoSell[t]) continue;
           
           const cap = newResources[t].max;
-          const have = getBuf(buffers, baseKey, t);
+          let have = getBuf(buffers, baseKey, t);
           const limit = cap.mul(threshold);
           if (have.lte(limit)) continue;
 
           const excess = have.sub(limit);
-          const sellAmt = excess.min(D(12).mul(dt));
-          if (sellAmt.lte(0)) continue;
+          let remainingSell = excess.min(D(12).mul(dt));
+          if (remainingSell.lte(0)) continue;
 
           const price = nextMarket.prices[t];
-          const earned = price.mul(sellAmt).mul(D(tradeMult));
-
-          // Проверяем что заработанная энергия поместится
           const curE = getBuf(buffers, baseKey, 'energy');
-          const futureE = curE.add(earned);
-          if (futureE.gt(energyCap)) {
-            // Продаем только столько, сколько поместится
-            const room = energyCap.sub(curE).max(D(0));
-            if (room.lte(0)) continue; // Нет места - пропускаем этот ресурс
-            const affordableSell = room.div(price.mul(D(tradeMult))).max(D(0));
-            const actualSell = sellAmt.min(affordableSell);
-            if (actualSell.lte(0)) continue;
-            
-            const actualEarned = price.mul(actualSell).mul(D(tradeMult));
-            buffers = setBuf(buffers, baseKey, t, have.sub(actualSell).max(D(0)));
-            buffers = setBuf(buffers, baseKey, 'energy', curE.add(actualEarned));
-          } else {
-            buffers = setBuf(buffers, baseKey, t, have.sub(sellAmt).max(D(0)));
-            buffers = setBuf(buffers, baseKey, 'energy', curE.add(earned));
+          const energyRoom = energyCap.sub(curE).max(D(0));
+
+          // Фаза 1: Сначала заполняем энергию
+          if (energyRoom.gt(0) && remainingSell.gt(0)) {
+            const sellForEnergy = energyRoom.div(price.mul(D(tradeMult))).min(remainingSell).max(D(0));
+            if (sellForEnergy.gt(0)) {
+              const earnedEnergy = price.mul(sellForEnergy).mul(D(tradeMult));
+              buffers = setBuf(buffers, baseKey, t, have.sub(sellForEnergy).max(D(0)));
+              buffers = setBuf(buffers, baseKey, 'energy', curE.add(earnedEnergy));
+              have = getBuf(buffers, baseKey, t);
+              remainingSell = remainingSell.sub(sellForEnergy);
+            }
+          }
+
+          // Фаза 2: Если энергия полная и остались излишки - продаём за кредиты
+          if (remainingSell.gt(0)) {
+            const earnedCredits = price.mul(remainingSell).mul(D(tradeMult));
+            buffers = setBuf(buffers, baseKey, t, have.sub(remainingSell).max(D(0)));
+            // Накапливаем кредиты, добавим к nextCurrency позже
+            autoSellCreditsEarned = autoSellCreditsEarned.add(earnedCredits);
           }
         }
 
@@ -5992,6 +6008,14 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Special buildings: Research centers and Bitcoin farm
       let nextCurrency = state.currency;
+      
+      // Добавляем кредиты от Smart-Broker автопродажи
+      if (autoSellCreditsEarned.gt(0)) {
+        nextCurrency = {
+          ...nextCurrency,
+          credits: nextCurrency.credits.add(autoSellCreditsEarned)
+        };
+      }
       
       // Research points generation
       const researchCenterCount = Object.values(state.grid.tiles).filter(id => id === 'research_center_mk1').length;
@@ -7045,9 +7069,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         megastructures: nextMegastructures,
         culture: nextCulture,
         lastTick: now,
-        // Use real flow numbers so UI matches actual accumulation
-        energyProduction: dt > 0 ? energyProducedTick.div(dt) : D(0),
-        energyConsumption: dt > 0 ? energyConsumedTick.div(dt) : D(0),
+        // Use theoretical capacity so UI shows consistent values with analytics
+        // (totalEnergyProduction/Consumption already include building levels and evolution)
+        energyProduction: totalEnergyProduction,
+        energyConsumption: totalEnergyConsumption,
         energyEfficiency,
         ...(traceFlows
           ? {

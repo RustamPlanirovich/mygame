@@ -1,93 +1,116 @@
 /**
  * ROICalculator Component
  * 
- * Калькулятор окупаемости зданий
+ * Калькулятор окупаемости зданий - табличный вид
  */
 
 import React, { useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, Clock, Zap, DollarSign, ArrowUpDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, Zap, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { useGameStore } from '../../../features/gameStore';
-import type { BuildingROI, ProfitabilityLevel } from '../../../core/gameTypes.analytics';
+import type { BuildingROI } from '../../../core/gameTypes.analytics';
 import { getProfitabilityColor } from '../../../core/gameTypes.analytics';
-import { D, formatNumber, formatRate } from '../../../core/math/format';
+import { D, formatNumber } from '../../../core/math/format';
 import { formatROI, getROIColor, getProfitabilityIcon } from '../../../utils/roiCalculator';
-import { BarChart } from './charts';
 
-type SortField = 'roi' | 'payback' | 'profit' | 'cost';
+type SortField = 'name' | 'count' | 'roi' | 'payback' | 'profit' | 'energy';
 type SortDirection = 'asc' | 'desc';
 
-interface ROICardProps {
-  roi: BuildingROI;
-}
-
-function ROICard({ roi }: ROICardProps) {
-  const profitColor = getProfitabilityColor(roi.profitability);
+// Компактная строка таблицы
+function ROITableRow({ roi, isExpanded, onToggle }: { 
+  roi: BuildingROI; 
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
   const roiColor = getROIColor(roi.currentROI);
-
+  const profitColor = D(roi.netProfitPerSec).gte(0) ? '#22c55e' : '#ef4444';
+  const energyVal = D(roi.energyConsumption);
+  
   return (
-    <div 
-      className="bg-cyber-gray-800/50 rounded-lg border p-4"
-      style={{ borderColor: `${profitColor}40` }}
-    >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{getProfitabilityIcon(roi.profitability)}</span>
-          <div>
-            <h4 className="text-sm font-medium text-cyber-gray-200">
-              {roi.buildingName}
-            </h4>
-            <span className="text-xs text-cyber-gray-500">{roi.buildingType}</span>
+    <>
+      <tr 
+        className="border-b border-cyber-gray-700/50 hover:bg-cyber-gray-800/30 cursor-pointer transition-colors"
+        onClick={onToggle}
+      >
+        {/* Название + иконка */}
+        <td className="py-2 px-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{getProfitabilityIcon(roi.profitability)}</span>
+            <div className="min-w-0">
+              <div className="text-sm text-cyber-gray-200 truncate max-w-[140px]" title={roi.buildingName}>
+                {roi.buildingName}
+              </div>
+            </div>
+            {isExpanded ? (
+              <ChevronUp className="w-3 h-3 text-cyber-gray-500 flex-shrink-0" />
+            ) : (
+              <ChevronDown className="w-3 h-3 text-cyber-gray-500 flex-shrink-0" />
+            )}
           </div>
-        </div>
-        <div className="text-right">
-          <p 
-            className="text-lg font-bold"
-            style={{ color: roiColor }}
-          >
+        </td>
+        
+        {/* ROI */}
+        <td className="py-2 px-2 text-right">
+          <span className="text-sm font-bold" style={{ color: roiColor }}>
             {formatROI(roi.currentROI)}
-          </p>
-          <span className="text-xs text-cyber-gray-500">ROI/час</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
-        <div className="flex items-center gap-1">
-          <DollarSign className="w-3 h-3 text-cyber-gray-500" />
-          <span className="text-cyber-gray-500">Стоимость:</span>
-          <span className="text-cyber-gray-200">{formatNumber(D(roi.totalCost))}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Clock className="w-3 h-3 text-cyber-gray-500" />
-          <span className="text-cyber-gray-500">Окупаемость:</span>
-          <span className="text-cyber-gray-200">{roi.paybackTimeFormatted}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <TrendingUp className="w-3 h-3 text-green-500" />
-          <span className="text-cyber-gray-500">Доход:</span>
-          <span className="text-green-400">{formatRate(D(roi.revenuePerSec))}/с</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <TrendingDown className="w-3 h-3 text-red-500" />
-          <span className="text-cyber-gray-500">Расходы:</span>
-          <span className="text-red-400">{formatRate(D(roi.operatingCostPerSec))}/с</span>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between pt-2 border-t border-cyber-gray-700">
-        <div className="flex items-center gap-1 text-xs">
-          <Zap className="w-3 h-3 text-yellow-500" />
-          <span className="text-cyber-gray-500">Энергия:</span>
-          <span className="text-yellow-400">{formatRate(D(roi.energyConsumption))}/с</span>
-        </div>
-        <span 
-          className="text-sm font-medium"
-          style={{ color: D(roi.netProfitPerSec).gte(0) ? '#22c55e' : '#ef4444' }}
-        >
-          {D(roi.netProfitPerSec).gte(0) ? '+' : ''}{formatRate(D(roi.netProfitPerSec))}/с
-        </span>
-      </div>
-    </div>
+          </span>
+        </td>
+        
+        {/* Окупаемость */}
+        <td className="py-2 px-2 text-right">
+          <span className="text-xs text-cyber-gray-300">
+            {roi.paybackTimeFormatted}
+          </span>
+        </td>
+        
+        {/* Прибыль/с */}
+        <td className="py-2 px-2 text-right">
+          <span className="text-sm font-medium" style={{ color: profitColor }}>
+            {D(roi.netProfitPerSec).gte(0) ? '+' : ''}{formatNumber(D(roi.netProfitPerSec))}
+          </span>
+        </td>
+        
+        {/* Энергия */}
+        <td className="py-2 px-2 text-right">
+          {energyVal.gt(0) ? (
+            <span className="text-xs text-yellow-400 flex items-center justify-end gap-1">
+              <Zap className="w-3 h-3" />
+              {formatNumber(energyVal)}
+            </span>
+          ) : (
+            <span className="text-xs text-cyber-gray-600">—</span>
+          )}
+        </td>
+      </tr>
+      
+      {/* Расширенная информация */}
+      {isExpanded && (
+        <tr className="bg-cyber-gray-900/50">
+          <td colSpan={5} className="py-2 px-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <div>
+                <span className="text-cyber-gray-500">Стоимость постройки:</span>
+                <div className="text-cyber-gray-200 font-medium">{formatNumber(D(roi.totalCost))}</div>
+              </div>
+              <div>
+                <span className="text-cyber-gray-500">Доход/с:</span>
+                <div className="text-green-400 font-medium">+{formatNumber(D(roi.revenuePerSec))}</div>
+              </div>
+              <div>
+                <span className="text-cyber-gray-500">Расходы/с:</span>
+                <div className="text-red-400 font-medium">-{formatNumber(D(roi.operatingCostPerSec))}</div>
+              </div>
+              <div>
+                <span className="text-cyber-gray-500">Статус:</span>
+                <div className={roi.isOperating ? 'text-green-400' : 'text-red-400'}>
+                  {roi.isOperating ? '✓ Работает' : '✗ Остановлено'}
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -100,6 +123,7 @@ export function ROICalculator() {
   const [sortField, setSortField] = useState<SortField>('roi');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [filter, setFilter] = useState<'all' | 'profitable' | 'unprofitable'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const handleRefresh = () => {
     updateROIs(buildings, resources);
@@ -114,6 +138,13 @@ export function ROICalculator() {
     }
   };
 
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 opacity-30" />;
+    return sortDirection === 'desc' 
+      ? <ArrowDown className="w-3 h-3" /> 
+      : <ArrowUp className="w-3 h-3" />;
+  };
+
   const sortedROIs = useMemo(() => {
     let filtered = [...buildingROIs];
     
@@ -124,9 +155,15 @@ export function ROICalculator() {
     }
     
     return filtered.sort((a, b) => {
-      let aVal: number, bVal: number;
+      let aVal: number | string, bVal: number | string;
       
       switch (sortField) {
+        case 'name':
+          aVal = a.buildingName;
+          bVal = b.buildingName;
+          return sortDirection === 'desc' 
+            ? bVal.localeCompare(aVal) 
+            : aVal.localeCompare(bVal);
         case 'roi':
           aVal = a.currentROI;
           bVal = b.currentROI;
@@ -139,15 +176,15 @@ export function ROICalculator() {
           aVal = D(a.netProfitPerSec).toNumber();
           bVal = D(b.netProfitPerSec).toNumber();
           break;
-        case 'cost':
-          aVal = D(a.totalCost).toNumber();
-          bVal = D(b.totalCost).toNumber();
+        case 'energy':
+          aVal = D(a.energyConsumption).toNumber();
+          bVal = D(b.energyConsumption).toNumber();
           break;
         default:
           return 0;
       }
       
-      return sortDirection === 'desc' ? bVal - aVal : aVal - bVal;
+      return sortDirection === 'desc' ? (bVal as number) - (aVal as number) : (aVal as number) - (bVal as number);
     });
   }, [buildingROIs, sortField, sortDirection, filter]);
 
@@ -155,164 +192,195 @@ export function ROICalculator() {
   const stats = useMemo(() => {
     const profitable = buildingROIs.filter(r => r.currentROI > 0);
     const unprofitable = buildingROIs.filter(r => r.currentROI < 0);
+    const neutral = buildingROIs.filter(r => r.currentROI === 0);
     const totalProfit = buildingROIs.reduce(
       (acc, r) => acc.add(D(r.netProfitPerSec)), 
+      D(0)
+    );
+    const totalEnergy = buildingROIs.reduce(
+      (acc, r) => acc.add(D(r.energyConsumption)), 
       D(0)
     );
     
     return {
       profitableCount: profitable.length,
       unprofitableCount: unprofitable.length,
+      neutralCount: neutral.length,
       totalProfit,
+      totalEnergy,
       avgROI: buildingROIs.length > 0
         ? buildingROIs.reduce((acc, r) => acc + r.currentROI, 0) / buildingROIs.length
         : 0,
     };
   }, [buildingROIs]);
 
-  // Данные для графика
-  const chartData = useMemo(() => {
-    return sortedROIs.slice(0, 10).map(roi => ({
-      name: roi.buildingName.length > 15 
-        ? roi.buildingName.substring(0, 12) + '...' 
-        : roi.buildingName,
-      value: roi.currentROI,
-      color: getROIColor(roi.currentROI),
-    }));
-  }, [sortedROIs]);
-
   return (
     <div className="space-y-4">
-      {/* Summary */}
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-cyber-gray-200">
-            Калькулятор ROI
+      {/* Summary - компактная статистика */}
+      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-3">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-cyber-gray-200 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-cyber-green-400" />
+            Анализ ROI зданий
           </h3>
           <button
             onClick={handleRefresh}
-            className="text-xs bg-cyber-gray-700 hover:bg-cyber-gray-600 text-cyber-gray-300 px-3 py-1 rounded transition-colors"
+            className="text-xs bg-cyber-gray-700 hover:bg-cyber-gray-600 text-cyber-gray-300 px-2 py-1 rounded transition-colors"
           >
-            Пересчитать
+            ↻ Обновить
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mb-4">
-          <div className="text-center p-3 rounded bg-cyber-gray-900/50">
-            <p className="text-2xl font-bold text-green-400">{stats.profitableCount}</p>
-            <p className="text-xs text-cyber-gray-500">Прибыльных</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+          <div className="p-2 rounded bg-cyber-gray-900/50">
+            <p className="text-lg font-bold text-green-400">{stats.profitableCount}</p>
+            <p className="text-[10px] text-cyber-gray-500">Прибыльных</p>
           </div>
-          <div className="text-center p-3 rounded bg-cyber-gray-900/50">
-            <p className="text-2xl font-bold text-red-400">{stats.unprofitableCount}</p>
-            <p className="text-xs text-cyber-gray-500">Убыточных</p>
+          <div className="p-2 rounded bg-cyber-gray-900/50">
+            <p className="text-lg font-bold text-red-400">{stats.unprofitableCount}</p>
+            <p className="text-[10px] text-cyber-gray-500">Убыточных</p>
           </div>
-          <div className="text-center p-3 rounded bg-cyber-gray-900/50">
+          <div className="p-2 rounded bg-cyber-gray-900/50">
             <p 
-              className="text-2xl font-bold"
+              className="text-lg font-bold"
               style={{ color: stats.totalProfit.gte(0) ? '#22c55e' : '#ef4444' }}
             >
-              {stats.totalProfit.gte(0) ? '+' : ''}{formatRate(stats.totalProfit)}
+              {stats.totalProfit.gte(0) ? '+' : ''}{formatNumber(stats.totalProfit)}/с
             </p>
-            <p className="text-xs text-cyber-gray-500">Чистая прибыль/с</p>
+            <p className="text-[10px] text-cyber-gray-500">Чистая прибыль</p>
           </div>
-          <div className="text-center p-3 rounded bg-cyber-gray-900/50">
-            <p 
-              className="text-2xl font-bold"
-              style={{ color: getROIColor(stats.avgROI) }}
-            >
-              {formatROI(stats.avgROI)}
+          <div className="p-2 rounded bg-cyber-gray-900/50">
+            <p className="text-lg font-bold text-yellow-400 flex items-center justify-center gap-1">
+              <Zap className="w-4 h-4" />
+              {formatNumber(stats.totalEnergy)}
             </p>
-            <p className="text-xs text-cyber-gray-500">Средний ROI</p>
+            <p className="text-[10px] text-cyber-gray-500">Энергопотребление</p>
           </div>
-        </div>
-
-        {/* Chart */}
-        {chartData.length > 0 && (
-          <BarChart
-            data={chartData}
-            title="Топ-10 по ROI"
-            height={200}
-            horizontal
-            formatValue={(v) => `${v.toFixed(1)}%`}
-          />
-        )}
-      </div>
-
-      {/* Filters and Sort */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setFilter('all')}
-            className={`text-xs px-3 py-1 rounded transition-colors ${
-              filter === 'all' 
-                ? 'bg-cyber-green-600 text-white' 
-                : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
-            }`}
-          >
-            Все ({buildingROIs.length})
-          </button>
-          <button
-            onClick={() => setFilter('profitable')}
-            className={`text-xs px-3 py-1 rounded transition-colors ${
-              filter === 'profitable' 
-                ? 'bg-green-600 text-white' 
-                : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
-            }`}
-          >
-            Прибыльные ({stats.profitableCount})
-          </button>
-          <button
-            onClick={() => setFilter('unprofitable')}
-            className={`text-xs px-3 py-1 rounded transition-colors ${
-              filter === 'unprofitable' 
-                ? 'bg-red-600 text-white' 
-                : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
-            }`}
-          >
-            Убыточные ({stats.unprofitableCount})
-          </button>
-        </div>
-
-        <div className="flex gap-2">
-          {(['roi', 'payback', 'profit', 'cost'] as SortField[]).map(field => (
-            <button
-              key={field}
-              onClick={() => handleSort(field)}
-              className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors ${
-                sortField === field 
-                  ? 'bg-cyber-gray-600 text-white' 
-                  : 'bg-cyber-gray-800 text-cyber-gray-400 hover:bg-cyber-gray-700'
-              }`}
-            >
-              {field === 'roi' && 'ROI'}
-              {field === 'payback' && 'Окупаемость'}
-              {field === 'profit' && 'Прибыль'}
-              {field === 'cost' && 'Стоимость'}
-              {sortField === field && (
-                <ArrowUpDown className="w-3 h-3" />
-              )}
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* Building Cards */}
+      {/* Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-cyber-gray-500">Фильтр:</span>
+        <button
+          onClick={() => setFilter('all')}
+          className={`text-xs px-2 py-1 rounded transition-colors ${
+            filter === 'all' 
+              ? 'bg-cyber-blue text-white' 
+              : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
+          }`}
+        >
+          Все ({buildingROIs.length})
+        </button>
+        <button
+          onClick={() => setFilter('profitable')}
+          className={`text-xs px-2 py-1 rounded transition-colors ${
+            filter === 'profitable' 
+              ? 'bg-green-600 text-white' 
+              : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
+          }`}
+        >
+          ✓ Прибыльные ({stats.profitableCount})
+        </button>
+        <button
+          onClick={() => setFilter('unprofitable')}
+          className={`text-xs px-2 py-1 rounded transition-colors ${
+            filter === 'unprofitable' 
+              ? 'bg-red-600 text-white' 
+              : 'bg-cyber-gray-700 text-cyber-gray-300 hover:bg-cyber-gray-600'
+          }`}
+        >
+          ✗ Убыточные ({stats.unprofitableCount})
+        </button>
+      </div>
+
+      {/* Таблица зданий */}
       {sortedROIs.length === 0 ? (
-        <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-8 text-center">
-          <p className="text-cyber-gray-500">
+        <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-6 text-center">
+          <Info className="w-8 h-8 text-cyber-gray-600 mx-auto mb-2" />
+          <p className="text-cyber-gray-500 text-sm">
             {filter === 'all' 
-              ? 'Нет данных о зданиях. Постройте что-нибудь!'
+              ? 'Нет построенных зданий для анализа'
               : `Нет ${filter === 'profitable' ? 'прибыльных' : 'убыточных'} зданий`
             }
           </p>
+          <p className="text-cyber-gray-600 text-xs mt-1">
+            Постройте здания, чтобы увидеть их эффективность
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sortedROIs.map(roi => (
-            <ROICard key={roi.buildingId} roi={roi} />
-          ))}
+        <div className="bg-cyber-gray-800/30 rounded-lg border border-cyber-gray-700 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-cyber-gray-900/80 text-xs text-cyber-gray-400">
+              <tr>
+                <th 
+                  className="py-2 px-2 cursor-pointer hover:text-cyber-gray-200 transition-colors"
+                  onClick={() => handleSort('name')}
+                >
+                  <div className="flex items-center gap-1">
+                    Здание
+                    <SortIcon field="name" />
+                  </div>
+                </th>
+                <th 
+                  className="py-2 px-2 text-right cursor-pointer hover:text-cyber-gray-200 transition-colors"
+                  onClick={() => handleSort('roi')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    ROI/ч
+                    <SortIcon field="roi" />
+                  </div>
+                </th>
+                <th 
+                  className="py-2 px-2 text-right cursor-pointer hover:text-cyber-gray-200 transition-colors"
+                  onClick={() => handleSort('payback')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    Окупаемость
+                    <SortIcon field="payback" />
+                  </div>
+                </th>
+                <th 
+                  className="py-2 px-2 text-right cursor-pointer hover:text-cyber-gray-200 transition-colors"
+                  onClick={() => handleSort('profit')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    Прибыль/с
+                    <SortIcon field="profit" />
+                  </div>
+                </th>
+                <th 
+                  className="py-2 px-2 text-right cursor-pointer hover:text-cyber-gray-200 transition-colors"
+                  onClick={() => handleSort('energy')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    ⚡
+                    <SortIcon field="energy" />
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedROIs.map(roi => (
+                <ROITableRow 
+                  key={roi.buildingId} 
+                  roi={roi}
+                  isExpanded={expandedId === roi.buildingId}
+                  onToggle={() => setExpandedId(
+                    expandedId === roi.buildingId ? null : roi.buildingId
+                  )}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+      
+      {/* Подсказка */}
+      <div className="text-[10px] text-cyber-gray-600 flex items-center gap-1">
+        <Info className="w-3 h-3" />
+        ROI = (прибыль/час ÷ стоимость) × 100%. Кликните на строку для деталей.
+      </div>
     </div>
   );
 }

@@ -19,7 +19,8 @@ export type ArtifactEffectType =
   | 'energy_capacity'           // Максимальная энергия
   | 'prestige_gain'             // Получение QP
   | 'ascension_points'          // Получение AP
-  | 'galaxy_unlock_cost';       // Стоимость открытия галактик
+  | 'galaxy_unlock_cost'        // Стоимость открытия галактик
+  | 'logistics_penalty_reduction'; // Снижение логистических штрафов
 
 // Эффект артефакта
 export interface ArtifactEffect {
@@ -91,5 +92,6 @@ export interface ArtifactMultipliers {
   prestigeGain: number;
   ascensionPoints: number;
   galaxyUnlockCostReduction: number;
+  logisticsPenaltyReduction: number; // Снижение логистических штрафов (0-0.9)
   resourceProduction: Partial<Record<string, number>>; // Ключ = тип ресурса
 }

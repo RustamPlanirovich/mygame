@@ -59,7 +59,7 @@ export const UPGRADE_DEFS: Record<
 export const DEMON_DEFS: Record<DemonId, { name: string; description: string; energyPerSecond: Decimal }> = {
   smart_broker: {
     name: 'Smart-Broker',
-    description: 'Автопродажа излишков, чтобы не упираться в лимиты складов.',
+    description: 'Автопродажа излишков: сначала за ⚡, потом за 💰 кредиты.',
     energyPerSecond: D(2.0),
   },
   overclocker: {

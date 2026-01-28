@@ -8,6 +8,7 @@ import { createMarketRoutes, initMarketTables } from './market.js';
 import { createGuildRoutes } from './guilds.js';
 import { createSyncRoutes, initSyncTables, cleanupExpiredBackups } from './sync.js';
 import { createAIRoutes } from './ai.js';
+import { startAIOracle } from './ai-oracle.js';
 import { createP2PLendingRoutes, initP2PLendingTables } from './p2p-lending.js';
 
 const PORT = Number(process.env.PORT ?? 5174);
@@ -922,6 +923,9 @@ createSyncRoutes(app, authMiddleware);
 
 // Регистрация маршрутов для AI
 createAIRoutes(app, pool, authMiddleware);
+
+// Запуск AI Oracle (периодическое обновление раз в час)
+startAIOracle(pool);
 
 // Регистрация маршрутов для P2P кредитования
 createP2PLendingRoutes(app, pool, authMiddleware);

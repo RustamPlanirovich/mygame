@@ -72,6 +72,17 @@ const ARTIFACT_TEMPLATES = [
     effect: 'buildingEfficiency' as ArtifactEffectType,
     desc: 'Повышает эффективность зданий'
   },
+  // Logistics artifact - снижение штрафов дальности
+  {
+    name: 'Логистические Дроны',
+    effect: 'logisticsPenaltyReduction' as ArtifactEffectType,
+    desc: 'Автономные дроны снижают штрафы за дальность зданий'
+  },
+  {
+    name: 'Телепортационная Сеть',
+    effect: 'logisticsPenaltyReduction' as ArtifactEffectType,
+    desc: 'Мгновенная телепортация ресурсов убирает ограничения дальности'
+  },
   // Research artifacts
   { 
     name: 'Кристалл Познания', 
@@ -423,6 +434,7 @@ export interface ArtifactMultipliers {
   expeditionSuccess: number;
   combatPower: number;
   galaxyUnlockCost: number;
+  logisticsPenaltyReduction: number; // Снижение логистических штрафов (0-0.9)
   resourceProduction: Partial<Record<ResourceType, number>>;
 }
 
@@ -443,6 +455,7 @@ export function calculateArtifactBonuses(
     expeditionSuccess: 1,
     combatPower: 1,
     galaxyUnlockCost: 1,
+    logisticsPenaltyReduction: 0,
     resourceProduction: {},
   };
   
@@ -481,6 +494,10 @@ export function calculateArtifactBonuses(
           break;
         case 'galaxyUnlockCost':
           multipliers.galaxyUnlockCost *= (1 - bonus); // Reduction
+          break;
+        case 'logisticsPenaltyReduction':
+          // Суммируется, но не больше 0.9 (90%)
+          multipliers.logisticsPenaltyReduction = Math.min(0.9, multipliers.logisticsPenaltyReduction + bonus);
           break;
         case 'resourceProduction':
           if (effect.affectsResource) {

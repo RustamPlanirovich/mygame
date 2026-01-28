@@ -1698,7 +1698,8 @@ export type ArtifactEffectType =
   | 'energyCapacity'
   | 'prestigeGain'
   | 'ascensionPoints'
-  | 'galaxyUnlockCost';
+  | 'galaxyUnlockCost'
+  | 'logisticsPenaltyReduction'; // Снижение логистических штрафов
 
 export interface ArtifactEffect {
   stat: ArtifactEffectType;

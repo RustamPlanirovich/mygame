@@ -44,6 +44,13 @@ export function AIAdvisor() {
         totalProfitLoss: '0',
         isPaused: false,
         pauseReason: '',
+        // Система защиты капитала - сброс
+        tradingCapital: '0', // Будет переинициализирован
+        frozenProfit: '0',
+        accumulatedLoss: '0',
+        capitalProtectionActive: true,
+        lastTradeBalance: '0',
+        totalSavedToSavings: '0',
       },
     });
     alert('✅ Stop-loss сброшен. Автотрейдер возобновит работу.');
@@ -54,18 +61,18 @@ export function AIAdvisor() {
     checkAIStatus();
   }, [checkAIStatus]);
 
-  // Запускаем автотрейдер для премиум при загрузке компонента
+  // Автотрейдер теперь запускается глобально в advisorStore при rehydrate
+  // Здесь только проверяем что он работает и перезапускаем если нужно
   useEffect(() => {
-    if (advisor.tier === 'premium') {
-      console.log('[AIAdvisor] Premium detected, starting autotrader...');
-      startAutoTrader();
+    if (advisor.tier === 'premium' && advisor.autoTrading.enabled) {
+      // Проверяем, работает ли уже автотрейдер
+      const state = useAdvisorStore.getState();
+      if (!state.autoTraderInterval) {
+        console.log('[AIAdvisor] Autotrader not running, starting...');
+        startAutoTrader();
+      }
     }
-    
-    // Cleanup при размонтировании
-    return () => {
-      // Не останавливаем - пусть работает в фоне
-    };
-  }, [advisor.tier, startAutoTrader]);
+  }, [advisor.tier, advisor.autoTrading.enabled, startAutoTrader]);
 
   // Загружаем анализ рынка и AI-дивиденды
   useEffect(() => {
@@ -354,21 +361,68 @@ export function AIAdvisor() {
 
             {/* Статистика автотрейдера */}
             {advisor.autoTrading.enabled && autoTraderStats && (
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="bg-slate-700 rounded p-2 text-center">
-                  <div className="text-slate-400">Сделок/час</div>
-                  <div className="font-bold">{autoTraderStats.tradesThisHour}/10</div>
-                </div>
-                <div className="bg-slate-700 rounded p-2 text-center">
-                  <div className="text-slate-400">P/L</div>
-                  <div className={`font-bold ${D(autoTraderStats.totalProfitLoss || '0').gte(0) ? 'text-green-400' : 'text-red-400'}`}>
-                    {D(autoTraderStats.totalProfitLoss || '0').gte(0) ? '+' : ''}{formatNumber(D(autoTraderStats.totalProfitLoss || '0'))}
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="bg-slate-700 rounded p-2 text-center">
+                    <div className="text-slate-400">Сделок/час</div>
+                    <div className="font-bold">{autoTraderStats.tradesThisHour}/10</div>
+                  </div>
+                  <div className="bg-slate-700 rounded p-2 text-center">
+                    <div className="text-slate-400">P/L</div>
+                    <div className={`font-bold ${D(autoTraderStats.totalProfitLoss || '0').gte(0) ? 'text-green-400' : 'text-red-400'}`}>
+                      {D(autoTraderStats.totalProfitLoss || '0').gte(0) ? '+' : ''}{formatNumber(D(autoTraderStats.totalProfitLoss || '0'))}
+                    </div>
+                  </div>
+                  <div className="bg-slate-700 rounded p-2 text-center">
+                    <div className="text-slate-400">Торг. капитал</div>
+                    <div className="font-bold">{formatNumber(D(autoTraderStats.tradingCapital || '0'))}</div>
                   </div>
                 </div>
-                <div className="bg-slate-700 rounded p-2 text-center">
-                  <div className="text-slate-400">Лимит</div>
-                  <div className="font-bold">20K₡</div>
-                </div>
+                
+                {/* Система защиты капитала */}
+                {autoTraderStats.capitalProtectionActive && (
+                  <div className="bg-slate-700/50 rounded p-2 space-y-1">
+                    <div className="text-xs text-slate-400 flex items-center gap-1">
+                      🛡️ Защита капитала
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-slate-400">Заморожено: </span>
+                        <span className="text-cyan-400 font-medium">{formatNumber(D(autoTraderStats.frozenProfit || '0'))}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">До разморозки: </span>
+                        <span className="text-amber-400 font-medium">
+                          {formatNumber(D(autoTraderStats.tradingCapital || '0').mul(3).sub(D(autoTraderStats.frozenProfit || '0')).max(0))}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Убытки: </span>
+                        <span className="text-red-400 font-medium">{formatNumber(D(autoTraderStats.accumulatedLoss || '0'))}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">На сбер.: </span>
+                        <span className="text-green-400 font-medium">{formatNumber(D(autoTraderStats.totalSavedToSavings || '0'))}</span>
+                      </div>
+                    </div>
+                    {/* Прогресс-бар до разморозки */}
+                    {D(autoTraderStats.tradingCapital || '0').gt(0) && (
+                      <div className="mt-1">
+                        <div className="h-1.5 bg-slate-600 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-cyan-500 to-green-500 transition-all duration-300"
+                            style={{ 
+                              width: `${Math.min(100, D(autoTraderStats.frozenProfit || '0').div(D(autoTraderStats.tradingCapital || '1').mul(3)).mul(100).toNumber())}%` 
+                            }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-500 text-right mt-0.5">
+                          {D(autoTraderStats.frozenProfit || '0').div(D(autoTraderStats.tradingCapital || '1').mul(3)).mul(100).toFixed(1)}% до 3x
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

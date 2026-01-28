@@ -12,6 +12,7 @@ export { EfficiencyScore } from './EfficiencyScore';
 export { ResourceDistribution } from './ResourceDistribution';
 export { LossTracker } from './LossTracker';
 export { ProfitLossChart } from './ProfitLossChart';
+export { EnergyBreakdown } from './EnergyBreakdown';
 
 // Charts
 export * from './charts';

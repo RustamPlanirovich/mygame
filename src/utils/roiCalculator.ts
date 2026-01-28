@@ -13,9 +13,8 @@ import type {
 import type {
   BuildingROI,
   ProfitabilityLevel,
-  ROI_THRESHOLDS,
 } from '../core/gameTypes.analytics';
-import { D, formatNumber, formatRate } from '../core/math/format';
+import { D } from '../core/math/format';
 import { formatDuration } from '../core/gameTypes.analytics';
 
 // ============================================================================
@@ -65,7 +64,7 @@ const RESOURCE_BASE_PRICES: Partial<Record<ResourceType, number>> = {
   space_station: 50000,
   robot: 300,
   dark_matter: 10000,
-  energy: 0.1,
+  energy: 1.0, // Энергия ценна - без неё другие здания не работают
 };
 
 /**
@@ -84,7 +83,7 @@ export function getResourcePrice(resource: ResourceType): number {
  */
 export function calculateBuildingROI(
   building: Building,
-  resources: Record<ResourceType, ResourceState>,
+  _resources: Record<ResourceType, ResourceState>,
   energyPrice: number = 0.1
 ): BuildingROI {
   // Стоимость постройки
@@ -117,12 +116,19 @@ export function calculateBuildingROI(
   const profitability = getProfitabilityLevel(currentROI);
   
   // Потребление энергии
-  const energyConsumption = building.upkeep?.energy || building.inputs?.energy || D(0);
+  const energyConsumption = building.energyConsumption 
+    ? D(building.energyConsumption)
+    : D(0);
+  
+  // Определяем тип здания из id
+  const buildingType = building.id.includes('_mk') 
+    ? building.id.split('_mk')[0].replace(/_/g, ' ')
+    : building.id.replace(/_/g, ' ');
   
   return {
     buildingId: building.id,
     buildingName: building.name,
-    buildingType: building.type,
+    buildingType,
     totalCost: totalCost.toString(),
     operatingCostPerSec: operatingCost.toString(),
     revenuePerSec: revenue.toString(),
@@ -134,7 +140,7 @@ export function calculateBuildingROI(
     currentROI,
     profitability,
     energyConsumption: energyConsumption.mul(building.count || 1).toString(),
-    isOperating: !building.disabled && building.count > 0,
+    isOperating: building.count > 0,
   };
 }
 
@@ -181,28 +187,17 @@ export function calculateOperatingCost(
   let total = D(0);
   const count = building.count || 1;
   
-  // Энергия
-  const energy = building.upkeep?.energy || building.inputs?.energy;
-  if (energy) {
-    total = total.add(energy.mul(count).mul(energyPrice));
+  // Энергопотребление
+  if (building.energyConsumption) {
+    total = total.add(D(building.energyConsumption).mul(count).mul(energyPrice));
   }
   
-  // Другие upkeep ресурсы
-  if (building.upkeep) {
-    for (const [resource, amount] of Object.entries(building.upkeep)) {
-      if (resource !== 'energy') {
+  // Потребление ресурсов для производства (consumption)
+  if (building.consumption) {
+    for (const [resource, amount] of Object.entries(building.consumption)) {
+      if (resource !== 'energy' && amount) {
         const price = getResourcePrice(resource as ResourceType);
-        total = total.add(amount.mul(count).mul(price));
-      }
-    }
-  }
-  
-  // Inputs (потребление для производства)
-  if (building.inputs) {
-    for (const [resource, amount] of Object.entries(building.inputs)) {
-      if (resource !== 'energy') {
-        const price = getResourcePrice(resource as ResourceType);
-        total = total.add(amount.mul(count).mul(price));
+        total = total.add(D(amount).mul(count).mul(price));
       }
     }
   }
@@ -219,10 +214,10 @@ export function calculateRevenue(building: Building): Decimal {
   
   if (building.production) {
     for (const [resource, amount] of Object.entries(building.production)) {
-      // Не считаем энергию как доход (она используется внутри)
-      if (resource !== 'energy') {
+      // Все производимые ресурсы, включая энергию, считаются доходом
+      if (amount) {
         const price = getResourcePrice(resource as ResourceType);
-        total = total.add(amount.mul(count).mul(price));
+        total = total.add(D(amount).mul(count).mul(price));
       }
     }
   }
@@ -274,7 +269,7 @@ export function getUnprofitableBuildings(
  */
 export function calculateTotalROI(
   buildings: Building[],
-  resources: Record<ResourceType, ResourceState>
+  _resources: Record<ResourceType, ResourceState>
 ): {
   totalCost: Decimal;
   totalRevenue: Decimal;
@@ -287,7 +282,7 @@ export function calculateTotalROI(
   let totalOperatingCost = D(0);
   
   for (const building of buildings) {
-    if (building.count === 0 || building.disabled) continue;
+    if (building.count === 0) continue;
     
     const cost = calculateBuildingCost(building);
     const revenue = calculateRevenue(building);

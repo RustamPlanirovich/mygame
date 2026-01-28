@@ -33,6 +33,7 @@ export function ResourcePanel() {
     }
     return state.resources;
   });
+  const buildings = useGameStore(state => state.buildings);
   const { pins, isPinned, togglePin } = usePinnedResources();
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -103,6 +104,7 @@ export function ResourcePanel() {
         onClose={() => setOpen(false)}
         anchorRef={buttonRef}
         resources={resources}
+        buildings={buildings}
         isPinned={isPinned}
         togglePin={togglePin}
       />

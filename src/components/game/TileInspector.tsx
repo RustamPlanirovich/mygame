@@ -869,6 +869,46 @@ export function TileInspector() {
               );
             })()}
 
+            {/* Информация об энергопотреблении здания */}
+            {building.energyConsumption && building.energyConsumption.gt(0) && (
+              <div className="bg-yellow-900/20 p-2 rounded border border-yellow-500/30">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-yellow-300">
+                    <Zap size={14} className="text-yellow-400" />
+                    <span>Потребление энергии:</span>
+                  </div>
+                  <span className="font-mono text-yellow-400">
+                    -{formatNumber(building.energyConsumption)}/с
+                  </span>
+                </div>
+                {buildingLevel > 1 && (
+                  <div className="text-[10px] text-yellow-200/60 mt-1">
+                    На уровне {buildingLevel}: -{formatNumber(building.energyConsumption.mul(buildingLevel))}/с
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Производство энергии (для электростанций) */}
+            {building.production?.energy && D(building.production.energy).gt(0) && (
+              <div className="bg-green-900/20 p-2 rounded border border-green-500/30">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-green-300">
+                    <Zap size={14} className="text-green-400" />
+                    <span>Производство энергии:</span>
+                  </div>
+                  <span className="font-mono text-green-400">
+                    +{formatNumber(D(building.production.energy).mul(buildingLevel))}/с
+                  </span>
+                </div>
+                {buildingLevel > 1 && (
+                  <div className="text-[10px] text-green-200/60 mt-1">
+                    Базовое: {formatNumber(D(building.production.energy))}/с × уровень {buildingLevel}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="text-xs text-cyber-text-dim">
               Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
             </div>
@@ -918,7 +958,7 @@ export function TileInspector() {
             )}
 
             <div className="text-xs text-cyber-blue bg-cyber-dark/40 p-2 rounded border border-cyber-blue/30 mb-2">
-              🔄 <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Летящие точки показывают активные поставки.
+              🔄 <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Вращающийся индикатор на здании показывает, что оно работает.
             </div>
 
             {ioInfo?.hasInputs ? (

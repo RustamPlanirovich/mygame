@@ -90,6 +90,13 @@ interface AdvisorStore {
     totalProfitLoss: string;
     isPaused: boolean;
     pauseReason: string;
+    // Система защиты капитала
+    tradingCapital: string;      // Базовый торговый капитал
+    frozenProfit: string;        // Замороженная прибыль (90% от заработка)
+    accumulatedLoss: string;     // Накопленные убытки
+    capitalProtectionActive: boolean; // Флаг активности защиты
+    lastTradeBalance: string;    // Баланс после последней сделки для отслеживания P/L
+    totalSavedToSavings: string; // Сколько всего переведено на сберегательный
   };
 
   // Действия
@@ -177,6 +184,13 @@ export const useAdvisorStore = create<AdvisorStore>()(
         totalProfitLoss: '0',
         isPaused: false,
         pauseReason: '',
+        // Система защиты капитала
+        tradingCapital: '0',
+        frozenProfit: '0',
+        accumulatedLoss: '0',
+        capitalProtectionActive: true,
+        lastTradeBalance: '0',
+        totalSavedToSavings: '0',
       },
 
       // ========================================
@@ -315,8 +329,9 @@ export const useAdvisorStore = create<AdvisorStore>()(
       fetchMarketAnalysis: async (prices) => {
         const state = get();
 
-        // Не обновляем чаще чем раз в 5 минут
-        if (Date.now() - state.lastAnalysisUpdate < 5 * 60 * 1000) {
+        // Данные кэшируются на сервере (Oracle), можем запрашивать чаще
+        // Но клиент всё равно ограничиваем до 1 раза в минуту для снижения нагрузки
+        if (Date.now() - state.lastAnalysisUpdate < 60 * 1000) {
           return;
         }
 
@@ -371,14 +386,16 @@ export const useAdvisorStore = create<AdvisorStore>()(
 
         try {
           const financeStore = useFinanceStore.getState();
+          
+          // Определяем профиль риска на основе настроек автотрейдера
+          const riskTolerance = state.advisor.autoTrading.riskTolerance || 'balanced';
 
           const response = await fetchWithAuth('/ai/advisor-recommendations', {
             method: 'POST',
             body: JSON.stringify({
               portfolio: financeStore.positions,
               balance: financeStore.bank.balance,
-              loans: financeStore.loans,
-              predictions: state.marketAnalysis,
+              riskTolerance, // Передаём профиль риска для персонализации
             }),
           });
 
@@ -474,19 +491,21 @@ export const useAdvisorStore = create<AdvisorStore>()(
       // AI ДИВИДЕНДЫ
       // ========================================
 
-      fetchAIDividends: async (stocks) => {
+      fetchAIDividends: async (_stocks) => {
         const state = get();
 
-        // Обновляем раз в 30 минут
-        const DIVIDEND_UPDATE_INTERVAL = 30 * 60 * 1000;
+        // Дивиденды теперь кэшируются на сервере (Oracle)
+        // Клиент ограничиваем до 1 раза в 5 минут
+        const DIVIDEND_UPDATE_INTERVAL = 5 * 60 * 1000;
         if (Date.now() - state.lastDividendUpdate < DIVIDEND_UPDATE_INTERVAL) {
           return state.dividendPrediction;
         }
 
         try {
+          // Больше не нужно передавать stocks - сервер хранит данные для всех акций
           const response = await fetchWithAuth('/ai/dividends', {
             method: 'POST',
-            body: JSON.stringify({ stocks }),
+            body: JSON.stringify({}),
           });
 
           if (response.ok) {
@@ -669,16 +688,12 @@ export const useAdvisorStore = create<AdvisorStore>()(
         const financeStore = useFinanceStore.getState();
         const balance = D(financeStore.bank.balance);
         
-        // === ЗАЩИТНЫЕ МЕХАНИЗМЫ ===
-        
-        // 1. Абсолютный лимит на одну сделку (макс 20,000₡)
-        const ABSOLUTE_MAX_TRADE = D(20000);
-        
-        // 2. Лимит сделок в час (макс 10)
-        const MAX_TRADES_PER_HOUR = 10;
-        
-        // 3. Stop-loss: если потеряли больше 15% от стартового баланса - пауза
-        const STOP_LOSS_PERCENT = 0.15;
+        // === КОНСТАНТЫ ЗАЩИТЫ КАПИТАЛА ===
+        const ABSOLUTE_MAX_TRADE = D(20000);     // Макс. сумма одной сделки
+        const MAX_TRADES_PER_HOUR = 10;          // Лимит сделок в час
+        const CAPITAL_MULTIPLIER = 3;            // Разморозка при 3x прибыли
+        const PROFIT_TO_CAPITAL_PERCENT = 0.10;  // 10% прибыли → в торговый капитал
+        const PROFIT_TO_FROZEN_PERCENT = 0.90;   // 90% прибыли → замораживается
         
         // Сбрасываем счётчик сделок каждый час
         const now = Date.now();
@@ -691,43 +706,152 @@ export const useAdvisorStore = create<AdvisorStore>()(
           };
         }
         
-        // Инициализируем стартовый баланс если нужно
+        // === ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ ЗАЩИТЫ КАПИТАЛА ===
         if (stats.startingBalance === '0' || D(stats.startingBalance).lte(0)) {
           stats.startingBalance = balance.toString();
           console.log('[AutoTrader] Set starting balance:', stats.startingBalance);
         }
         
-        // Проверяем stop-loss
-        const startingBalance = D(stats.startingBalance);
-        const currentLoss = startingBalance.sub(balance);
-        const lossPercent = startingBalance.gt(0) ? currentLoss.div(startingBalance).toNumber() : 0;
-        
-        if (lossPercent > STOP_LOSS_PERCENT) {
-          console.log('[AutoTrader] STOP-LOSS TRIGGERED!', {
-            startingBalance: startingBalance.toString(),
-            currentBalance: balance.toString(),
-            loss: currentLoss.toString(),
-            lossPercent: (lossPercent * 100).toFixed(1) + '%',
-          });
-          set({
-            autoTraderStats: {
-              ...stats,
-              isPaused: true,
-              pauseReason: `Stop-loss: потеря ${(lossPercent * 100).toFixed(1)}% (${currentLoss.toFixed(0)}₡)`,
-            },
-          });
-          return;
+        // Инициализируем торговый капитал если нужно
+        if (stats.tradingCapital === '0' || D(stats.tradingCapital).lte(0)) {
+          // Торговый капитал = min(% от баланса, ABSOLUTE_MAX_TRADE)
+          const initialCapital = Decimal.min(
+            balance.mul(autoTrading.maxInvestmentPercent / 100),
+            ABSOLUTE_MAX_TRADE
+          );
+          stats.tradingCapital = initialCapital.toString();
+          stats.lastTradeBalance = balance.toString();
+          console.log('[AutoTrader] Initialized trading capital:', stats.tradingCapital);
         }
+        
+        // === ОТСЛЕЖИВАНИЕ ПРИБЫЛИ/УБЫТКА МЕЖДУ ЦИКЛАМИ ===
+        const lastBalance = D(stats.lastTradeBalance);
+        const tradingCapital = D(stats.tradingCapital);
+        let frozenProfit = D(stats.frozenProfit);
+        let accumulatedLoss = D(stats.accumulatedLoss);
+        
+        if (lastBalance.gt(0)) {
+          const balanceChange = balance.sub(lastBalance);
+          
+          if (balanceChange.gt(0)) {
+            // ПРИБЫЛЬ: 10% в торговый капитал, 90% замораживаем
+            const toCapital = balanceChange.mul(PROFIT_TO_CAPITAL_PERCENT);
+            const toFrozen = balanceChange.mul(PROFIT_TO_FROZEN_PERCENT);
+            
+            stats.tradingCapital = tradingCapital.add(toCapital).toString();
+            frozenProfit = frozenProfit.add(toFrozen);
+            stats.frozenProfit = frozenProfit.toString();
+            
+            console.log('[AutoTrader] PROFIT detected:', {
+              change: balanceChange.toString(),
+              toCapital: toCapital.toString(),
+              toFrozen: toFrozen.toString(),
+              newTradingCapital: stats.tradingCapital,
+              totalFrozen: stats.frozenProfit,
+            });
+          } else if (balanceChange.lt(0)) {
+            // УБЫТОК: накапливаем
+            const loss = balanceChange.abs();
+            accumulatedLoss = accumulatedLoss.add(loss);
+            stats.accumulatedLoss = accumulatedLoss.toString();
+            
+            console.log('[AutoTrader] LOSS detected:', {
+              loss: loss.toString(),
+              totalAccumulatedLoss: stats.accumulatedLoss,
+            });
+          }
+        }
+        
+        // === ПРОВЕРКА РАЗМОРОЗКИ (frozenProfit >= tradingCapital * 3) ===
+        const originalTradingCapital = D(stats.tradingCapital);
+        const unfreezeThreshold = originalTradingCapital.mul(CAPITAL_MULTIPLIER);
+        
+        if (frozenProfit.gte(unfreezeThreshold) && frozenProfit.gt(0)) {
+          console.log('[AutoTrader] UNFREEZE TRIGGERED!', {
+            frozenProfit: frozenProfit.toString(),
+            threshold: unfreezeThreshold.toString(),
+            accumulatedLoss: accumulatedLoss.toString(),
+          });
+          
+          // Восстанавливаем потерянную сумму в торговый капитал
+          const restoredCapital = originalTradingCapital.add(accumulatedLoss);
+          
+          // Остаток переводим на сберегательный счёт
+          const toSavings = frozenProfit.sub(accumulatedLoss);
+          
+          if (toSavings.gt(0)) {
+            // Переводим на сберегательный счёт
+            financeStore.depositToSavings(toSavings);
+            stats.totalSavedToSavings = D(stats.totalSavedToSavings).add(toSavings).toString();
+            
+            console.log('[AutoTrader] Transferred to savings:', toSavings.toString());
+          }
+          
+          // Сбрасываем систему защиты для нового цикла
+          stats.tradingCapital = restoredCapital.toString();
+          stats.frozenProfit = '0';
+          stats.accumulatedLoss = '0';
+          
+          console.log('[AutoTrader] New cycle started with capital:', stats.tradingCapital);
+        }
+        
+        // Обновляем баланс для следующего цикла
+        stats.lastTradeBalance = balance.toString();
         
         // Проверяем лимит сделок
         if (stats.tradesThisHour >= MAX_TRADES_PER_HOUR) {
           console.log('[AutoTrader] Hourly trade limit reached:', stats.tradesThisHour);
+          set({ autoTraderStats: stats });
           return;
         }
         
-        // Рассчитываем макс. инвестицию с учётом абсолютного лимита
-        let maxInvestment = balance.mul(autoTrading.maxInvestmentPercent / 100);
-        maxInvestment = Decimal.min(maxInvestment, ABSOLUTE_MAX_TRADE);
+        // === РАСЧЁТ ДОСТУПНОЙ СУММЫ ДЛЯ ТОРГОВЛИ ===
+        // Эффективный капитал = торговый капитал - накопленные убытки
+        let effectiveTradingCapital = D(stats.tradingCapital).sub(D(stats.accumulatedLoss));
+        
+        // Если эффективный капитал истощён, но на балансе есть деньги - пересчитываем
+        // Это позволяет продолжать торговлю, беря новый капитал из доступных средств
+        if (effectiveTradingCapital.lt(100) && balance.gt(1000)) {
+          console.log('[AutoTrader] Effective capital exhausted, recalculating from balance...');
+          
+          // Новый торговый капитал = min(% от баланса, абсолютный лимит)
+          const newTradingCapital = Decimal.min(
+            balance.mul(autoTrading.maxInvestmentPercent / 100),
+            ABSOLUTE_MAX_TRADE
+          );
+          
+          // Сбрасываем систему защиты для нового цикла
+          // НО сохраняем замороженную прибыль и общую статистику!
+          stats.tradingCapital = newTradingCapital.toString();
+          stats.accumulatedLoss = '0';
+          stats.lastTradeBalance = balance.toString();
+          
+          effectiveTradingCapital = newTradingCapital;
+          
+          console.log('[AutoTrader] New trading capital set:', stats.tradingCapital);
+        }
+        
+        // Используем меньшее из: эффективный капитал, % от баланса, абсолютный лимит
+        let maxInvestment = Decimal.min(
+          Decimal.min(effectiveTradingCapital, balance.mul(autoTrading.maxInvestmentPercent / 100)),
+          ABSOLUTE_MAX_TRADE
+        );
+        
+        // Не торгуем если капитал слишком мал
+        if (maxInvestment.lt(100)) {
+          console.log('[AutoTrader] Effective capital too low:', maxInvestment.toString());
+          set({ autoTraderStats: stats });
+          return;
+        }
+        
+        console.log('[AutoTrader] Capital Protection Status:', {
+          tradingCapital: stats.tradingCapital,
+          frozenProfit: stats.frozenProfit,
+          accumulatedLoss: stats.accumulatedLoss,
+          effectiveCapital: effectiveTradingCapital.toString(),
+          maxInvestment: maxInvestment.toString(),
+          totalSavedToSavings: stats.totalSavedToSavings,
+        });
 
         let executedCount = 0;
 
@@ -738,7 +862,6 @@ export const useAdvisorStore = create<AdvisorStore>()(
           balance: balance.toString(),
           maxInvestment: maxInvestment.toString(),
           tradesThisHour: stats.tradesThisHour,
-          lossPercent: (lossPercent * 100).toFixed(1) + '%',
         });
 
         // === АВТОМАТИЧЕСКАЯ ФИКСАЦИЯ ПРИБЫЛИ / УБЫТКОВ ===
@@ -1028,6 +1151,12 @@ export const useAdvisorStore = create<AdvisorStore>()(
             totalProfitLoss: '0',
             isPaused: false,
             pauseReason: '',
+            tradingCapital: '0',
+            frozenProfit: '0',
+            accumulatedLoss: '0',
+            capitalProtectionActive: true,
+            lastTradeBalance: '0',
+            totalSavedToSavings: '0',
           },
         });
       },
@@ -1037,7 +1166,18 @@ export const useAdvisorStore = create<AdvisorStore>()(
       partialize: (state) => ({
         advisor: state.advisor,
         recommendations: state.recommendations.slice(0, 50), // Храним только последние 50
+        autoTraderStats: state.autoTraderStats, // Сохраняем систему защиты капитала
       }),
+      onRehydrateStorage: () => (state) => {
+        // Автоматически запускаем автотрейдер при загрузке приложения если есть премиум
+        if (state && state.advisor.tier === 'premium' && state.advisor.autoTrading.enabled) {
+          console.log('[AdvisorStore] Rehydrated with premium tier, starting autotrader...');
+          // Небольшая задержка чтобы store полностью инициализировался
+          setTimeout(() => {
+            state.startAutoTrader();
+          }, 1000);
+        }
+      },
     }
   )
 );

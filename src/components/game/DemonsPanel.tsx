@@ -60,6 +60,9 @@ export function DemonsPanel() {
                   {active && !paid && <span className="text-[9px] px-1 py-0.5 rounded bg-cyber-red/20 text-cyber-red border border-cyber-red/50 shrink-0">НЕ ОПЛ.</span>}
                 </div>
                 <div className="text-[10px] text-cyber-text-dim mt-0.5">
+                  {def.description}
+                </div>
+                <div className="text-[10px] text-cyber-text-dim mt-0.5">
                   {formatNumber(def.energyPerSecond)}⚡/с
                   <span className="text-cyber-gray-light"> · {active ? (
                     <span className={effective ? 'text-cyber-green' : 'text-cyber-red'}>

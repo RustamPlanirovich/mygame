@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { useFinanceStore } from '../../../features/financeStore';
+import { useAdvisorStore } from '../../../features/advisorStore';
 import { BankAccount } from './BankAccount';
 import { LoanManager } from './LoanManager';
 import { StockMarket } from './StockMarket';
@@ -64,6 +65,20 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
   
   const activeLoans = loans.filter(l => l.status === 'active').length;
   
+  // P2P кредиты
+  const { myLoansAsBorrower, fetchMyP2PData } = useAdvisorStore();
+  
+  useEffect(() => {
+    fetchMyP2PData();
+  }, [fetchMyP2PData]);
+  
+  const activeP2PLoans = myLoansAsBorrower.filter(l => l.status === 'active');
+  const p2pDebt = activeP2PLoans.reduce(
+    (sum, loan) => sum.add(new Decimal(loan.remainingBalance)),
+    new Decimal(0)
+  );
+  const combinedTotalDebt = new Decimal(totalDebt).add(p2pDebt);
+  
   return (
     <div className="flex flex-col min-h-full bg-slate-900 text-white">
       {/* Заголовок */}
@@ -92,7 +107,12 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
           <div className="bg-slate-800 rounded p-2">
             <div className="text-slate-400">Долги</div>
             <div className="font-bold text-orange-400">
-              {formatNumber(new Decimal(totalDebt))} ₡
+              {formatNumber(combinedTotalDebt)} ₡
+              {p2pDebt.gt(0) && (
+                <span className="text-xs text-purple-400 ml-1">
+                  (P2P: {formatNumber(p2pDebt)})
+                </span>
+              )}
             </div>
           </div>
           <div className="bg-slate-800 rounded p-2">
@@ -119,9 +139,9 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
           >
             <span className="mr-1">{tab.icon}</span>
             {tab.label}
-            {tab.id === 'loans' && activeLoans > 0 && (
+            {tab.id === 'loans' && (activeLoans > 0 || activeP2PLoans.length > 0) && (
               <span className="ml-1 px-1.5 py-0.5 text-xs bg-orange-500 rounded-full">
-                {activeLoans}
+                {activeLoans + activeP2PLoans.length}
               </span>
             )}
           </button>

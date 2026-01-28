@@ -423,6 +423,14 @@ export function createP2PLendingRoutes(app, pool, authMiddleware) {
     try {
       const lenderId = req.userId;
 
+      // Автоматически закрываем кредиты с нулевым балансом
+      await pool.query(
+        `UPDATE p2p_loans 
+         SET status = 'paid' 
+         WHERE lender_id = $1 AND status = 'active' AND remaining_balance <= 0.01`,
+        [lenderId]
+      );
+
       const result = await pool.query(
         `SELECT l.*, u.email as borrower_name
          FROM p2p_loans l
@@ -463,6 +471,14 @@ export function createP2PLendingRoutes(app, pool, authMiddleware) {
   app.get('/api/p2p/my/loans-as-borrower', authMiddleware, async (req, res) => {
     try {
       const borrowerId = req.userId;
+
+      // Автоматически закрываем кредиты с нулевым балансом
+      await pool.query(
+        `UPDATE p2p_loans 
+         SET status = 'paid' 
+         WHERE borrower_id = $1 AND status = 'active' AND remaining_balance <= 0.01`,
+        [borrowerId]
+      );
 
       const result = await pool.query(
         `SELECT l.*, u.email as lender_name
@@ -537,9 +553,13 @@ export function createP2PLendingRoutes(app, pool, authMiddleware) {
       const interestPart = paymentAmount * interestRatio;
       const principalPart = paymentAmount - interestPart;
 
-      const newBalance = remainingBalance - paymentAmount;
-      const isFullyPaid = newBalance <= 0.01; // Погрешность для float
+      const newBalance = Math.max(0, remainingBalance - paymentAmount);
+      // Кредит полностью погашен если остаток меньше 1 копейки или равен 0
+      const isFullyPaid = newBalance < 0.01 || Math.abs(remainingBalance - paymentAmount) < 0.01;
       const newInterestPaid = parseFloat(loan.interest_paid) + interestPart;
+      
+      // Финальный баланс: если погашен полностью, ставим точный 0
+      const finalBalance = isFullyPaid ? 0 : newBalance;
 
       // Обновляем кредит
       await client.query(
@@ -549,7 +569,7 @@ export function createP2PLendingRoutes(app, pool, authMiddleware) {
              status = $3,
              last_payment_date = NOW()
          WHERE id = $4`,
-        [Math.max(0, newBalance), newInterestPaid, isFullyPaid ? 'paid' : 'active', id]
+        [finalBalance, newInterestPaid, isFullyPaid ? 'paid' : 'active', id]
       );
 
       // Записываем платёж
