@@ -20,12 +20,14 @@ import { GameSlotsManager } from './components/game/GameSlotsManager';
 import { ProfilePanel } from './components/game/ProfilePanel';
 import { CheatPanel } from './components/game/CheatPanel';
 import { MapSelector } from './components/game/MapSelector';
+import { OfflineProfitModal, useOfflineTrading } from './components/game/finance/OfflineProfitModal';
+import { useAdvisorStore } from './features/advisorStore';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useMarketTransactions } from './hooks/useMarketTransactions';
 import { useDevice, useRecommendedSettings } from './hooks/useDevice';
 import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
-import { isAuthenticated, getCurrentSession } from './utils/settingsApi';
+import { isAuthenticated, getCurrentSession, getCurrentSlotId } from './utils/settingsApi';
 import { Menu, X, ChevronLeft, ChevronRight, Map } from 'lucide-react';
 
 function App() {
@@ -70,6 +72,41 @@ function App() {
   
   // Map selector state
   const [showMapSelector, setShowMapSelector] = useState(false);
+  
+  // Offline profit modal state
+  const [showOfflineProfit, setShowOfflineProfit] = useState(true);
+  const offlineProfit = useAdvisorStore(state => state.offlineProfit);
+  
+  // Отслеживаем slotId с реактивным обновлением
+  const [currentSlotId, setCurrentSlotId] = useState<number | null>(getCurrentSlotId());
+  
+  // Обновляем slotId при изменении localStorage
+  useEffect(() => {
+    const updateSlotId = () => {
+      const newSlotId = getCurrentSlotId();
+      console.log('[App] SlotId updated:', newSlotId);
+      setCurrentSlotId(newSlotId);
+    };
+    
+    // Проверяем slotId сразу и через секунду (после загрузки)
+    updateSlotId();
+    const timeout = setTimeout(updateSlotId, 1000);
+    
+    // Слушаем изменения localStorage
+    window.addEventListener('storage', updateSlotId);
+    
+    // Слушаем кастомное событие при смене слота
+    window.addEventListener('slotChanged', updateSlotId);
+    
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('storage', updateSlotId);
+      window.removeEventListener('slotChanged', updateSlotId);
+    };
+  }, [user]); // Обновляем при смене пользователя
+  
+  // Offline trading hook - автоматически сохраняет состояние и считает прибыль
+  useOfflineTrading(currentSlotId);
   
   // Get map-related state
   const maps = useGameStore(state => state.maps);
@@ -411,6 +448,14 @@ function App() {
             setShowMapSelector(false);
           }}
           onClose={() => setShowMapSelector(false)}
+        />
+      )}
+      
+      {/* Offline Profit Modal */}
+      {showOfflineProfit && offlineProfit?.hasOfflineProfit && (
+        <OfflineProfitModal
+          onClose={() => setShowOfflineProfit(false)}
+          onCollect={() => setShowOfflineProfit(false)}
         />
       )}
     </div>

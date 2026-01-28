@@ -53,6 +53,28 @@ interface P2PStats {
   totalVolume: string;
 }
 
+interface OfflineTrade {
+  session: number;
+  type: 'profit' | 'loss';
+  asset: string;
+  action: string;
+  amount: string;
+  profit: string;
+  returnPercent: string;
+}
+
+interface OfflineProfitResult {
+  hasOfflineProfit: boolean;
+  reason?: string;
+  offlineMinutes?: number;
+  offlineTimeFormatted?: string;
+  tradesExecuted?: number;
+  totalProfit?: string;
+  trades?: OfflineTrade[];
+  riskTolerance?: string;
+  efficiencyPercent?: number;
+}
+
 interface AdvisorStore {
   // Конфигурация помощника
   advisor: FinancialAdvisorConfig;
@@ -131,6 +153,13 @@ interface AdvisorStore {
   ) => Promise<{ success: boolean; amountReceived?: string; error?: string }>;
   payP2PLoan: (loanId: string, amount: string) => Promise<{ success: boolean; error?: string }>;
 
+  // Офлайн-трейдинг
+  offlineProfit: OfflineProfitResult | null;
+  saveOfflineState: (slotId: number) => Promise<void>;
+  calculateOfflineProfit: (slotId: number) => Promise<OfflineProfitResult | null>;
+  sendHeartbeat: (slotId: number) => Promise<void>;
+  clearOfflineProfit: () => void;
+
   // Автоматический трейдинг
   runAutoTrader: () => Promise<void>;
 
@@ -192,6 +221,9 @@ export const useAdvisorStore = create<AdvisorStore>()(
         lastTradeBalance: '0',
         totalSavedToSavings: '0',
       },
+      
+      // Офлайн-прибыль
+      offlineProfit: null,
 
       // ========================================
       // ПОКУПКА ПОМОЩНИКА
@@ -1130,6 +1162,83 @@ export const useAdvisorStore = create<AdvisorStore>()(
       },
 
       // ========================================
+      // ОФЛАЙН-ТРЕЙДИНГ
+      // ========================================
+
+      saveOfflineState: async (slotId: number) => {
+        const state = get();
+        const financeStore = useFinanceStore.getState();
+        
+        if (state.advisor.tier !== 'premium') {
+          return; // Только для премиум пользователей
+        }
+        
+        try {
+          await fetchWithAuth('/offline-trading/save-state', {
+            method: 'POST',
+            body: JSON.stringify({
+              slotId,
+              autotraderEnabled: state.advisor.autoTrading.enabled,
+              riskTolerance: state.advisor.autoTrading.riskTolerance,
+              maxInvestmentPercent: state.advisor.autoTrading.maxInvestmentPercent,
+              takeProfitPercent: state.advisor.autoTrading.takeProfitPercent,
+              stopLossPercent: state.advisor.autoTrading.stopLossPercent,
+              portfolio: financeStore.positions,
+              balance: financeStore.bank.balance,
+            }),
+          });
+          console.log('[Offline Trading] State saved');
+        } catch (error) {
+          console.error('[Offline Trading] Failed to save state:', error);
+        }
+      },
+
+      calculateOfflineProfit: async (slotId: number) => {
+        try {
+          const response = await fetchWithAuth('/offline-trading/calculate', {
+            method: 'POST',
+            body: JSON.stringify({ slotId }),
+          });
+          
+          if (response.ok && response.hasOfflineProfit) {
+            const result: OfflineProfitResult = {
+              hasOfflineProfit: true,
+              offlineMinutes: response.offlineMinutes,
+              offlineTimeFormatted: response.offlineTimeFormatted,
+              tradesExecuted: response.tradesExecuted,
+              totalProfit: response.totalProfit,
+              trades: response.trades,
+              riskTolerance: response.riskTolerance,
+              efficiencyPercent: response.efficiencyPercent,
+            };
+            
+            set({ offlineProfit: result });
+            return result;
+          }
+          
+          return null;
+        } catch (error) {
+          console.error('[Offline Trading] Failed to calculate profit:', error);
+          return null;
+        }
+      },
+
+      sendHeartbeat: async (slotId: number) => {
+        try {
+          await fetchWithAuth('/offline-trading/heartbeat', {
+            method: 'POST',
+            body: JSON.stringify({ slotId }),
+          });
+        } catch (error) {
+          // Игнорируем ошибки heartbeat
+        }
+      },
+
+      clearOfflineProfit: () => {
+        set({ offlineProfit: null });
+      },
+
+      // ========================================
       // СБРОС
       // ========================================
 
@@ -1144,6 +1253,7 @@ export const useAdvisorStore = create<AdvisorStore>()(
           myLoansAsLender: [],
           myLoansAsBorrower: [],
           p2pStats: null,
+          offlineProfit: null,
           autoTraderStats: {
             startingBalance: '0',
             tradesThisHour: 0,

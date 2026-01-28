@@ -26,6 +26,8 @@ export const setCurrentSlotId = (slotId: number | null): void => {
   } else {
     localStorage.setItem('currentSlotId', slotId.toString());
   }
+  // Отправляем событие для обновления UI
+  window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId } }));
 };
 
 /**

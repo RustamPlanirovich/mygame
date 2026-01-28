@@ -8192,6 +8192,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         return;
       }
       
+      // Сохраняем slotId в localStorage для офлайн-трейдинга
+      if (payload.slotId) {
+        localStorage.setItem('currentSlotId', payload.slotId.toString());
+        window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId: payload.slotId } }));
+        console.log('[loadGame] SlotId set:', payload.slotId);
+      }
+      
       save = payload.save.data;
       // Логируем загруженные maps данные для отладки
       console.log('📂 Loaded save info:', {

@@ -10,6 +10,7 @@ import { createSyncRoutes, initSyncTables, cleanupExpiredBackups } from './sync.
 import { createAIRoutes } from './ai.js';
 import { startAIOracle } from './ai-oracle.js';
 import { createP2PLendingRoutes, initP2PLendingTables } from './p2p-lending.js';
+import { createOfflineTradingRoutes, initOfflineTradingTables } from './offline-trading.js';
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -926,6 +927,12 @@ createAIRoutes(app, pool, authMiddleware);
 
 // Запуск AI Oracle (периодическое обновление раз в час)
 startAIOracle(pool);
+
+// Инициализация офлайн-трейдинга
+await initOfflineTradingTables(pool);
+
+// Регистрация маршрутов для офлайн-трейдинга
+createOfflineTradingRoutes(app, pool, authMiddleware);
 
 // Регистрация маршрутов для P2P кредитования
 createP2PLendingRoutes(app, pool, authMiddleware);

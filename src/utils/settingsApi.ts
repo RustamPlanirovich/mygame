@@ -425,6 +425,8 @@ export const createGameSlot = async (name: string, description?: string): Promis
     // Сохраняем ID нового слота в localStorage
     if (data.ok && data.slot) {
       localStorage.setItem('currentSlotId', data.slot.id.toString());
+      // Отправляем событие для обновления UI
+      window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId: data.slot.id } }));
     }
     
     return data;
@@ -519,6 +521,8 @@ export const switchGameSlot = async (slotId: number): Promise<{ ok: boolean; slo
     // Сохраняем ID текущего слота в localStorage
     if (data.ok) {
       localStorage.setItem('currentSlotId', slotId.toString());
+      // Отправляем событие для обновления UI
+      window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId } }));
     }
     
     return data;
@@ -551,8 +555,11 @@ export const getCurrentGameSlot = async (): Promise<{ ok: boolean; slot?: GameSl
     // Синхронизируем с localStorage
     if (data.ok && data.slot) {
       localStorage.setItem('currentSlotId', data.slot.id.toString());
+      // Отправляем событие для обновления UI
+      window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId: data.slot.id } }));
     } else if (data.ok && !data.slot) {
       localStorage.removeItem('currentSlotId');
+      window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId: null } }));
     }
     
     return data;
