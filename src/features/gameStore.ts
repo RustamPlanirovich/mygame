@@ -2840,6 +2840,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     completedQuests: [],
   },
   lastTick: Date.now(),
+  stats: {
+    totalPlayTime: 0,
+    sessionsCount: 1,
+    currentSessionStart: Date.now(),
+    lifetimeResourcesProduced: {},
+    lifetimeResourcesSpent: {},
+    lifetimeCreditsEarned: D(0),
+    lifetimeCreditsSpent: D(0),
+  },
   
   // Energy balance telemetry
   energyProduction: D(0),

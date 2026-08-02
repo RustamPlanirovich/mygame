@@ -1110,6 +1110,7 @@ export interface GameState {
   maps: import('./gameTypes.maps').ActiveMapState; // New: Map system (Phase 4)
   culture: CultureState; // New: Culture and Science system (Phase 7)
   lastTick: number;
+  stats: PlayerStats;
   
   // Energy balance telemetry
   energyProduction: Decimal; // Total energy produced per second
