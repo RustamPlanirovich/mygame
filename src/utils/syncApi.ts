@@ -19,7 +19,7 @@ import { compressSave, decompressSave, computeChecksum } from './saveCompressor'
 import type { CompressionLevel } from './saveCompressor';
 
 // Базовый URL API
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5174';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // Версия игры для совместимости
 const GAME_VERSION = import.meta.env.VITE_GAME_VERSION || '1.0.0';

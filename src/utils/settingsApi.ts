@@ -4,7 +4,7 @@ import type { GameSettings } from '../core/gameTypes.settings';
 import type { ResourceType } from '../core/gameTypes';
 import { DEFAULT_SETTINGS } from '../core/gameTypes.settings';
 
-const API_URL = 'http://127.0.0.1:5174';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // ========== AUTH TOKENS ==========
 

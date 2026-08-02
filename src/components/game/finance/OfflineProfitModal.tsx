@@ -230,7 +230,7 @@ export function useOfflineTrading(slotId: number | null) {
       
       if (token) {
         const success = navigator.sendBeacon(
-          'http://localhost:5174/api/offline-trading/beacon-save',
+          '/api/offline-trading/beacon-save',
           new Blob([JSON.stringify({
             token,
             slotId,

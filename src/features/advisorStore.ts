@@ -24,7 +24,7 @@ import { useFinanceStore } from './financeStore';
 // API ФУНКЦИИ
 // ==========================================
 
-const API_BASE = 'http://localhost:5174/api';
+const API_BASE = `${import.meta.env.VITE_API_URL || ''}/api`;
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const token = localStorage.getItem('authToken');

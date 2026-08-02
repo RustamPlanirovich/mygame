@@ -27,6 +27,9 @@ export async function initDb() {
 
   // Добавляем поля если не существуют
   await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS current_save_id INTEGER;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS pinned_resources JSONB DEFAULT '["energy", "ore", "ice", "carbon", "steel", "dark_matter"]';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS current_slot_id INTEGER;
   `);
 
@@ -86,6 +89,10 @@ export async function initDb() {
   
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_game_save_updated ON game_save(user_id, updated_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_users_current_save ON users(current_save_id);
   `);
 
   // Уникальность имени для ручных сохранений внутри слота

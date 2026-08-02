@@ -7270,7 +7270,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         currentSaveId,
       });
       
-      await fetch('http://127.0.0.1:5174/api/saves', {
+      await fetch('/api/saves', {
         method: 'PUT',
         headers: {
           ...getAuthHeaders(),
@@ -7459,7 +7459,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         throw new Error('NO_USER');
       }
       
-      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+      const response = await fetch('/api/saves', {
         method: 'PUT',
         headers: { 
           ...getAuthHeaders(),
@@ -7492,7 +7492,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     try {
       if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
       
-      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+      const response = await fetch('/api/saves', {
         headers: getAuthHeaders(),
       });
 
@@ -7514,7 +7514,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       console.log('📡 Запрос к серверу...');
-      const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
+      const response = await fetch(`/api/saves/${saveId}`, {
         headers: getAuthHeaders(),
       });
 
@@ -7957,7 +7957,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     try {
       if (!isAuthenticated()) return { ok: false, error: 'NO_USER' };
       
-      const response = await fetch(`http://127.0.0.1:5174/api/saves/${saveId}`, {
+      const response = await fetch(`/api/saves/${saveId}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
@@ -8141,7 +8141,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         throw new Error('NO_USER');
       }
       
-      const response = await fetch('http://127.0.0.1:5174/api/saves', {
+      const response = await fetch('/api/saves', {
         method: 'PUT',
         headers: { 
           ...getAuthHeaders(),
@@ -8176,7 +8176,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       // Пытаемся загрузить последнее ручное сохранение
-      const res = await fetch('http://127.0.0.1:5174/api/saves/latest/manual', {
+      const res = await fetch('/api/saves/latest/manual', {
         headers: getAuthHeaders(),
       });
       

@@ -1,6 +1,8 @@
 import express from 'express';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 dotenv.config();
 
 const { initDb, pool } = await import('./db.js');
@@ -15,13 +17,29 @@ import { createOfflineTradingRoutes, initOfflineTradingTables } from './offline-
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const SAVE_ID = process.env.SAVE_ID ?? 'local';
+const isProduction = process.env.NODE_ENV === 'production';
+const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-// CORS middleware
+// CORS is only needed when the frontend is hosted on another origin. In
+// production Express serves the frontend and API from the same origin.
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+  const origin = req.headers.origin;
+  const allowedOrigins = new Set([
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    ...String(process.env.CORS_ORIGIN ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ]);
+
+  if (origin && allowedOrigins.has(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Vary', 'Origin');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
@@ -937,10 +955,30 @@ createOfflineTradingRoutes(app, pool, authMiddleware);
 // Регистрация маршрутов для P2P кредитования
 createP2PLendingRoutes(app, pool, authMiddleware);
 
+if (isProduction) {
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
 // Периодическая очистка истёкших бэкапов (каждый час)
 setInterval(cleanupExpiredBackups, 60 * 60 * 1000);
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
-  console.log(`[api] listening on http://${HOST}:${PORT}`);
+  console.log(`[server] listening on http://${HOST}:${PORT} (${isProduction ? 'production' : 'development'})`);
 });
+
+async function shutdown(signal) {
+  console.log(`[server] ${signal} received, shutting down`);
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
