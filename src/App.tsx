@@ -5,6 +5,7 @@ import { useUiStore } from './features/uiStore';
 import { TopBar } from './components/game/TopBar';
 import { FactoryGrid } from './components/game/FactoryGrid';
 import { SelectionActionBar } from './components/game/SelectionActionBar';
+import { ScenarioGuide } from './components/game/ScenarioGuide';
 import { useServerStream } from './hooks/useServerStream';
 import { useAudio } from './hooks/useAudio';
 import { SidePanel } from './components/game/SidePanel';
@@ -351,6 +352,8 @@ function App() {
         <FactoryGrid />
         {!device.isMobile && <Minimap />}
         {!device.isMobile && <QuickRail />}
+        {/* Ориентир «что делать дальше» (пункты 20, 29): постоянный, а не одноразовое обучение */}
+        <ScenarioGuide />
         {/* Панель массовых действий: появляется только при непустом выделении (пункты 10, 28) */}
         <SelectionActionBar />
         <SidePanel streamOnline={streamStatus === 'open'} />

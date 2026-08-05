@@ -142,6 +142,14 @@ import {
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { playSfx } from '../core/audio/sfx';
+import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
+
+/*
+ * Когда последний раз проверяли условие текущей цели сценария. Вне стора: это троттлинг,
+ * а не игровое состояние, и в сейв ему попадать незачем.
+ */
+let lastScenarioCheckAt = 0;
+const SCENARIO_CHECK_INTERVAL_MS = 1000;
 
 /*
  * Уже применённые админские выдачи (bigplan.md, пункт 9). Живёт вне стора: это защита от
@@ -620,6 +628,17 @@ const INITIAL_ACHIEVEMENTS: import('../core/gameTypes').AchievementsState = {
  * resetGame, два места сброса), и добавление счётчика означало правку всех четырёх — так и
  * появлялись пропущенные поля.
  */
+/**
+ * Начальный прогресс сценария (bigplan.md, пункты 20, 29). Отдельный от обучения: обучение
+ * одноразовое, сценарий живёт всю игру и у каждого слота свой.
+ */
+export const INITIAL_SCENARIO: import('../core/gameTypes.tutorial').ScenarioState = {
+  currentIndex: 0,
+  completedIds: [],
+  collapsed: false,
+  dismissed: false,
+};
+
 export const INITIAL_PLAYER_STATS: import('../core/gameTypes').PlayerStats = {
   totalPlayTime: 0,
   sessionsCount: 0,
@@ -3065,6 +3084,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   lastTick: Date.now(),
   stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: Date.now() },
+  scenario: { ...INITIAL_SCENARIO },
   
   // Energy balance telemetry
   energyProduction: D(0),
@@ -7830,6 +7850,53 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       /*
+       * ПРОДВИЖЕНИЕ СЦЕНАРИЯ (bigplan.md, пункты 20, 29).
+       *
+       * Проверяем ТОЛЬКО текущий шаг и не чаще раза в секунду: условия читают состояние
+       * целиком (обход клеток, подсчёт технологий), и делать это 20 раз в секунду ради
+       * подсказки — расточительно. Шаг закрывается сам, когда условие выполнено: игроку не
+       * надо ничего нажимать, чтобы «сдать» цель.
+       */
+      let nextScenario = state.scenario;
+      let scenarioReward: ScenarioStep['reward'] | null = null;
+      let scenarioDoneTitle: string | null = null;
+
+      if (
+        !state.scenario.dismissed &&
+        state.scenario.currentIndex < SCENARIO.length &&
+        now - lastScenarioCheckAt >= SCENARIO_CHECK_INTERVAL_MS
+      ) {
+        lastScenarioCheckAt = now;
+        const step = SCENARIO[state.scenario.currentIndex];
+
+        let satisfied = false;
+        try {
+          satisfied = step.check(state) === true;
+        } catch (e) {
+          // Условия — авторские данные; ошибка в одном не должна ронять тик.
+          console.warn(`[scenario] условие шага "${step.id}" упало:`, e);
+        }
+
+        if (satisfied) {
+          nextScenario = {
+            ...state.scenario,
+            currentIndex: state.scenario.currentIndex + 1,
+            completedIds: [...state.scenario.completedIds, step.id],
+          };
+          scenarioReward = step.reward ?? null;
+          scenarioDoneTitle = step.title;
+        }
+      }
+
+      if (scenarioDoneTitle) {
+        newNotifications.push({
+          type: 'success' as const,
+          title: 'Цель выполнена',
+          message: scenarioDoneTitle,
+        });
+      }
+
+      /*
        * Кумулятивная статистика (bigplan.md, пункты 11 и 26). Объект stats пересоздаём ТОЛЬКО
        * когда за тик реально что-то произошло: иначе подписчики (профиль, достижения) получали
        * бы новую ссылку 20 раз в секунду на пустом месте.
@@ -7860,10 +7927,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         };
       }
 
+      // Награда за выполненный шаг сценария начисляется тем же тиком.
+      const currencyWithScenario = scenarioReward
+        ? {
+            ...nextCurrency,
+            credits: nextCurrency.credits.add(D(scenarioReward.credits ?? 0)),
+            researchPoints: nextCurrency.researchPoints.add(D(scenarioReward.researchPoints ?? 0)),
+            influence: nextCurrency.influence.add(D(scenarioReward.influence ?? 0)),
+          }
+        : nextCurrency;
+
       return {
         resources: newResources,
         buildings: buildingsWithProximity,
-        currency: nextCurrency,
+        currency: currencyWithScenario,
         market: nextMarket,
         combat: nextCombat,
         grid: {
@@ -7900,6 +7977,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         ...(questsAfterJobs !== state.quests ? { quests: questsAfterJobs } : {}),
         // И для статистики: новая ссылка только когда счётчики реально изменились.
         ...(nextStats !== state.stats ? { stats: nextStats } : {}),
+        // Прогресс сценария — только при реальном продвижении.
+        ...(nextScenario !== state.scenario ? { scenario: nextScenario } : {}),
         lastTick: now,
         // Use theoretical capacity so UI shows consistent values with analytics
         // (totalEnergyProduction/Consumption already include building levels and evolution)
@@ -8481,6 +8560,11 @@ export const useGameStore = create<GameState>((set, get) => ({
            * (enemiesKilled, bossKills, …), и без базового объекта они приезжали бы undefined,
            * а первый же `+ 1` давал NaN. Новые счётчики так же не требуют правки этого места.
            */
+          /*
+           * Прогресс сценария из сейва (bigplan.md, пункты 20, 29). Без этого «текущая цель»
+           * сбрасывалась бы на первый шаг при каждой загрузке, и ориентир стал бы шумом.
+           */
+          scenario: restored.scenario ?? { ...INITIAL_SCENARIO },
           stats: {
             ...INITIAL_PLAYER_STATS,
             ...(restored.stats ?? {}),
@@ -9463,6 +9547,11 @@ export const useGameStore = create<GameState>((set, get) => ({
           } : INITIAL_MAPS,
           // См. пояснение к тому же месту в loadGameFromSave: базой всегда идёт
           // INITIAL_PLAYER_STATS, иначе счётчики из старых сейвов приезжают undefined.
+          /*
+           * Прогресс сценария из сейва (bigplan.md, пункты 20, 29). Без этого «текущая цель»
+           * сбрасывалась бы на первый шаг при каждой загрузке, и ориентир стал бы шумом.
+           */
+          scenario: restored.scenario ?? { ...INITIAL_SCENARIO },
           stats: {
             ...INITIAL_PLAYER_STATS,
             ...(restored.stats ?? {}),
@@ -10453,6 +10542,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     return true;
   },
 
+  setScenarioCollapsed: (collapsed: boolean) => {
+    set((s) => (s.scenario.collapsed === collapsed ? s : { scenario: { ...s.scenario, collapsed } }));
+  },
+
+  dismissScenario: () => {
+    set((s) => (s.scenario.dismissed ? s : { scenario: { ...s.scenario, dismissed: true } }));
+  },
+
+  restoreScenario: () => {
+    set((s) =>
+      !s.scenario.dismissed && !s.scenario.collapsed
+        ? s
+        : { scenario: { ...s.scenario, dismissed: false, collapsed: false } },
+    );
+  },
+
   addNotification: (notification: Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>) => {
     set((state) => {
       const newNotification: import('../core/gameTypes').Notification = {
@@ -11273,6 +11378,8 @@ export const useGameStore = create<GameState>((set, get) => ({
        * достижения, только что сброшенные строкой выше, тут же выдавались снова.
        */
       stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: now },
+      // Новая игра — новый сценарий: цели вроде «постройте склад» снова актуальны.
+      scenario: { ...INITIAL_SCENARIO },
       lastTick: now,
     });
   },

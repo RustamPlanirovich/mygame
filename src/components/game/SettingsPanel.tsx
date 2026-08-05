@@ -51,6 +51,8 @@ export const SettingsPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string>('');
   const saveGame = useGameStore(state => state.saveGame);
+  const scenarioDismissed = useGameStore(state => state.scenario.dismissed);
+  const restoreScenario = useGameStore(state => state.restoreScenario);
   const loadGame = useGameStore(state => state.loadGame);
   
   const { confirm: showConfirm, DialogComponent: ConfirmDialogComponent } = useConfirmDialog();
@@ -479,6 +481,28 @@ export const SettingsPanel: React.FC = () => {
               <h3 className="text-sm font-bold text-cyber-blue mb-3">Интерфейс</h3>
               
               <div className="space-y-3">
+                {/*
+                  Возврат подсказок сценария (bigplan.md, пункт 20). Кнопка «Не нужно» на самой
+                  подсказке скрывает её насовсем, и без этого места вернуть её было бы нельзя —
+                  а в бесконечной игре ориентир может понадобиться снова через месяц.
+                */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm text-cyber-text">Подсказки сценария</label>
+                    <div className="text-xs text-cyber-text-dim">
+                      {scenarioDismissed ? 'Скрыты' : 'Показываются на карте'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-xs"
+                    disabled={!scenarioDismissed}
+                    onClick={restoreScenario}
+                  >
+                    Вернуть
+                  </button>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <label className="text-sm text-cyber-text">Показывать подсказки</label>
                   <input

@@ -1152,6 +1152,11 @@ export interface GameState {
   retention: RetentionState; // New: Daily rewards & retention mechanics (infinitely.md)
   signalInterception: SignalInterceptionState; // New: Active play bonuses (infinitely.md)
   quests: import('./gameTypes.tutorial').QuestState; // New: Quests system
+  /**
+   * Прогресс сценария (bigplan.md, пункты 20, 29): постоянный ориентир «что делать дальше»
+   * вместо одноразового обучения из слайдов.
+   */
+  scenario: import('./gameTypes.tutorial').ScenarioState;
   maps: import('./gameTypes.maps').ActiveMapState; // New: Map system (Phase 4)
   culture: CultureState; // New: Culture and Science system (Phase 7)
   lastTick: number;
@@ -1285,6 +1290,16 @@ export interface GameState {
    * Поштучный вызов в цикле работал по устаревшему снимку state и терял начисления.
    */
   unlockAchievements: (achievementIds: string[]) => void;
+
+  /**
+   * Свернуть/развернуть подсказку сценария (bigplan.md, пункт 20).
+   * Свёрнутая подсказка остаётся активной — просто не занимает места на экране.
+   */
+  setScenarioCollapsed: (collapsed: boolean) => void;
+  /** Полностью отказаться от сценария. Обратно включается в настройках. */
+  dismissScenario: () => void;
+  /** Вернуть сценарий тем, кто его закрыл. */
+  restoreScenario: () => void;
   // Megastructures system (Фаза 9)
   startMegastructure: (megastructureId: MegastructureId) => void;
   toggleMegastructure: (megastructureId: MegastructureId, active: boolean) => void;

@@ -2440,6 +2440,36 @@ const decPlayerStats = (raw: unknown): PlayerStats => {
   };
 };
 
+// ---------------------------------------------------------------- scenario --
+
+/*
+ * Прогресс сценария (bigplan.md, пункты 20, 29). Обязан сохраняться и обязан быть ПЕР-СЛОТОВЫМ:
+ * цели вроде «постройте склад» на новой карте снова актуальны, а «текущая цель», сбрасывающаяся
+ * при каждой перезагрузке, превратила бы ориентир в шум.
+ */
+const encScenario = (src: import('../core/gameTypes.tutorial').ScenarioState) => ({
+  currentIndex: nonNegInt(src?.currentIndex, 0),
+  completedIds: encArray(src?.completedIds, (id) => String(id)),
+  collapsed: src?.collapsed === true,
+  dismissed: src?.dismissed === true,
+});
+
+const decScenario = (raw: unknown): import('../core/gameTypes.tutorial').ScenarioState => {
+  const r = rec(raw);
+  return {
+    currentIndex: nonNegInt(r.currentIndex, 0),
+    /*
+     * Не decArray: он оборачивает каждый элемент в rec() — это для массивов объектов, а строка
+     * там превращается в '[object Object]'. Здесь массив плоских id, поэтому фильтруем вручную.
+     */
+    completedIds: Array.isArray(r.completedIds)
+      ? r.completedIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    collapsed: r.collapsed === true,
+    dismissed: r.dismissed === true,
+  };
+};
+
 // ---------------------------------------------------------------- retention --
 
 const encRetention = (src: RetentionState) => ({
@@ -2792,6 +2822,8 @@ export interface GameSaveV1 {
   market: SavedMarket;
   combat: SavedCombat;
   grid: SavedGrid;
+  /** Прогресс сценария (bigplan.md, пункты 20, 29). Пер-слотовый. */
+  scenario: ReturnType<typeof encScenario>;
   research: SavedResearch;
   demons: SavedDemons;
   meta: SavedMeta;
@@ -2842,6 +2874,7 @@ export function serializeGame(state: GameState): GameSaveV1 {
     market: encMarket(state.market),
     combat: encCombat(state.combat),
     grid: encGrid(state.grid),
+    scenario: encScenario(state.scenario),
     research: encResearch(state.research),
     demons: encDemons(state.demons),
     meta: encMeta(state.meta),
@@ -2993,6 +3026,7 @@ export function deserializeGame(raw: unknown): Partial<GameState> {
     market: decMarket(save.market),
     combat: decCombat(save.combat),
     grid: decGrid(save.grid, DEFAULT_GRID as unknown as GridState),
+    scenario: decScenario(save.scenario),
     research: decResearch(save.research),
     demons: decDemons(save.demons),
     meta: decMeta(save.meta),
