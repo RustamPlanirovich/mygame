@@ -4,6 +4,7 @@
  */
 
 import { RESOURCE_UNIVERSE, RESOURCE_REFERENCE_PRICES } from './market-sim/universe.js';
+import { describeError } from './error-detail.js';
 import {
   VAULT_CREDITS,
   initVaultTables,
@@ -1507,7 +1508,7 @@ export function startMarketMaintenance(pool, { intervalMs = MARKET_CONSTANTS.MAI
         );
       }
     } catch (e) {
-      console.error('[market] зачистка не удалась:', e?.message ?? e);
+      console.error('[market] зачистка не удалась:', describeError(e));
     } finally {
       maintenanceRunning = false;
     }

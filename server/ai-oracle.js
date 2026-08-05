@@ -20,6 +20,7 @@ import {
   localRecommendations,
 } from './market-sim/index.js';
 import { STOCKS, FUNDS, SECTOR_RU } from './market-sim/universe.js';
+import { describeError } from './error-detail.js';
 
 const AI_CONFIG = {
   baseUrl: 'https://api.deepseek.com/v1',
@@ -467,7 +468,7 @@ async function runOracleUpdate(pool) {
     await stepMarketSim(pool);
   } catch (e) {
     snapshotOk = false;
-    console.error('[AI Oracle] market sim step failed:', e.message);
+    console.error('[AI Oracle] шаг рыночной симуляции не удался:', describeError(e));
   }
 
   // === 1. Прогноз рынка ===

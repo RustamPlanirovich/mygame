@@ -36,6 +36,7 @@ import {
 import { assertParity, RESOURCE_UNIVERSE, STOCKS } from './universe.js';
 import { regimeLabelRu } from './regime.js';
 import { buildMarketPrediction, buildDividends, buildRecommendations } from './payloads.js';
+import { describeError } from '../error-detail.js';
 
 export { TICK_MS, DAY_TICKS };
 
@@ -104,7 +105,7 @@ export async function stepMarketSim(pool, { now = Date.now() } = {}) {
     }
     return lastSnapshot || getSnapshotOrCold();
   } catch (e) {
-    console.error('[market-sim] step failed:', e.message);
+    console.error('[market-sim] шаг симуляции не удался:', describeError(e));
     return lastSnapshot || getSnapshotOrCold();
   } finally {
     stepping = false;
@@ -184,7 +185,9 @@ export async function startMarketSim(pool) {
 
   stopMarketSim();
   timer = setInterval(() => {
-    stepMarketSim(pool).catch((e) => console.error('[market-sim] scheduled step failed:', e.message));
+    stepMarketSim(pool).catch((e) =>
+      console.error('[market-sim] плановый шаг не удался:', describeError(e)),
+    );
   }, TICK_MS);
   // unref: симуляция не должна мешать процессу завершиться.
   if (typeof timer.unref === 'function') timer.unref();
