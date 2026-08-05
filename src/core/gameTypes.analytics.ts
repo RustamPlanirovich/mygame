@@ -3,7 +3,6 @@
  * Фаза 2: Подробные графики и аналитика
  */
 
-import type Decimal from 'break_eternity.js';
 import type { ResourceType } from './gameTypes';
 
 // ==========================================

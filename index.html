@@ -1,28 +1,562 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mygame</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5"
+    />
+    <meta name="theme-color" content="#070910" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="PROTOCOL: YGGDRASIL — космический industrial idle: производственные цепочки, биржа, гильдии и бесконечная прогрессия."
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>PROTOCOL: YGGDRASIL</title>
+
+    <style>
+      /* Painted before the bundle evaluates so there is no white flash on load. */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #070910;
+        color: #eef1f7;
+      }
+      /*
+       * Заставка загрузки.
+       *
+       * Всё инлайном и без единого внешнего запроса: она обязана нарисоваться ДО того,
+       * как скачается бандл, иначе смысла в ней нет. Никаких шрифтов, картинок и SVG-файлов.
+       *
+       * Мотив — мировое древо (Иггдрасиль из названия), собранное как промышленная схема:
+       * трассы под 45° и прямым углом, узлы на развилках. Это же читается и как
+       * производственная цепочка, и перекликается с гексагональными картами игры.
+       *
+       * Важно: сплэш снимается сразу после первого кадра, то есть анимацию часто обрывает
+       * на середине. Поэтому схема нарисована статично с самого первого кадра, а анимация
+       * лишь «поджигает» её поверх — мгновенное снятие всё равно покажет законченный знак,
+       * а не пустоту.
+       */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 26px;
+        font:
+          600 12px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        color: #66718a;
+        background:
+          radial-gradient(720px 420px at 50% 42%, rgb(44 232 165 / 0.1), transparent 72%),
+          radial-gradient(560px 360px at 50% 96%, rgb(62 178 255 / 0.07), transparent 70%),
+          #070910;
+        transition: opacity 0.3s ease-out;
+      }
+      #boot-splash[hidden] {
+        display: none;
+      }
+
+      /* Гексагональная сетка на фоне — та же геометрия, что у карт игры. */
+      #boot-splash .grid {
+        position: absolute;
+        inset: -10%;
+        background-image:
+          linear-gradient(30deg, rgb(103 116 140 / 0.05) 1px, transparent 1px),
+          linear-gradient(150deg, rgb(103 116 140 / 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(103 116 140 / 0.04) 1px, transparent 1px);
+        background-size: 46px 80px;
+        -webkit-mask-image: radial-gradient(closest-side at 50% 45%, #000 35%, transparent 100%);
+        mask-image: radial-gradient(closest-side at 50% 45%, #000 35%, transparent 100%);
+        animation: boot-drift 24s linear infinite;
+      }
+      @keyframes boot-drift {
+        to {
+          background-position:
+            92px 160px,
+            -92px 160px,
+            0 160px;
+        }
+      }
+
+      #boot-splash .mark {
+        position: relative;
+        width: 172px;
+        height: 172px;
+      }
+      #boot-splash svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+
+      /* Статичный слой: схема целиком, приглушённая. */
+      #boot-splash .trace {
+        fill: none;
+        stroke: #272e3c;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #boot-splash .node {
+        fill: #0f131b;
+        stroke: #353d4e;
+        stroke-width: 2;
+      }
+
+      /*
+       * Слой поджига. Рисуется поверх статичного, обводкой по длине пути.
+       * pathLength=1 задан в разметке, поэтому dasharray можно писать в долях,
+       * не измеряя реальную длину каждой трассы.
+       */
+      #boot-splash .live {
+        fill: none;
+        stroke: #2ce8a5;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        filter: drop-shadow(0 0 5px rgb(44 232 165 / 0.55));
+        animation: boot-ignite 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      #boot-splash .live.d1 {
+        animation-delay: 0.18s;
+      }
+      #boot-splash .live.d2 {
+        animation-delay: 0.36s;
+      }
+      #boot-splash .live.d3 {
+        animation-delay: 0.54s;
+      }
+      /* Корни уходят вниз и светятся вторым цветом — «добыча», а не «производство». */
+      #boot-splash .live.root {
+        stroke: #3eb2ff;
+        filter: drop-shadow(0 0 5px rgb(62 178 255 / 0.5));
+      }
+      @keyframes boot-ignite {
+        0% {
+          stroke-dashoffset: 1;
+        }
+        45%,
+        70% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: -1;
+        }
+      }
+
+      #boot-splash .spark {
+        fill: #2ce8a5;
+        opacity: 0;
+        animation: boot-spark 2.6s ease-out infinite;
+      }
+      #boot-splash .spark.s1 {
+        animation-delay: 0.4s;
+      }
+      #boot-splash .spark.s2 {
+        animation-delay: 0.62s;
+      }
+      #boot-splash .spark.s3 {
+        animation-delay: 0.84s;
+      }
+      @keyframes boot-spark {
+        0%,
+        12% {
+          opacity: 0;
+          transform: scale(0.4);
+        }
+        26% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        72% {
+          opacity: 0.9;
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.9);
+        }
+      }
+
+      /* Крона: орбитальное кольцо — единственный намёк на космос в самом знаке. */
+      #boot-splash .orbit {
+        fill: none;
+        stroke: rgb(62 178 255 / 0.5);
+        stroke-width: 1.5;
+        stroke-dasharray: 3 7;
+        /*
+         * fill-box привязывает точку вращения к самому кружку. Через координаты viewBox
+         * она поехала бы при любой правке viewBox — а он ниже сдвинут для центровки.
+         */
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: boot-orbit 9s linear infinite;
+      }
+      @keyframes boot-orbit {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #boot-splash .crown {
+        fill: #2ce8a5;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: boot-pulse 2.6s ease-in-out infinite;
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(0.85);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.15);
+        }
+      }
+
+      #boot-splash .title {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+        text-align: center;
+      }
+      #boot-splash .title b {
+        font-size: 19px;
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        /*
+         * letter-spacing добавляет интервал и ПОСЛЕ последней буквы, поэтому текст,
+         * выровненный по центру, кажется сдвинутым влево. Отрицательный внешний отступ
+         * убирает этот хвост из ширины элемента — это и есть корректная компенсация,
+         * text-indent сдвинул бы строку целиком и промахнулся вдвое.
+         */
+        margin-right: -0.3em;
+        color: #eef1f7;
+      }
+      #boot-splash .title b i {
+        font-style: normal;
+        color: #2ce8a5;
+      }
+      #boot-splash .title span {
+        letter-spacing: 0.24em;
+        margin-right: -0.24em;
+        text-transform: uppercase;
+        font-size: 10px;
+        color: #4a5468;
+      }
+
+      #boot-splash .bar {
+        position: relative;
+        width: 190px;
+        height: 2px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: #1a1f29;
+      }
+      /*
+       * Индикатор намеренно неопределённый: сколько осталось грузиться, странице
+       * неизвестно, а рисовать выдуманные проценты — врать игроку.
+       */
+      #boot-splash .bar::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        width: 40%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, transparent, #2ce8a5, transparent);
+        animation: boot-sweep 1.25s ease-in-out infinite;
+      }
+      @keyframes boot-sweep {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(350%);
+        }
+      }
+
+      #boot-splash .status {
+        position: relative;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        font-size: 10px;
+        color: #4a5468;
+      }
+
+      /*
+       * Ослабленный режим: движение убираем полностью, но знак остаётся зажжённым,
+       * иначе заставка выглядела бы недорисованной.
+       */
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .grid,
+        #boot-splash .spark,
+        #boot-splash .orbit,
+        #boot-splash .crown,
+        #boot-splash .bar::after {
+          animation: none;
+        }
+        #boot-splash .live {
+          animation: none;
+          stroke-dashoffset: 0;
+        }
+        #boot-splash .spark {
+          opacity: 1;
+        }
+        #boot-splash .crown {
+          opacity: 1;
+        }
+      }
+
+      /* Error surface. Appended as its own element — never by rewriting body.innerHTML. */
+      #fatal-errors {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-width: min(560px, calc(100vw - 24px));
+        max-height: 45vh;
+        overflow: auto;
+        pointer-events: none;
+      }
+      #fatal-errors .err {
+        pointer-events: auto;
+        background: rgb(20 24 33 / 0.96);
+        border: 1px solid rgb(255 100 127 / 0.5);
+        border-left: 3px solid #ff647f;
+        border-radius: 10px;
+        box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.7);
+        padding: 10px 12px;
+        font:
+          500 12px/1.45 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #ffc6cf;
+      }
+      #fatal-errors .err h4 {
+        margin: 0 0 4px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #ff647f;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #fatal-errors .err button {
+        all: unset;
+        cursor: pointer;
+        color: #8b96ac;
+        padding: 0 4px;
+      }
+      #fatal-errors .err button:hover {
+        color: #eef1f7;
+      }
+      #fatal-errors .err pre {
+        margin: 0;
+        max-height: 180px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #b3bccd;
+      }
+      #fatal-errors .err .count {
+        color: #66718a;
+      }
+    </style>
+
     <script>
-      window.addEventListener('error', function(e) {
-        if (String(e.message || '').includes('ResizeObserver loop completed')) return;
-        document.body.innerHTML += '<div style="color:red;background:black;padding:10px;border:1px solid red;margin:10px;z-index:9999;position:relative;">' + 
-          '<h3>Global Error</h3>' + 
-          '<pre>' + (e.error ? (e.error.stack || String(e.error)) : String(e.message || 'Unknown error')) + '</pre>' + 
-          '</div>';
-      });
-      window.addEventListener('unhandledrejection', function(e) {
-        document.body.innerHTML += '<div style="color:red;background:black;padding:10px;border:1px solid red;margin:10px;z-index:9999;position:relative;">' + 
-          '<h3>Unhandled Rejection</h3>' + 
-          '<pre>' + (e.reason ? (e.reason.stack || e.reason) : 'Unknown reason') + '</pre>' + 
-          '</div>';
-      });
+      /*
+       * Global error surface.
+       *
+       * The previous implementation did `document.body.innerHTML += '<div>...'` on every
+       * error. Reading and re-assigning body.innerHTML rebuilds the entire DOM subtree,
+       * which detaches every node React holds a reference to — so the first stray error
+       * (including a benign one from a third-party script) permanently killed the game.
+       *
+       * This version appends to a dedicated container, dedupes repeats, caps the list,
+       * and only renders visibly in dev. In production it logs and shows nothing, so a
+       * recoverable error does not present itself to players as a crash.
+       */
+      (function () {
+        var IS_DEV = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        var IGNORE = [
+          'ResizeObserver loop completed',
+          'ResizeObserver loop limit exceeded',
+          // Fired by browser extensions and by aborted HMR requests; not app faults.
+          'Script error.',
+          'ChunkLoadError',
+        ];
+        var MAX_SHOWN = 6;
+        var seen = Object.create(null);
+        var host = null;
+
+        function ignored(msg) {
+          for (var i = 0; i < IGNORE.length; i++) {
+            if (msg.indexOf(IGNORE[i]) !== -1) return true;
+          }
+          return false;
+        }
+
+        function container() {
+          if (host && host.isConnected) return host;
+          host = document.createElement('div');
+          host.id = 'fatal-errors';
+          (document.body || document.documentElement).appendChild(host);
+          return host;
+        }
+
+        function show(kind, text) {
+          text = String(text || 'Unknown error');
+          if (ignored(text)) return;
+
+          var key = kind + '::' + text.slice(0, 220);
+          if (seen[key]) {
+            seen[key].n++;
+            var c = seen[key].el.querySelector('.count');
+            if (c) c.textContent = '×' + seen[key].n;
+            return;
+          }
+
+          // Always keep the console record, dev or prod.
+          console.error('[' + kind + ']', text);
+          if (!IS_DEV) return;
+
+          var box = container();
+          while (box.children.length >= MAX_SHOWN) box.removeChild(box.firstChild);
+
+          var el = document.createElement('div');
+          el.className = 'err';
+
+          var head = document.createElement('h4');
+          var title = document.createElement('span');
+          title.textContent = kind;
+          var count = document.createElement('span');
+          count.className = 'count';
+          var close = document.createElement('button');
+          close.type = 'button';
+          close.setAttribute('aria-label', 'Скрыть');
+          close.textContent = '✕';
+          close.onclick = function () {
+            el.remove();
+            delete seen[key];
+          };
+          head.appendChild(title);
+          head.appendChild(count);
+          head.appendChild(close);
+
+          var pre = document.createElement('pre');
+          pre.textContent = text; // textContent, not innerHTML — no injection surface.
+
+          el.appendChild(head);
+          el.appendChild(pre);
+          box.appendChild(el);
+
+          seen[key] = { n: 1, el: el };
+        }
+
+        window.addEventListener('error', function (e) {
+          if (e && e.target && e.target !== window && e.target.tagName) return; // resource 404s
+          show('Ошибка', e && e.error ? e.error.stack || String(e.error) : e && e.message);
+        });
+
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e && e.reason;
+          show('Необработанный промис', r ? r.stack || String(r) : 'Unknown reason');
+        });
+      })();
     </script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-splash" role="status" aria-live="polite" aria-label="Загрузка игры">
+      <div class="grid" aria-hidden="true"></div>
+
+      <!--
+        Мировое древо как промышленная схема. Каждая трасса продублирована: приглушённая
+        (.trace) видна сразу, поверх неё бежит зажигающаяся (.live). pathLength="1"
+        позволяет анимировать обводку в долях, не считая реальную длину пути.
+      -->
+      <div class="mark" aria-hidden="true">
+        <!--
+          min-y = 6: содержимое схемы занимает y от 23 (верх орбиты) до 190 (концы корней),
+          то есть в боксе 0..200 висит низко и подпирает заголовок. Сдвиг окна вниз на 6
+          выравнивает поля сверху и снизу.
+        -->
+        <svg viewBox="0 6 200 200" role="img">
+          <g class="trace">
+            <path d="M100 168 V120" />
+            <path d="M100 120 V112 L84 96 H60 V72" />
+            <path d="M100 120 V112 L116 96 H140 V72" />
+            <path d="M60 72 V64 L48 52 H36" />
+            <path d="M60 72 V64 L70 52 H78" />
+            <path d="M140 72 V64 L152 52 H164" />
+            <path d="M140 72 V64 L130 52 H122" />
+            <path d="M78 52 L88 40 H112 L122 52" />
+            <path d="M100 168 V176 L86 190" />
+            <path d="M100 168 V176 L114 190" />
+          </g>
+
+          <path class="live" pathLength="1" d="M100 168 V120" />
+          <path class="live d1" pathLength="1" d="M100 120 V112 L84 96 H60 V72" />
+          <path class="live d1" pathLength="1" d="M100 120 V112 L116 96 H140 V72" />
+          <path class="live d2" pathLength="1" d="M60 72 V64 L48 52 H36" />
+          <path class="live d2" pathLength="1" d="M60 72 V64 L70 52 H78" />
+          <path class="live d2" pathLength="1" d="M140 72 V64 L152 52 H164" />
+          <path class="live d2" pathLength="1" d="M140 72 V64 L130 52 H122" />
+          <path class="live d3" pathLength="1" d="M78 52 L88 40 H112 L122 52" />
+          <path class="live root d1" pathLength="1" d="M100 168 V176 L86 190" />
+          <path class="live root d1" pathLength="1" d="M100 168 V176 L114 190" />
+
+          <g class="node">
+            <circle cx="100" cy="168" r="7" />
+            <circle cx="60" cy="96" r="5" />
+            <circle cx="140" cy="96" r="5" />
+            <circle cx="36" cy="52" r="4" />
+            <circle cx="78" cy="52" r="4" />
+            <circle cx="122" cy="52" r="4" />
+            <circle cx="164" cy="52" r="4" />
+          </g>
+
+          <circle class="spark s1" cx="60" cy="96" r="2.6" />
+          <circle class="spark s1" cx="140" cy="96" r="2.6" />
+          <circle class="spark s2" cx="36" cy="52" r="2.2" />
+          <circle class="spark s2" cx="78" cy="52" r="2.2" />
+          <circle class="spark s2" cx="122" cy="52" r="2.2" />
+          <circle class="spark s3" cx="164" cy="52" r="2.2" />
+
+          <circle class="orbit" cx="100" cy="40" r="17" />
+          <circle class="crown" cx="100" cy="40" r="6" />
+        </svg>
+      </div>
+
+      <div class="title">
+        <b>PROTOCOL<i>:</i> YGGDRASIL</b>
+        <span>Космический industrial idle</span>
+      </div>
+
+      <div class="bar" aria-hidden="true"></div>
+      <div class="status">Инициализация ядра</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

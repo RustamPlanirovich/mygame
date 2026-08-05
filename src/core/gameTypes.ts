@@ -278,7 +278,6 @@ export type PolicyId =
   | 'tax_benefits'
   | 'bitcoin_boom'
   | 'credit_program'
-  | 'investments'
   | 'trade_routes'
   // Science policies
   | 'scientific_breakthrough'
@@ -291,9 +290,13 @@ export type PolicyId =
   | 'aggressive_expansion'
   | 'peaceful_coexistence'
   // Space policies
-  | 'galaxy_exploration'
-  | 'colonial_expansion'
-  | 'space_fleet'
+  /*
+   * Здесь были investments, colonial_expansion, space_fleet и galaxy_exploration. В игре нет
+   * ни слайса колоний, ни времени постройки кораблей (buildShip выдаёт корабль мгновенно, поле
+   * buildTime не читается), ни прогресса открытия галактик — это булев гейт по технологии.
+   * Эти политики списывали влияние и не делали ничего, а реализовать их без изобретения новых
+   * подсистем нельзя.
+   */
   | 'terraforming'
   // Special policies
   | 'eco_friendly'
@@ -976,6 +979,14 @@ export interface PlayerStats {
   lifetimeResourcesSpent: Partial<Record<ResourceType, Decimal>>;
   lifetimeCreditsEarned: Decimal;
   lifetimeCreditsSpent: Decimal;
+  /**
+   * Выполненных контрактов за всё время.
+   *
+   * Нужен для условий концовок: checkEndingRequirements считает «помощь цивилизациям» как
+   * contracts/5, а стор передавал туда захардкоженный 0 с TODO — из-за чего концовка
+   * «Помогите 100 цивилизациям» была недостижима в принципе.
+   */
+  contractsCompleted: number;
 }
 
 export interface RetentionState {
@@ -1119,6 +1130,14 @@ export interface GameState {
   
   // Actions
   addResource: (type: ResourceType, amount: Decimal | number) => void;
+  /**
+   * Прямые операции с валютами: используются читами и ручной торговлей в SidePanelTabs.
+   * spendCredits — no-op, если средств не хватает (не уходит в минус).
+   */
+  addCredits: (amount: Decimal | number | string) => void;
+  spendCredits: (amount: Decimal | number | string) => void;
+  addResearchPoints: (amount: Decimal | number | string) => void;
+  addInfluence: (amount: Decimal | number | string) => void;
   buyBuilding: (buildingId: string) => void;
   sellResource: (type: TradeResourceType, amount: Decimal | number) => void;
   buyResource: (type: TradeResourceType, amount: Decimal | number) => void;
@@ -1128,11 +1147,17 @@ export interface GameState {
   cancelTradingOrder: (orderId: string) => void;
   tick: (dt: number) => void;
   loadGame: () => Promise<void>;
-  saveGame: () => Promise<void>;
+  /**
+   * Возвращает результат: автосейв раньше игнорировал ответ сервера, поэтому 413/401/404
+   * выглядели как успех. Вызывающему нужно уметь отличить записалось от не записалось.
+   */
+  saveGame: () => Promise<{ ok: boolean; error?: string } | undefined>;
   saveGameManual: (saveName: string) => Promise<{ ok: boolean; save?: any; error?: string }>;
   getSavesList: () => Promise<{ ok: boolean; saves?: any[]; error?: string }>;
   loadGameFromSave: (saveId: number) => Promise<{ ok: boolean; error?: string }>;
   deleteSave: (saveId: number) => Promise<{ ok: boolean; error?: string }>;
+  /** Записывает текущее состояние поверх существующего слота (PUT /api/saves). */
+  overwriteSave: (saveId: number, saveName: string) => Promise<{ ok: boolean; save?: unknown; error?: string }>;
   selectTile: (pos: GridCoord | null) => void;
   setCameraPosition: (x: number, y: number, zoom: number) => void;
   expandGrid: (minWidth: number, minHeight: number) => void;
@@ -1195,6 +1220,8 @@ export interface GameState {
   maxUpgradeBuildingAt: (coord: GridCoord) => void;
   upgradeBuildingById: (buildingId: string, instanceId: string) => void;
   downgradeBuildingById: (buildingId: string, instanceId: string) => void;
+  // Building disable/enable (Phase 11). Переключает grid.tileDisabled[key] для тайла.
+  toggleBuildingDisabled: (coord: GridCoord) => void;
   // Random events system (Фаза 8.6)
   resolveEvent: (eventId: string, choiceId?: string) => void;
   dismissEvent: (eventId: string) => void;
@@ -1283,14 +1310,22 @@ export interface Achievement {
   icon: string; // Emoji icon
   // Requirements to unlock
   requirement: {
-    type: 'building_count' | 'resource_amount' | 'technology_count' | 'galaxy_count' 
+    type: 'building_count' | 'resource_amount' | 'technology_count' | 'galaxy_count'
          | 'ship_count' | 'combat_wins' | 'synergy_buildings' | 'zero_waste'
-         | 'energy_production' | 'credits_earned' | 'special';
-    target: number; // Target value to reach
+         | 'energy_production' | 'credits_earned' | 'special'
+         // 21 achievements in constants/achievements.ts already declare type:'custom' with an
+         // inline `check` predicate, but neither this union nor the checker knew about it — the
+         // switch in achievementsHelpers had no matching case and no default, so every one of
+         // them was permanently unobtainable.
+         | 'custom';
+    /** Not used by `custom` requirements, which carry their own predicate. */
+    target?: number; // Target value to reach
     specificBuilding?: BuildingType; // For building-specific achievements
     specificResource?: ResourceType; // For resource-specific achievements
     specificGalaxy?: GalaxyId; // For galaxy-specific achievements
-    customCheck?: string; // For complex custom checks
+    customCheck?: string; // For complex custom checks (string-keyed, see checkSpecialRequirement)
+    /** For type:'custom' — an arbitrary predicate over the live state. */
+    check?: (state: GameState) => boolean;
   };
   // Rewards
   reward?: {

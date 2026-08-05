@@ -15,9 +15,9 @@ function productionTone(p: Decimal | undefined) {
 /**
  * Подсчитывает количество зданий, производящих ресурс
  */
-function countProducingBuildings(buildings: Record<string, Building>, resource: ResourceType): number {
+function countProducingBuildings(buildings: Building[], resource: ResourceType): number {
   let count = 0;
-  for (const b of Object.values(buildings)) {
+  for (const b of buildings) {
     if (b.production && b.production[resource] && b.count > 0) {
       count += b.count;
     }
@@ -30,7 +30,9 @@ export function WarehousePopover(props: {
   onClose: () => void;
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   resources: Record<ResourceType, { amount: Decimal; max: Decimal; production: Decimal }>;
-  buildings: Record<string, Building>;
+  // В сторе buildings — массив; раньше проп был объявлен как Record и совпадал только
+  // потому, что Object.values() одинаково работает и с массивом.
+  buildings: Building[];
   isPinned: (id: ResourceType) => boolean;
   togglePin: (id: ResourceType) => void;
 }) {

@@ -1,15 +1,21 @@
 /**
  * ResourceDistribution Component
- * 
+ *
  * Распределение ресурсов (pie chart)
  */
 
-import React, { useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { PieChart as PieIcon } from 'lucide-react';
 import { useGameStore } from '../../../features/gameStore';
-import { PieChart, DonutChart } from './charts';
+import { DonutChart } from './charts';
+import { EmptyState, Panel } from '../../ui';
 import { D, formatNumber } from '../../../core/math/format';
-import { createResourceDistributionData, createEnergyConsumptionData } from '../../../utils/analyticsHelpers';
+import type { LabeledDataPoint } from '../../../core/gameTypes.analytics';
+import {
+  createResourceDistributionData,
+  createEnergyConsumptionData,
+} from '../../../utils/analyticsHelpers';
+import { distributionSignature } from './distributionSignature';
 
 type DistributionType = 'resources' | 'energy' | 'production';
 
@@ -17,63 +23,71 @@ interface ResourceDistributionProps {
   type?: DistributionType;
 }
 
-export function ResourceDistribution({ type = 'resources' }: ResourceDistributionProps) {
-  const resources = useGameStore(state => state.resources);
-  const buildings = useGameStore(state => state.buildings);
+type GameState = ReturnType<typeof useGameStore.getState>;
+
+function computeDistribution(state: GameState, type: DistributionType): LabeledDataPoint[] {
+  return type === 'energy'
+    ? createEnergyConsumptionData(state.buildings)
+    : createResourceDistributionData(state.resources, 8);
+}
+
+export const ResourceDistribution = memo(function ResourceDistribution({
+  type = 'resources',
+}: ResourceDistributionProps) {
+  /*
+   * Подписываемся на СТРОКУ-дайджест, а не на срез стора.
+   *
+   * Прежний код читал `state.resources` целиком. tick() возвращает новый объект
+   * resources 20 раз в секунду, поэтому Object.is всегда давал false и диаграмма
+   * пересобиралась на каждом тике, даже когда на экране не менялось ничего.
+   *
+   * Дайджест — обычная строка, она сравнивается по значению, так что перерисовка
+   * происходит ровно тогда, когда изменилось бы видимое содержимое.
+   */
+  const selectSignature = useCallback(
+    (state: GameState) => distributionSignature(computeDistribution(state, type)),
+    [type],
+  );
+
+  const signature = useGameStore(selectSignature);
 
   const { data, title, centerValue, centerLabel } = useMemo(() => {
-    if (type === 'energy') {
-      const energyData = createEnergyConsumptionData(buildings);
-      const totalEnergy = energyData.reduce((acc, item) => acc + D(item.value).toNumber(), 0);
-      
-      return {
-        data: energyData.map(item => ({
-          name: item.label,
-          value: D(item.value).toNumber(),
-          color: item.color,
-        })),
-        title: 'Потребление энергии',
-        centerValue: formatNumber(D(totalEnergy)),
-        centerLabel: 'Всего/с',
-      };
-    }
+    const entries = computeDistribution(useGameStore.getState(), type);
+    const total = entries.reduce((acc, item) => acc + D(item.value).toNumber(), 0);
 
-    const resourceData = createResourceDistributionData(resources, 8);
-    const totalResources = resourceData.reduce((acc, item) => acc + D(item.value).toNumber(), 0);
-    
-    return {
-      data: resourceData.map(item => ({
-        name: item.label.replace(/_/g, ' '),
-        value: D(item.value).toNumber(),
-        color: item.color,
-      })),
-      title: 'Распределение ресурсов',
-      centerValue: formatNumber(D(totalResources)),
-      centerLabel: 'Всего',
-    };
-  }, [type, resources, buildings]);
+    const mapped = entries.map(item => ({
+      name: type === 'energy' ? item.label : item.label.replace(/_/g, ' '),
+      value: D(item.value).toNumber(),
+      color: item.color,
+    }));
+
+    return type === 'energy'
+      ? {
+          data: mapped,
+          title: 'Потребление энергии',
+          centerValue: formatNumber(D(total)),
+          centerLabel: 'Всего/с',
+        }
+      : {
+          data: mapped,
+          title: 'Распределение ресурсов',
+          centerValue: formatNumber(D(total)),
+          centerLabel: 'Всего',
+        };
+    // signature — это и есть «содержимое изменилось»; сами данные читаем из getState().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, signature]);
 
   if (data.length === 0) {
     return (
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <PieIcon className="w-5 h-5 text-cyber-green-400" />
-          <h3 className="text-lg font-medium text-cyber-gray-200">{title}</h3>
-        </div>
-        <div className="flex items-center justify-center h-48">
-          <p className="text-cyber-gray-500">Нет данных для отображения</p>
-        </div>
-      </div>
+      <Panel title={title} icon={<PieIcon className="h-5 w-5" />}>
+        <EmptyState title="Нет данных для отображения" />
+      </Panel>
     );
   }
 
   return (
-    <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <PieIcon className="w-5 h-5 text-cyber-green-400" />
-        <h3 className="text-lg font-medium text-cyber-gray-200">{title}</h3>
-      </div>
-      
+    <Panel title={title} icon={<PieIcon className="h-5 w-5" />}>
       <DonutChart
         data={data}
         height={280}
@@ -85,25 +99,25 @@ export function ResourceDistribution({ type = 'resources' }: ResourceDistributio
       {/* Legend with values */}
       <div className="mt-4 grid grid-cols-2 gap-2">
         {data.slice(0, 8).map((item) => (
-          <div 
+          <div
             key={item.name}
-            className="flex items-center justify-between text-xs p-2 rounded bg-cyber-gray-900/50"
+            className="flex items-center justify-between rounded bg-cyber-gray-900/50 p-2 text-xs"
           >
             <div className="flex items-center gap-2">
-              <div 
-                className="w-2 h-2 rounded-full"
+              <div
+                className="h-2 w-2 rounded-full"
                 style={{ backgroundColor: item.color }}
               />
-              <span className="text-cyber-gray-300 capitalize truncate max-w-[80px]">
+              <span className="max-w-[80px] truncate capitalize text-cyber-gray-300">
                 {item.name}
               </span>
             </div>
-            <span className="text-cyber-gray-200 font-medium">
+            <span className="font-medium text-cyber-gray-200">
               {formatNumber(D(item.value))}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </Panel>
   );
-}
+});

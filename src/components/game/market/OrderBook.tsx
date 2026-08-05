@@ -9,15 +9,14 @@ import { TRADEABLE_RESOURCES, RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
 
 export function OrderBook() {
-  const {
-    orderBook,
-    selectedResource,
-    setSelectedResource,
-    fetchOrderBook,
-    isLoading,
-    setOrderFormPrice,
-    setOrderFormType,
-  } = useMarketStore();
+  // Узкие селекторы: книга перерисовывается только на своих данных.
+  const orderBook = useMarketStore((s) => s.orderBook);
+  const selectedResource = useMarketStore((s) => s.selectedResource);
+  const setSelectedResource = useMarketStore((s) => s.setSelectedResource);
+  const fetchOrderBook = useMarketStore((s) => s.fetchOrderBook);
+  const isLoading = useMarketStore((s) => s.isLoading);
+  const setOrderFormPrice = useMarketStore((s) => s.setOrderFormPrice);
+  const setOrderFormType = useMarketStore((s) => s.setOrderFormType);
 
   useEffect(() => {
     if (selectedResource) {

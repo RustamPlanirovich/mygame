@@ -1,4 +1,6 @@
-import { X, AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { useEffect } from 'react';
+import { AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { Modal } from '../ui';
 
 type DialogType = 'confirm' | 'alert' | 'warning' | 'success';
 
@@ -25,34 +27,48 @@ export const ConfirmDialog = ({
   onCancel,
   showCancel = true,
 }: ConfirmDialogProps) => {
+  // Это окно почти всегда всплывает поверх другого модального окна (менеджер
+  // сохранений, список игр). Modal слушает Escape на document, поэтому одно
+  // нажатие закрыло бы и подтверждение, и окно под ним. Здесь Escape
+  // перехватывается на window в фазе capture — до document он уже не доходит,
+  // и закрывается только верхний диалог. Тот же приём, что в
+  // components/admin/AdminPlayerDetail.tsx.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      onCancel();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isOpen, onCancel]);
+
   if (!isOpen) return null;
 
   const getTypeStyles = () => {
     switch (type) {
       case 'warning':
         return {
-          borderColor: 'border-yellow-500',
           iconColor: 'text-yellow-500',
           buttonColor: 'bg-yellow-600 hover:bg-yellow-500',
           Icon: AlertTriangle,
         };
       case 'success':
         return {
-          borderColor: 'border-green-500',
           iconColor: 'text-green-500',
           buttonColor: 'bg-green-600 hover:bg-green-500',
           Icon: CheckCircle,
         };
       case 'alert':
         return {
-          borderColor: 'border-red-500',
           iconColor: 'text-red-500',
           buttonColor: 'bg-red-600 hover:bg-red-500',
           Icon: AlertTriangle,
         };
       default:
         return {
-          borderColor: 'border-cyan-500',
           iconColor: 'text-cyan-500',
           buttonColor: 'bg-cyan-600 hover:bg-cyan-500',
           Icon: Info,
@@ -64,38 +80,18 @@ export const ConfirmDialog = ({
   const { Icon } = styles;
 
   return (
-    <div 
-      className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-    >
-      <div 
-        className={`bg-gray-900 border-2 ${styles.borderColor} rounded-lg max-w-md w-full shadow-xl animate-scale-in`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className={`flex items-center gap-3 p-4 border-b border-gray-700`}>
-          <Icon className={`w-6 h-6 ${styles.iconColor}`} />
-          <h3 className="text-lg font-bold text-white flex-1">{title}</h3>
-          <button
-            onClick={onCancel}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-4">
-          <p className="text-gray-300 whitespace-pre-wrap">{message}</p>
-        </div>
-
-        {/* Footer */}
-        <div className="flex gap-3 p-4 border-t border-gray-700 justify-end">
+    <Modal
+      open
+      onClose={onCancel}
+      title={title}
+      size="sm"
+      icon={<Icon className={`w-5 h-5 ${styles.iconColor}`} />}
+      footer={
+        <div className="flex gap-3 justify-end">
           {showCancel && (
             <button
               onClick={onCancel}
+              data-autofocus
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
             >
               {cancelText}
@@ -106,13 +102,18 @@ export const ConfirmDialog = ({
               onConfirm?.();
               onCancel();
             }}
+            data-autofocus={showCancel ? undefined : true}
             className={`px-4 py-2 ${styles.buttonColor} text-white rounded transition-colors`}
           >
             {confirmText}
           </button>
         </div>
+      }
+    >
+      <div className="p-4">
+        <p className="text-gray-300 whitespace-pre-wrap">{message}</p>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -171,7 +172,11 @@ export const useConfirmDialog = () => {
     />
   ), [dialogState.isOpen, dialogState.options, handleConfirm, handleCancel]);
 
-  return { confirm, DialogComponent };
+  /**
+   * Открыто ли подтверждение. Нужно окнам, которые сами перехватывают Escape
+   * для своих вложенных форм: пока висит подтверждение, Escape принадлежит ему.
+   */
+  return { confirm, DialogComponent, isConfirmOpen: dialogState.isOpen };
 };
 
 // Простой hook для отображения alert-уведомлений

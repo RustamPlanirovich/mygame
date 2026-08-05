@@ -4,6 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { Map, Lock, Star, Zap } from 'lucide-react';
+import { Modal, EmptyState } from '../ui';
 import { MAP_DEFINITIONS, getUnlockedMaps, getMapDefinition } from '../../core/constants/maps';
 import type { MapDefinition, MapDifficulty, MapSize, GridType } from '../../core/gameTypes.maps';
 import { DIFFICULTY_MULTIPLIERS } from '../../core/gameTypes.maps';
@@ -85,24 +86,37 @@ export function MapSelector({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div className="bg-cyber-darker border border-cyber-blue/30 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Заголовок */}
-        <div className="flex items-center justify-between p-4 border-b border-cyber-gray/30">
-          <div className="flex items-center gap-3">
-            <Map className="text-cyber-blue" size={24} />
-            <h2 className="text-xl font-bold text-cyber-text">Выбор карты</h2>
-          </div>
+    <Modal
+      open
+      onClose={onClose}
+      title="Выбор карты"
+      icon={<Map size={18} />}
+      size="xl"
+      footer={
+        <div className="flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="text-cyber-text-dim hover:text-cyber-text transition-colors text-2xl"
+            className="px-4 py-2 rounded bg-cyber-gray/20 text-cyber-text-dim hover:bg-cyber-gray/30 transition-colors"
           >
-            ×
+            Отмена
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!selectedMapId || !unlockedMapIds.has(selectedMapId!)}
+            className={`px-4 py-2 rounded font-medium transition-colors ${
+              selectedMapId && unlockedMapIds.has(selectedMapId)
+                ? 'bg-cyber-blue text-white hover:bg-cyber-blue/80'
+                : 'bg-cyber-gray/30 text-cyber-text-dim cursor-not-allowed'
+            }`}
+          >
+            {selectedMapId === currentMapId ? 'Перезапустить' : 'Начать игру'}
           </button>
         </div>
-
+      }
+    >
+      <div className="flex h-full min-h-0 flex-col">
         {/* Фильтры */}
-        <div className="flex gap-2 p-4 border-b border-cyber-gray/20">
+        <div className="flex shrink-0 gap-2 p-4 border-b border-cyber-gray/20">
           {(['all', 'unlocked', 'locked'] as const).map(f => (
             <button
               key={f}
@@ -122,7 +136,7 @@ export function MapSelector({
         </div>
 
         {/* Основной контент */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* Список карт */}
           <div className="w-1/2 overflow-y-auto p-4 border-r border-cyber-gray/20">
             <div className="grid gap-2">
@@ -185,35 +199,14 @@ export function MapSelector({
                 isCurrent={currentMapId === selectedMap.id}
               />
             ) : (
-              <div className="flex items-center justify-center h-full text-cyber-text-dim">
-                Выберите карту для просмотра
+              <div className="flex h-full items-center justify-center">
+                <EmptyState icon={<Map size={22} />} title="Выберите карту для просмотра" />
               </div>
             )}
           </div>
         </div>
-
-        {/* Кнопки действий */}
-        <div className="flex justify-end gap-3 p-4 border-t border-cyber-gray/30">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded bg-cyber-gray/20 text-cyber-text-dim hover:bg-cyber-gray/30 transition-colors"
-          >
-            Отмена
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selectedMapId || !unlockedMapIds.has(selectedMapId!)}
-            className={`px-4 py-2 rounded font-medium transition-colors ${
-              selectedMapId && unlockedMapIds.has(selectedMapId)
-                ? 'bg-cyber-blue text-white hover:bg-cyber-blue/80'
-                : 'bg-cyber-gray/30 text-cyber-text-dim cursor-not-allowed'
-            }`}
-          >
-            {selectedMapId === currentMapId ? 'Перезапустить' : 'Начать игру'}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

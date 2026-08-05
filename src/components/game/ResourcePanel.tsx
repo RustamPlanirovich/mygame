@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import type Decimal from 'break_eternity.js';
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber, D } from '../../core/math/format.ts';
 import { Zap, Box, Snowflake, Atom, Layers, Sparkles, PackageOpen } from 'lucide-react';
@@ -16,12 +15,6 @@ const ICON_BY_RESOURCE: Partial<Record<ResourceType, any>> = {
   steel: Layers,
   dark_matter: Sparkles,
 };
-
-function productionTone(p: Decimal) {
-  if (p.gt(0)) return 'text-cyber-green';
-  if (p.lt(0)) return 'text-cyber-red';
-  return 'text-cyber-text-dim';
-}
 
 export function ResourcePanel() {
   // Get resources from active platform or main base

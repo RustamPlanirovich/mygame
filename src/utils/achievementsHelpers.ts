@@ -1,5 +1,6 @@
 import type { GameState } from '../core/gameTypes';
 import { ACHIEVEMENTS, getAchievementById } from '../core/constants/achievements';
+import { DISABLEABLE_BUILDINGS } from '../core/constants/buildingCategories';
 
 /**
  * Проверяет все достижения и разблокирует те, что соответствуют условиям
@@ -8,7 +9,6 @@ import { ACHIEVEMENTS, getAchievementById } from '../core/constants/achievements
 export function checkAchievements(state: GameState): void {
   const { 
     achievements, 
-    buildings, 
     resources, 
     research,
     galaxies, 
@@ -20,9 +20,26 @@ export function checkAchievements(state: GameState): void {
 
   const technologies = research.technologies;
 
+  /*
+   * `state.buildings` is the SHOP CATALOGUE — 101 building definitions, always present. Using
+   * its length as "how many buildings has the player built" meant buildingCount was a constant
+   * 101, so "постройте 50 зданий" unlocked on a brand-new save. And counting one per definition
+   * made buildingCountByType always exactly 1, so every "постройте N зданий типа X" for N > 1
+   * could never unlock.
+   *
+   * Placed buildings live in grid.tiles (tileKey -> buildingId), which is what the tick uses.
+   */
+  const placedByType: Record<string, number> = {};
+  let placedTotal = 0;
+  for (const buildingId of Object.values(state.grid.tiles)) {
+    if (!buildingId) continue;
+    placedByType[buildingId] = (placedByType[buildingId] ?? 0) + 1;
+    placedTotal++;
+  }
+
   // Track statistics
   const stats = {
-    buildingCount: buildings.length,
+    buildingCount: placedTotal,
     totalTechnologies: Object.keys(technologies).filter(
       key => technologies[key as keyof typeof technologies]
     ).length,
@@ -39,10 +56,8 @@ export function checkAchievements(state: GameState): void {
     resourceAmounts: {} as Record<string, number>,
   };
 
-  // Count buildings by type
-  buildings.forEach(building => {
-    stats.buildingCountByType[building.id] = (stats.buildingCountByType[building.id] || 0) + 1;
-  });
+  // Counted from placed tiles above, not from the catalogue.
+  stats.buildingCountByType = placedByType;
 
   // Get resource amounts
   Object.keys(resources).forEach(resType => {
@@ -59,7 +74,11 @@ export function checkAchievements(state: GameState): void {
       return;
     }
 
-    const { type, target, specificBuilding, specificResource, customCheck } = achievement.requirement;
+    const { type, specificBuilding, specificResource, customCheck, check } = achievement.requirement;
+    // `target` is optional on the type because `custom` requirements carry their own predicate;
+    // every other branch compares against a number, so default it rather than compare to
+    // undefined (which is always false and would silently disable the achievement).
+    const target = achievement.requirement.target ?? 0;
     let isUnlocked = false;
 
     switch (type) {
@@ -103,14 +122,25 @@ export function checkAchievements(state: GameState): void {
         isUnlocked = false;
         break;
 
-      case 'zero_waste':
-        // Check if we have 50+ production buildings and 0 waste
-        const productionBuildings = buildings.filter(b => 
-          ['coal_mine', 'iron_mine', 'steel_factory', 'smelting_furnace', 
-           'gas_well', 'oil_well', 'refinery'].includes(b.id)
-        ).length;
+      case 'zero_waste': {
+        /*
+         * Здесь был захардкоженный список из семи id (coal_mine, iron_mine, steel_factory,
+         * smelting_furnace, gas_well, oil_well, refinery) — ни одного из них в каталоге нет,
+         * реальные id идут с суффиксом ревизии (miner_mk1, steel_smelter_mk1, ...). Вдобавок
+         * фильтровался каталог `buildings`, а не размещённые клетки, так что максимум давал 7
+         * при пороге 50 — достижение было недостижимо дважды.
+         *
+         * DISABLEABLE_BUILDINGS — это ровно набор добывающих + производственных зданий
+         * (энергетика, склады, оборона и лаборатории туда сознательно не входят), он уже
+         * поддерживается в buildingCategories.ts, поэтому список не разъедется снова.
+         */
+        let productionBuildings = 0;
+        for (const buildingId of Object.values(state.grid.tiles)) {
+          if (buildingId && DISABLEABLE_BUILDINGS.has(buildingId)) productionBuildings++;
+        }
         isUnlocked = productionBuildings >= target && pollution.wasteAmount.eq(0);
         break;
+      }
 
       case 'combat_wins':
         // TODO: Track combat wins in game state
@@ -122,6 +152,34 @@ export function checkAchievements(state: GameState): void {
         // Handle special custom checks
         isUnlocked = checkSpecialRequirement(state, customCheck || '', target);
         break;
+
+      case 'custom':
+        /*
+         * The 21 achievements that declare an inline predicate. Previously this case did not
+         * exist and the switch had no default, so isUnlocked stayed false forever.
+         *
+         * The predicates read optional slices (state.repeatableResearch, state.artifacts, ...)
+         * and are authored data, so a throw here must not take down the whole tick — the
+         * achievement check runs inside the game loop.
+         */
+        if (typeof check === 'function') {
+          try {
+            isUnlocked = check(state) === true;
+          } catch (e) {
+            console.warn(`[achievements] predicate for "${achievement.id}" threw:`, e);
+            isUnlocked = false;
+          }
+        }
+        break;
+
+      default: {
+        // Exhaustiveness guard: a new requirement type added to the union without a case here
+        // would otherwise silently make its achievements unobtainable, which is exactly how
+        // 'custom' went unnoticed.
+        const unhandled: never = type;
+        console.warn('[achievements] unhandled requirement type:', unhandled);
+        break;
+      }
     }
 
     if (isUnlocked) {
@@ -135,7 +193,7 @@ export function checkAchievements(state: GameState): void {
  * Handle special custom achievement checks
  */
 function checkSpecialRequirement(state: GameState, customCheck: string, target: number): boolean {
-  const { buildings, galaxies, politics, grid } = state;
+  const { galaxies, politics, grid } = state;
   const technologies = state.research.technologies;
 
   switch (customCheck) {
@@ -151,11 +209,16 @@ function checkSpecialRequirement(state: GameState, customCheck: string, target: 
       // TODO: Track boss kills in game state
       return false;
 
-    case 'defense_turret_count':
-      const turretCount = buildings.filter(b => 
-        b.id === 'defense_turret_v1' || b.id === 'defense_turret_v2'
-      ).length;
+    case 'defense_turret_count': {
+      // Турели в каталоге называются defense_turret_mk1/mk2, а не ..._v1/..._v2 (v1/v2 — только
+      // в отображаемых названиях «Защитная Турель v1/v2»). И считать надо размещённые клетки:
+      // фильтр по каталогу давал максимум 2 при пороге 20.
+      let turretCount = 0;
+      for (const buildingId of Object.values(grid.tiles)) {
+        if (buildingId === 'defense_turret_mk1' || buildingId === 'defense_turret_mk2') turretCount++;
+      }
       return turretCount >= target;
+    }
 
     case 'attacks_defended':
       // TODO: Track successful defenses in game state
@@ -173,9 +236,9 @@ function checkSpecialRequirement(state: GameState, customCheck: string, target: 
       return politics.activePolicies.length >= target;
 
     case 'has_quantum_tech':
-      // Check if any quantum-related tech is researched
-      return (technologies['quantum_technologies' as keyof typeof technologies] || 
-              technologies['quantum_computing' as keyof typeof technologies]) || false;
+      // В дереве нет ни 'quantum_technologies', ни 'quantum_computing' (последнее — id политики,
+      // а не технологии). Настоящие квантовые узлы — quantum_tech и quantum_teleport.
+      return (technologies['quantum_tech'] || technologies['quantum_teleport']) || false;
 
     case 'rare_event_reward':
       // TODO: Track rare event rewards

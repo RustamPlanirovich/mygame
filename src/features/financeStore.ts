@@ -41,6 +41,7 @@ import {
   calculateEarlyPayoff,
 } from '../utils/loanCalculator';
 import { D } from '../core/math/format';
+import { getServerStockPrices } from '../utils/marketApi';
 
 // ==========================================
 // ТИПЫ STORE
@@ -72,6 +73,8 @@ interface FinanceStore extends FinanceState {
   buyStock: (stockId: string, shares: Decimal) => { success: boolean; error?: string };
   sellStock: (stockId: string, shares: Decimal) => { success: boolean; profit: Decimal; error?: string };
   updateStockPrices: () => void;
+  /** Забрать авторитетные цены акций с сервера (единые для всех игроков) */
+  syncStockPricesFromServer: () => Promise<boolean>;
   processDividends: () => void;
   
   // Фонды
@@ -79,8 +82,10 @@ interface FinanceStore extends FinanceState {
   withdrawFromFund: (fundId: string, shares: Decimal) => { success: boolean; profit: Decimal; error?: string };
   updateFundPrices: () => void;
   
-  // Обновление финансов (вызывается из game loop)
-  updateFinance: (deltaMs: number) => void;
+  // Обновление финансов (вызывается из game loop).
+  // Без параметров: реализация и все её подшаги (проценты, цены, кредиты, дивиденды)
+  // сами берут Date.now(), поэтому объявленный когда-то deltaMs никто не передавал.
+  updateFinance: () => void;
   
   // Утилиты
   recalculateNetWorth: (creditsBalance: Decimal) => void;
@@ -90,6 +95,33 @@ interface FinanceStore extends FinanceState {
   
   // Сброс
   resetFinance: () => void;
+}
+
+// ==========================================
+// СИНХРОНИЗАЦИЯ ЦЕН С СЕРВЕРОМ
+// ==========================================
+
+/**
+ * Цены акций считает сервер (server/market-sim) — это единственный источник правды.
+ * Раньше каждый клиент крутил свой Math.random() в stockSimulator, и 100 игроков
+ * видели 100 разных цен одной бумаги.
+ *
+ * Локальная симуляция остаётся ОФЛАЙН-режимом: она работает, только если сервер
+ * недоступен (или ещё ни разу не ответил).
+ *
+ * Эти поля намеренно живут вне store: они не должны попадать в persist.
+ */
+let lastServerSyncAt = 0;
+let lastServerSyncAttemptAt = 0;
+let serverAuthoritative = false;
+
+/** Как долго доверяем последнему ответу сервера, прежде чем считать себя офлайн. */
+const SERVER_TRUST_MS = 3 * FINANCE_CONFIG.STOCK_UPDATE_INTERVAL_MS;
+/** Не чаще одной попытки в минуту (сервер всё равно двигает цены раз в 5 минут). */
+const SERVER_SYNC_THROTTLE_MS = 60 * 1000;
+
+export function isStockPriceSourceServer(): boolean {
+  return serverAuthoritative && Date.now() - lastServerSyncAt < SERVER_TRUST_MS;
 }
 
 // ==========================================
@@ -631,6 +663,12 @@ export const useFinanceStore = create<FinanceStore>()(
           return;
         }
         
+        // Пока сервер отвечает, его цены — истина: локальный случайный шаг НЕ делаем,
+        // иначе цены снова разъедутся между игроками.
+        if (isStockPriceSourceServer()) {
+          return;
+        }
+        
         let stocks = updateAllStockPrices(state.stocks);
         
         // Проверяем на случайные события
@@ -667,6 +705,79 @@ export const useFinanceStore = create<FinanceStore>()(
           lastStockUpdate: now,
           marketEvents: newEvents,
         });
+      },
+      
+      syncStockPricesFromServer: async () => {
+        const now = Date.now();
+        if (now - lastServerSyncAttemptAt < SERVER_SYNC_THROTTLE_MS) {
+          return serverAuthoritative;
+        }
+        lastServerSyncAttemptAt = now;
+        
+        try {
+          const response = await getServerStockPrices();
+          
+          // Флаг authoritative — «разрешение» принимать серверные цены.
+          if (!response?.ok || !response.authoritative || !Array.isArray(response.stocks)) {
+            serverAuthoritative = false;
+            return false;
+          }
+          
+          const quotes = new Map(response.stocks.map((q) => [q.id, q]));
+          const state = get();
+          
+          const stocks = state.stocks.map((stock) => {
+            const q = quotes.get(stock.id);
+            if (!q || !(q.currentPrice > 0)) return stock;
+            
+            const priceStr = String(q.currentPrice);
+            const history = [...stock.priceHistory];
+            const last = history[history.length - 1];
+            if (!last || last.value !== priceStr) {
+              history.push({ timestamp: response.timeMs ?? now, value: priceStr });
+              if (history.length > FINANCE_CONFIG.MAX_PRICE_HISTORY_POINTS) {
+                history.shift();
+              }
+            }
+            
+            return {
+              ...stock,
+              currentPrice: priceStr,
+              previousClose: String(q.previousClose),
+              dayChange: q.dayChange,
+              volume: String(q.volume),
+              dividendYield: q.dividendYield,
+              priceHistory: history,
+            };
+          });
+          
+          // Позиции пересчитываем по тем же серверным ценам
+          const positions = state.positions.map((position) => {
+            const stock = stocks.find((s) => s.id === position.stockId);
+            if (!stock) return position;
+            
+            const currentValue = D(position.shares).mul(D(stock.currentPrice));
+            const invested = D(position.totalInvested);
+            const unrealizedPnL = currentValue.sub(invested);
+            
+            return {
+              ...position,
+              currentValue: currentValue.toString(),
+              unrealizedPnL: unrealizedPnL.toString(),
+              unrealizedPnLPercent: invested.gt(0) ? unrealizedPnL.div(invested).mul(100).toNumber() : 0,
+            };
+          });
+          
+          lastServerSyncAt = now;
+          serverAuthoritative = true;
+          set({ stocks, positions, lastStockUpdate: now });
+          return true;
+        } catch (error) {
+          // Сервер недоступен -> остаёмся на локальной симуляции (офлайн-режим)
+          console.warn('[finance] не удалось получить цены с сервера, работаем офлайн:', error);
+          serverAuthoritative = false;
+          return false;
+        }
       },
       
       processDividends: () => {
@@ -898,7 +1009,10 @@ export const useFinanceStore = create<FinanceStore>()(
         // Проценты на сбережения
         state.processInterest();
         
-        // Обновление цен акций
+        // Авторитетные цены с сервера (сама себя троттлит, не блокирует тик)
+        void state.syncStockPricesFromServer();
+        
+        // Обновление цен акций (локальная симуляция — только когда сервер недоступен)
         state.updateStockPrices();
         
         // Обновление NAV фондов
@@ -1032,3 +1146,90 @@ export const useFinanceStore = create<FinanceStore>()(
     }
   )
 );
+
+// ============================================================================
+// Серверное сохранение
+// ============================================================================
+
+/**
+ * Снимок финансов для серверного сейва.
+ *
+ * Финансы хранились ТОЛЬКО в localStorage (`finance-storage`) и не попадали в серверный
+ * сейв вообще. При этом AuthForm вызывает clearAllUserData() при каждом входе и
+ * регистрации, а она удаляет именно этот ключ — то есть банковский счёт, вклады,
+ * портфель акций, кредиты и кредитный рейтинг уничтожались при каждом логине, и на
+ * другом устройстве их не было никогда.
+ *
+ * Набор полей совпадает с `partialize` выше: это и есть «то, что имеет смысл хранить».
+ * Все значения там уже строки/числа (balance: string, netWorth: string, creditScore:
+ * number), поэтому payload JSON-безопасен без конвертации Decimal.
+ *
+ * Намеренно НЕ сохраняются `stocks`, `funds` и `marketEvents`: цены на акции теперь
+ * серверные (см. syncStockPricesFromServer), и сохранённый снимок цен при загрузке
+ * конфликтовал бы с авторитетными. Они пересоздаются из констант.
+ */
+export function serializeFinance(): Record<string, unknown> {
+  const s = useFinanceStore.getState();
+  return {
+    bank: s.bank,
+    loans: s.loans,
+    maxLoanCapacity: s.maxLoanCapacity,
+    creditScore: s.creditScore,
+    creditScoreHistory: s.creditScoreHistory,
+    positions: s.positions,
+    stockTransactions: s.stockTransactions.slice(-100),
+    fundInvestments: s.fundInvestments,
+    netWorth: s.netWorth,
+    liquidAssets: s.liquidAssets,
+    totalDebt: s.totalDebt,
+    netWorthHistory: s.netWorthHistory,
+    lastStockUpdate: s.lastStockUpdate,
+    lastDividendPayout: s.lastDividendPayout,
+    stats: s.stats,
+  };
+}
+
+/**
+ * Восстановление финансов из серверного сейва.
+ *
+ * Total by construction: любое отсутствующее или битое поле берётся из
+ * INITIAL_FINANCE_STATE, поэтому старый сейв (без секции finance) и повреждённый сейв
+ * дают играбельное состояние, а не падение при первом `.add()`.
+ */
+export function hydrateFinance(raw: unknown): void {
+  const store = useFinanceStore.getState();
+
+  // Нет секции finance — старый сейв. Ничего не трогаем: в памяти уже либо начальное
+  // состояние, либо то, что успело подняться из localStorage.
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+
+  const r = raw as Record<string, unknown>;
+  const isObj = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const arr = <T>(v: unknown, fallback: T[]): T[] => (Array.isArray(v) ? (v as T[]) : fallback);
+  const str = (v: unknown, fallback: string) => (typeof v === 'string' ? v : fallback);
+  const num = (v: unknown, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+
+  useFinanceStore.setState({
+    bank: isObj(r.bank) ? { ...INITIAL_FINANCE_STATE.bank, ...(r.bank as object) } : INITIAL_FINANCE_STATE.bank,
+    loans: arr(r.loans, INITIAL_FINANCE_STATE.loans),
+    maxLoanCapacity: str(r.maxLoanCapacity, INITIAL_FINANCE_STATE.maxLoanCapacity),
+    creditScore: num(r.creditScore, INITIAL_FINANCE_STATE.creditScore),
+    creditScoreHistory: arr(r.creditScoreHistory, INITIAL_FINANCE_STATE.creditScoreHistory),
+    positions: arr(r.positions, INITIAL_FINANCE_STATE.positions),
+    stockTransactions: arr(r.stockTransactions, INITIAL_FINANCE_STATE.stockTransactions),
+    fundInvestments: arr(r.fundInvestments, INITIAL_FINANCE_STATE.fundInvestments),
+    netWorth: str(r.netWorth, INITIAL_FINANCE_STATE.netWorth),
+    liquidAssets: str(r.liquidAssets, INITIAL_FINANCE_STATE.liquidAssets),
+    totalDebt: str(r.totalDebt, INITIAL_FINANCE_STATE.totalDebt),
+    netWorthHistory: arr(r.netWorthHistory, INITIAL_FINANCE_STATE.netWorthHistory),
+    lastStockUpdate: num(r.lastStockUpdate, INITIAL_FINANCE_STATE.lastStockUpdate),
+    lastDividendPayout: num(r.lastDividendPayout, INITIAL_FINANCE_STATE.lastDividendPayout),
+    stats: isObj(r.stats)
+      ? { ...INITIAL_FINANCE_STATE.stats, ...(r.stats as object) }
+      : INITIAL_FINANCE_STATE.stats,
+  } as never);
+
+  // Каталоги акций/фондов не сохраняются — если их ещё нет, поднимаем из констант.
+  if (store.stocks.length === 0) store.initializeFinance();
+}

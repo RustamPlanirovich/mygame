@@ -13,6 +13,7 @@ import type {
   ProductionChainAnalysis,
   ResourceState
 } from '../core/gameTypes';
+import { RESOURCE_LABEL } from '../core/constants/labels';
 
 // ============================================================================
 // Production Chain Analysis
@@ -316,15 +317,9 @@ function generateSuggestions(
  * Получает читаемое название ресурса
  */
 function getResourceName(resource: ResourceType): string {
-  const names: Record<ResourceType, string> = {
-    ore: 'Руда',
-    ice: 'Лёд',
-    carbon: 'Углерод',
-    steel: 'Сталь',
-    energy: 'Энергия',
-    robot: 'Роботы',
-  };
-  return names[resource] || resource;
+  // Локальная таблица покрывала 6 ресурсов из 73, остальные подсказки печатались
+  // английским id ("natural_gas"). RESOURCE_LABEL — канонический полный словарь.
+  return RESOURCE_LABEL[resource] || resource;
 }
 
 /**

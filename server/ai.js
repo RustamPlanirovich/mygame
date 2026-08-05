@@ -10,6 +10,7 @@ import {
   getFallbackMarketPrediction,
   getFallbackDividends,
   getFallbackRecommendations,
+  getOracleSourceStatus,
   UPDATE_INTERVAL_MS,
 } from './ai-oracle.js';
 
@@ -37,13 +38,13 @@ export function createAIRoutes(app, pool, authMiddleware) {
         });
       }
       
-      // Fallback если в БД нет данных
+      // Нет данных в БД - отдаём результат локального генератора (source: 'local')
       const prediction = getFallbackMarketPrediction();
-      res.json({ ok: true, prediction, source: 'fallback' });
+      res.json({ ok: true, prediction, source: prediction.source || 'fallback' });
     } catch (e) {
       console.error('Error in market prediction:', e);
       const prediction = getFallbackMarketPrediction();
-      res.json({ ok: true, prediction, source: 'fallback' });
+      res.json({ ok: true, prediction, source: prediction.source || 'fallback' });
     }
   });
 
@@ -74,7 +75,7 @@ export function createAIRoutes(app, pool, authMiddleware) {
         });
       }
       
-      // Fallback
+      // Нет данных в БД - локальный генератор
       const fallback = getFallbackRecommendations();
       const recommendations = adaptRecommendationsForPlayer(
         fallback,
@@ -87,7 +88,7 @@ export function createAIRoutes(app, pool, authMiddleware) {
         ok: true,
         recommendations,
         arbitrageOpportunity: { exists: false },
-        source: 'fallback',
+        source: fallback.source || 'fallback',
       });
     } catch (e) {
       console.error('Error in advisor recommendations:', e);
@@ -116,13 +117,13 @@ export function createAIRoutes(app, pool, authMiddleware) {
         });
       }
       
-      // Fallback
+      // Нет данных в БД - локальный генератор
       const fallback = getFallbackDividends();
-      res.json({ ok: true, ...fallback, source: 'fallback' });
+      res.json({ ok: true, ...fallback, source: fallback.source || 'fallback' });
     } catch (e) {
       console.error('Error getting dividends:', e);
       const fallback = getFallbackDividends();
-      res.json({ ok: true, ...fallback, source: 'fallback' });
+      res.json({ ok: true, ...fallback, source: fallback.source || 'fallback' });
     }
   });
 
@@ -133,8 +134,9 @@ export function createAIRoutes(app, pool, authMiddleware) {
       
       // Проверяем статус Oracle
       const oracleResult = await pool.query(
-        `SELECT data_type, generated_at, expires_at, 
-                CASE WHEN expires_at > NOW() THEN true ELSE false END as is_valid
+        `SELECT data_type, generated_at, expires_at,
+                CASE WHEN expires_at > NOW() THEN true ELSE false END as is_valid,
+                data->>'source' AS source
          FROM ai_oracle_data`
       );
       
@@ -143,10 +145,12 @@ export function createAIRoutes(app, pool, authMiddleware) {
           generatedAt: row.generated_at,
           expiresAt: row.expires_at,
           isValid: row.is_valid,
+          // Провенанс каждого документа: 'ai' | 'local' | 'fallback'
+          source: row.source || 'unknown',
         };
         return acc;
       }, {});
-      
+
       // Получаем статистику запросов за последний час
       const statsResult = await pool.query(
         `SELECT 
@@ -157,21 +161,35 @@ export function createAIRoutes(app, pool, authMiddleware) {
          WHERE created_at > NOW() - INTERVAL '1 hour'`
       );
       
+      const sourceStatus = getOracleSourceStatus();
+
       res.json({
         ok: true,
         aiEnabled: hasApiKey,
         model: AI_CONFIG.model,
         updateIntervalMinutes: UPDATE_INTERVAL_MS / 1000 / 60,
+        // Какой источник реально активен: 'ai' (DeepSeek) | 'local' (квант-симуляция) | 'fallback'
+        activeSource: sourceStatus.activeSource,
+        sources: sourceStatus.perType,
+        deepseekConfigured: sourceStatus.deepseekConfigured,
+        localGenerator: sourceStatus.localGenerator,
+        lastCycleAt: sourceStatus.lastCycleAt,
+        cycleRunning: sourceStatus.isRunning,
         oracle: oracleStatus,
         lastHourStats: statsResult.rows[0] || {},
       });
     } catch (e) {
       console.error('Error getting AI status:', e);
+      const sourceStatus = getOracleSourceStatus();
       res.json({
         ok: true,
         aiEnabled: !!process.env.DEEPSEEK_API_KEY,
         model: AI_CONFIG.model,
         updateIntervalMinutes: UPDATE_INTERVAL_MS / 1000 / 60,
+        activeSource: sourceStatus.activeSource,
+        sources: sourceStatus.perType,
+        deepseekConfigured: sourceStatus.deepseekConfigured,
+        localGenerator: sourceStatus.localGenerator,
       });
     }
   });

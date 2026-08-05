@@ -1,36 +1,45 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
-import './utils/testCommands'; // Загрузить тестовые команды для dev режима
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import './index.css';
+import App from './App.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import './utils/testCommands'; // Тестовые команды для dev режима
 
-// Error boundary for startup
-try {
-  const rootElement = document.getElementById('root');
-  if (!rootElement) throw new Error("Root element not found");
+/*
+ * The global error/unhandledrejection surface lives in index.html so it is armed before
+ * this bundle evaluates. It used to be duplicated here, appending an unbounded stack of
+ * red <div>s to <body> — one per error, forever — which meant a per-tick error grew
+ * thousands of DOM nodes and pushed the game off screen. That handler is gone; errors are
+ * reported once, deduped, dev-only.
+ */
 
-  createRoot(rootElement).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  )
-} catch (e) {
-  console.error("Startup Error:", e);
-  document.body.innerHTML = `<div style="color: red; padding: 20px; font-family: monospace;">
-    <h1>Startup Error</h1>
-    <pre>${e instanceof Error ? e.message + '\n' + e.stack : String(e)}</pre>
-  </div>`
+function hideBootSplash() {
+  const splash = document.getElementById('boot-splash');
+  if (!splash) return;
+  splash.style.opacity = '0';
+  window.setTimeout(() => splash.remove(), 320);
 }
 
-// Global error handler
-window.addEventListener('error', (event) => {
-  const message = String(event.message ?? '');
-  // Chrome иногда репортит это как error event с null error. Это не критично и не должно ломать UI.
-  if (message.includes('ResizeObserver loop completed')) return;
+const rootElement = document.getElementById('root');
 
-  console.error("Runtime Error:", event.error ?? message);
-  const errorDiv = document.createElement('div');
-  errorDiv.style.cssText = "color: red; padding: 20px; border-top: 1px solid #333; font-family: monospace; background: #111; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;";
-  errorDiv.innerHTML = `<h3>Runtime Error</h3><pre>${message}</pre>`;
-  document.body.appendChild(errorDiv);
-});
+if (!rootElement) {
+  // Nothing to mount into: report without touching document.body.innerHTML, which would
+  // destroy anything already rendered.
+  const msg = document.createElement('pre');
+  msg.style.cssText = 'color:#ff647f;padding:20px;font:12px ui-monospace,monospace';
+  msg.textContent = 'Root element #root not found — не удалось запустить приложение.';
+  document.body.appendChild(msg);
+  hideBootSplash();
+} else {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary label="Приложение">
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+
+  // Two frames after mount the first paint has landed, so removing the splash cannot
+  // expose an unpainted root.
+  requestAnimationFrame(() => requestAnimationFrame(hideBootSplash));
+}

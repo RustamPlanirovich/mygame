@@ -26,6 +26,7 @@ export const BUILDING_EMOJI: Record<string, string> = {
   solar_panel_mk1: '☀️',
   gas_power_plant_mk1: '⚡',
   fuel_power_plant_mk1: '🔥',
+  nuclear_power_plant: '☢️',
   energy_storage_mk1: '🔋',
   // Фаза 2.3: Металлические шахты
   uranium_mine_mk1: '☢️',

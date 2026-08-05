@@ -9,12 +9,11 @@ import { RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
 
 export function TradeHistory() {
-  const {
-    tradeHistory,
-    tradeHistoryTotal,
-    fetchTradeHistory,
-    isLoading,
-  } = useMarketStore();
+  // Узкие селекторы вместо подписки на весь стор.
+  const tradeHistory = useMarketStore((s) => s.tradeHistory);
+  const tradeHistoryTotal = useMarketStore((s) => s.tradeHistoryTotal);
+  const fetchTradeHistory = useMarketStore((s) => s.fetchTradeHistory);
+  const isLoading = useMarketStore((s) => s.isLoading);
 
   useEffect(() => {
     fetchTradeHistory();

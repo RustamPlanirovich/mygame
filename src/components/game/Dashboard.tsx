@@ -4,7 +4,8 @@ import { TECHNOLOGIES } from '../../core/constants/technologies';
 import { ACHIEVEMENTS } from '../../core/constants/achievements';
 import { GALAXIES } from '../../core/constants/galaxies';
 import { getMapDefinition } from '../../core/constants/maps';
-import { UserCircle, Clock, Map } from 'lucide-react';
+// Плашка карты рисуется эмодзи из MapDefinition, поэтому иконка Map из lucide не нужна.
+import { UserCircle, Clock } from 'lucide-react';
 
 // Форматирование времени игры
 function formatPlaytime(totalSeconds: number): string {
@@ -23,7 +24,6 @@ interface DashboardProps {
 
 export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
   const buildings = useGameStore(state => state.buildings);
-  const grid = useGameStore(state => state.grid);
   const research = useGameStore(state => state.research);
   const fleet = useGameStore(state => state.fleet);
   const galaxies = useGameStore(state => state.galaxies);
@@ -51,8 +51,7 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
 
   // Подсчет статистики
   const totalBuildings = buildings.reduce((sum, b) => sum + b.count, 0);
-  const totalTileCount = Object.keys(grid.tiles).length;
-  
+
   const unlockedTech = Object.values(research.technologies).filter(Boolean).length;
   const totalTech = Object.keys(TECHNOLOGIES).length;
   

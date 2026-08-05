@@ -10,18 +10,16 @@ import Decimal from 'break_eternity.js';
 import type { ResourceType, Building, ResourceState } from '../core/gameTypes';
 import type {
   AnalyticsState,
-  ProductionHistory,
-  Bottleneck,
   ResourceLoss,
-  BuildingROI,
   DataPoint,
   TimeRange,
   ChartType,
   ChartSettings,
   LossReason,
-  ANALYTICS_CONFIG,
 } from '../core/gameTypes.analytics';
-import { getDefaultAnalyticsState } from '../core/gameTypes.analytics';
+// ANALYTICS_CONFIG — const, а не тип: он стоял в `import type`, поэтому реального
+// импорта не возникало и лимиты хранения дублировались литералами по месту.
+import { getDefaultAnalyticsState, ANALYTICS_CONFIG } from '../core/gameTypes.analytics';
 import { D } from '../core/math/format';
 import {
   updateProductionHistory,
@@ -102,8 +100,7 @@ export const useAnalyticsStore = create<AnalyticsStoreState>()(
         const now = Date.now();
         
         // Проверяем интервал сбора (5 минут)
-        const COLLECTION_INTERVAL = 5 * 60 * 1000;
-        if (now - state.lastCollected < COLLECTION_INTERVAL) {
+        if (now - state.lastCollected < ANALYTICS_CONFIG.COLLECTION_INTERVAL_MS) {
           return;
         }
         
@@ -126,10 +123,17 @@ export const useAnalyticsStore = create<AnalyticsStoreState>()(
         
         // Рассчитываем эффективность
         const energyProd = calculateResourceProduction(buildings, 'energy');
+        // Расход энергии складывается из пассивного energyConsumption и активного
+        // consumption.energy — так же, как это считает tick в gameStore. Раньше здесь
+        // читались `upkeep`/`inputs`, которых нет ни в типе, ни в определениях зданий,
+        // поэтому расход всегда выходил нулевым и энергоэффективность вечно была 100%.
+        // Отключённые здания (grid.tileDisabled) на этом уровне не видны: сюда приходит
+        // только Building[] с суммарным count, без привязки к тайлам.
         const energyCons = buildings.reduce((acc, b) => {
-          if (b.count === 0 || b.disabled) return acc;
-          const upkeep = b.upkeep?.energy || b.inputs?.energy || D(0);
-          return acc.add(upkeep.mul(b.count));
+          if (b.count === 0) return acc;
+          const passive = b.energyConsumption ? D(b.energyConsumption) : D(0);
+          const active = b.consumption?.energy ? D(b.consumption.energy) : D(0);
+          return acc.add(passive.add(active).mul(b.count));
         }, D(0));
         
         const productionEfficiency = 100; // Упрощённо
@@ -224,7 +228,7 @@ export const useAnalyticsStore = create<AnalyticsStoreState>()(
             timestamp: Date.now(),
             value: newTotal.sub(D(state.totalCreditsSpent)).toString(),
           },
-        ].slice(-288); // Последние 24 часа
+        ].slice(-ANALYTICS_CONFIG.MAX_DATA_POINTS); // Последние 24 часа
         
         set({ 
           totalCreditsEarned: newTotal.toString(),
@@ -243,7 +247,7 @@ export const useAnalyticsStore = create<AnalyticsStoreState>()(
             timestamp: Date.now(),
             value: D(state.totalCreditsEarned).sub(newTotal).toString(),
           },
-        ].slice(-288);
+        ].slice(-ANALYTICS_CONFIG.MAX_DATA_POINTS);
         
         set({ 
           totalCreditsSpent: newTotal.toString(),

@@ -6,13 +6,32 @@ import { fileURLToPath } from 'url';
 dotenv.config();
 
 const { initDb, pool } = await import('./db.js');
-import { createMarketRoutes, initMarketTables } from './market.js';
+import {
+  createMarketRoutes,
+  initMarketTables,
+  startMarketMaintenance,
+  stopMarketMaintenance,
+} from './market.js';
 import { createGuildRoutes } from './guilds.js';
-import { createSyncRoutes, initSyncTables, cleanupExpiredBackups } from './sync.js';
 import { createAIRoutes } from './ai.js';
-import { startAIOracle } from './ai-oracle.js';
+import { startAIOracle, stopAIOracle } from './ai-oracle.js';
+import { startMarketSim, stopMarketSim, createMarketSimRoutes } from './market-sim/index.js';
 import { createP2PLendingRoutes, initP2PLendingTables } from './p2p-lending.js';
 import { createOfflineTradingRoutes, initOfflineTradingTables } from './offline-trading.js';
+import { createAdminRoutes, initAdminTables, bootstrapRoleForEmail } from './admin.js';
+import {
+  compression,
+  rateLimit,
+  securityHeaders,
+  requestTimeout,
+  LIMITS,
+} from './http-middleware.js';
+import {
+  encodePasswordForStorage,
+  verifyPassword,
+  getDummyStoredHash,
+  warnIfLegacyPasswordMode,
+} from './auth-password.js';
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -21,7 +40,47 @@ const isProduction = process.env.NODE_ENV === 'production';
 const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+
+/*
+ * Behind a reverse proxy (nginx/Caddy in the DEPLOY_DEBIAN.md setup) req.ip is the proxy's
+ * address unless this is set — which would put all 100 players into a single rate-limit bucket
+ * and log one IP for every session. Off by default so a direct-to-node deploy is not spoofable
+ * via a forged X-Forwarded-For.
+ */
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : process.env.TRUST_PROXY);
+}
+
+// Cheap and unconditional: security headers, a hard request deadline, and response compression.
+app.use(securityHeaders({ isProduction }));
+app.use(requestTimeout(Number(process.env.REQUEST_TIMEOUT_MS ?? 30_000)));
+/*
+ * Compression matters here more than usual: a save blob is multi-megabyte JSON that every
+ * player downloads on load and uploads every 30s. Registered before express.json so it wraps
+ * the response of every route below.
+ */
+app.use(compression());
+
+// Save blobs are the whole game state (grid, buffers, per-tile settings, price history) and
+// routinely exceed 1mb on a developed base. The previous 1mb cap made express reject those
+// requests with 413 — and gameStore.saveGame() never checked the response, so autosave failed
+// silently and the player lost everything since the last small-enough save.
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT ?? '24mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+// Surface a payload that is too large as a JSON error the client can act on, instead of
+// express's default HTML error page.
+app.use((err, _req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    res.status(413).json({ ok: false, error: 'PAYLOAD_TOO_LARGE', limit: JSON_BODY_LIMIT });
+    return;
+  }
+  if (err instanceof SyntaxError && 'body' in err) {
+    res.status(400).json({ ok: false, error: 'INVALID_JSON' });
+    return;
+  }
+  next(err);
+});
 
 // CORS is only needed when the frontend is hosted on another origin. In
 // production Express serves the frontend and API from the same origin.
@@ -51,6 +110,13 @@ app.use((req, res, next) => {
   
   next();
 });
+
+/*
+ * Blanket limiter for every /api route. The per-route limiters above are tighter where abuse is
+ * cheap (password guessing, save writes); this one is the backstop against a client stuck in a
+ * request loop taking the server down for everyone. Static assets are unaffected.
+ */
+app.use('/api', rateLimit(LIMITS.general));
 
 // Утилита для генерации токена
 function generateToken() {
@@ -85,28 +151,69 @@ const authMiddleware = async (req, res, next) => {
   }
   
   const token = authHeader.substring(7);
-  
+
   try {
-    // Проверяем токен и получаем пользователя
+    // Одним запросом: поиск сессии, продление её активности, обновление
+    // users.last_seen_at (не чаще раза в минуту) и чтение роли/бана.
+    // Data-modifying CTE — это по-прежнему ОДИН round-trip, второй записи на запрос нет.
+    // Сессия ищется без фильтра по expires_at, чтобы отличать «токена не существует»
+    // от «аккаунт заблокирован» (бан гасит сессии, но строку оставляет — иначе
+    // клиенту нечем объяснить, почему его выкинуло).
     const result = await pool.query(
-      'SELECT user_id FROM sessions WHERE token = $1 AND expires_at > NOW()',
+      `WITH found_session AS (
+         SELECT user_id, expires_at FROM sessions WHERE token = $1
+       ),
+       touched_session AS (
+         UPDATE sessions SET last_activity_at = NOW()
+         WHERE token = $1 AND expires_at > NOW()
+         RETURNING user_id
+       ),
+       touched_user AS (
+         UPDATE users u SET last_seen_at = NOW()
+         FROM touched_session ts
+         WHERE u.id = ts.user_id
+           AND (u.last_seen_at IS NULL OR u.last_seen_at < NOW() - INTERVAL '1 minute')
+         RETURNING u.id
+       )
+       SELECT u.id AS user_id, u.email, u.role, u.ban_reason,
+              (fs.expires_at > NOW()) AS session_alive,
+              (u.banned_until IS NOT NULL AND u.banned_until > NOW()) AS is_banned,
+              CASE WHEN u.banned_until = 'infinity'::timestamptz THEN NULL ELSE u.banned_until END AS banned_until
+       FROM found_session fs
+       JOIN users u ON u.id = fs.user_id`,
       [token]
     );
-    
+
     if (result.rowCount === 0) {
       res.status(401).json({ ok: false, error: 'INVALID_TOKEN' });
       return;
     }
-    
-    req.userId = result.rows[0].user_id;
+
+    const account = result.rows[0];
+
+    // Заблокированный игрок не должен пользоваться API даже с валидным токеном.
+    // Причина и срок важнее сообщения об истёкшей сессии, поэтому проверяем первым.
+    if (account.is_banned) {
+      res.status(403).json({
+        ok: false,
+        error: 'ACCOUNT_BANNED',
+        reason: account.ban_reason ?? null,
+        until: account.banned_until ?? null,
+        permanent: account.banned_until === null,
+      });
+      return;
+    }
+
+    if (!account.session_alive) {
+      res.status(401).json({ ok: false, error: 'INVALID_TOKEN' });
+      return;
+    }
+
+    req.userId = account.user_id;
+    req.userEmail = account.email;
+    req.userRole = account.role;
     req.token = token;
-    
-    // Обновляем время последней активности
-    await pool.query(
-      'UPDATE sessions SET last_activity_at = NOW() WHERE token = $1',
-      [token]
-    );
-    
+
     next();
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message ?? e) });
@@ -123,7 +230,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // Регистрация
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', rateLimit(LIMITS.auth), async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -139,12 +246,21 @@ app.post('/api/auth/register', async (req, res) => {
       return;
     }
 
-    // Создаем пользователя (пароль храним как есть, без хеширования, как запросил пользователь)
+    // Пароль хешируется через scrypt (server/auth-password.js). Аварийный режим
+    // LEGACY_PLAINTEXT_PASSWORDS=1 сохраняет прежнее поведение с открытым текстом.
+    const storedPassword = await encodePasswordForStorage(password);
+
+    // Роль назначается только по списку ADMIN_EMAILS — клиент её задать не может.
+    const initialRole = bootstrapRoleForEmail(email);
+    if (initialRole === 'admin') {
+      console.log(`[admin] ADMIN_EMAILS: новый аккаунт ${email} создан с ролью admin`);
+    }
+
     const result = await pool.query(
-      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, settings, current_save_id, pinned_resources',
-      [email, password]
+      'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role, settings, current_save_id, pinned_resources',
+      [email, storedPassword, initialRole]
     );
-    
+
     const user = result.rows[0];
     
     // Создаем слот по умолчанию для нового пользователя
@@ -179,7 +295,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Вход
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', rateLimit(LIMITS.auth), async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -188,18 +304,52 @@ app.post('/api/auth/login', async (req, res) => {
       return;
     }
 
+    // Пароли могут быть как scrypt-хешами, так и старыми открытыми значениями,
+    // поэтому выбираем по e-mail и сверяем в Node.
     const result = await pool.query(
-      'SELECT id, email, settings, current_save_id, pinned_resources, current_slot_id FROM users WHERE email = $1 AND password = $2',
-      [email, password]
+      `SELECT id, email, password, role, ban_reason, settings, current_save_id, pinned_resources, current_slot_id,
+              (banned_until IS NOT NULL AND banned_until > NOW()) AS is_banned,
+              CASE WHEN banned_until = 'infinity'::timestamptz THEN NULL ELSE banned_until END AS banned_until
+       FROM users WHERE email = $1`,
+      [email]
     );
-    
-    if (result.rowCount === 0) {
+
+    const row = result.rows[0] ?? null;
+    // Для несуществующего e-mail тратим столько же времени — иначе адреса можно перебрать.
+    const stored = row ? row.password : await getDummyStoredHash();
+    const check = await verifyPassword(password, stored);
+
+    if (!row || !check.ok) {
       res.status(401).json({ ok: false, error: 'INVALID_CREDENTIALS' });
       return;
     }
-    
-    const user = result.rows[0];
-    
+
+    // Прозрачная миграция: старый открытый пароль заменяем хешем при первом входе.
+    if (check.needsUpgrade) {
+      try {
+        const upgraded = await encodePasswordForStorage(password);
+        if (upgraded !== stored) {
+          await pool.query('UPDATE users SET password = $1 WHERE id = $2', [upgraded, row.id]);
+          console.log(`[auth] пароль пользователя #${row.id} переведён на scrypt`);
+        }
+      } catch (e) {
+        console.error('[auth] не удалось обновить хеш пароля:', e?.message ?? e);
+      }
+    }
+
+    if (row.is_banned) {
+      res.status(403).json({
+        ok: false,
+        error: 'ACCOUNT_BANNED',
+        reason: row.ban_reason ?? null,
+        until: row.banned_until ?? null,
+        permanent: row.banned_until === null,
+      });
+      return;
+    }
+
+    const { password: _password, is_banned: _isBanned, ...user } = row;
+
     // Если у пользователя нет слота - создаем ему слот по умолчанию
     if (!user.current_slot_id) {
       // Проверяем есть ли у него вообще слоты
@@ -275,8 +425,16 @@ app.post('/api/auth/logout-all', authMiddleware, async (req, res) => {
 // Получить информацию о текущей сессии
 app.get('/api/auth/session', authMiddleware, async (req, res) => {
   try {
+    // role / banned_until / ban_reason нужны клиенту, чтобы решить, показывать ли
+    // вход в админ-панель. 'infinity' (постоянный бан) отдаём как permanent-флаг,
+    // потому что Infinity не сериализуется в JSON.
     const result = await pool.query(
-      'SELECT u.id, u.email, u.settings, u.current_save_id, u.pinned_resources, s.created_at, s.last_activity_at, s.expires_at FROM users u JOIN sessions s ON u.id = s.user_id WHERE s.token = $1',
+      `SELECT u.id, u.email, u.settings, u.current_save_id, u.pinned_resources, u.role, u.ban_reason,
+              CASE WHEN u.banned_until = 'infinity'::timestamptz THEN NULL ELSE u.banned_until END AS banned_until,
+              COALESCE(u.banned_until = 'infinity'::timestamptz, false) AS ban_permanent,
+              u.last_seen_at,
+              s.created_at, s.last_activity_at, s.expires_at
+       FROM users u JOIN sessions s ON u.id = s.user_id WHERE s.token = $1`,
       [req.token]
     );
     
@@ -476,6 +634,56 @@ app.get('/api/slots', authMiddleware, async (req, res) => {
   }
 });
 
+// NOTE: literal paths MUST be registered before the parameterised `/:id` route.
+// Express matches in registration order, so while this handler sat below `/api/slots/:id`
+// every GET /api/slots/current was answered by that route with id="current", which reached
+// Postgres as an integer and returned 500 'invalid input syntax for type integer'.
+// Получить текущий слот пользователя
+app.get('/api/slots/current', authMiddleware, async (req, res) => {
+  try {
+    const userResult = await pool.query(
+      'SELECT current_slot_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    if (!userResult.rows[0]?.current_slot_id) {
+      res.json({ ok: true, slot: null, latestSave: null });
+      return;
+    }
+    
+    const slotId = userResult.rows[0].current_slot_id;
+    
+    const slotResult = await pool.query(
+      `SELECT id, name, description, created_at, updated_at, last_played_at, play_time_seconds
+       FROM game_slots WHERE id = $1`,
+      [slotId]
+    );
+    
+    if (slotResult.rowCount === 0) {
+      res.json({ ok: true, slot: null, latestSave: null });
+      return;
+    }
+    
+    // Получаем последнее сохранение для этого слота
+    const saveResult = await pool.query(
+      `SELECT id, name, save_type, data, created_at, updated_at
+       FROM game_save 
+       WHERE slot_id = $1 
+       ORDER BY updated_at DESC 
+       LIMIT 1`,
+      [slotId]
+    );
+    
+    res.json({ 
+      ok: true, 
+      slot: slotResult.rows[0],
+      latestSave: saveResult.rows[0] || null
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
+  }
+});
+
 // Получить конкретный игровой слот
 app.get('/api/slots/:id', authMiddleware, async (req, res) => {
   try {
@@ -633,9 +841,21 @@ app.post('/api/slots/:id/switch', authMiddleware, async (req, res) => {
       return;
     }
     
-    // Обновляем текущий слот пользователя и время последней игры
+    /*
+     * Переключаем слот И перенаправляем current_save_id на последний сейв НОВОГО слота.
+     *
+     * Раньше обновлялся только current_slot_id, а current_save_id продолжал указывать на сейв
+     * прежнего слота — и следующее автосохранение записывало новую игру поверх старой.
+     * Серверная проверка слота в PUT /api/saves теперь это ловит, но оставлять указатель
+     * протухшим всё равно нельзя: иначе каждое переключение слота порождало бы лишний сейв.
+     */
     await pool.query(
-      'UPDATE users SET current_slot_id = $1 WHERE id = $2',
+      `UPDATE users
+       SET current_slot_id = $1,
+           current_save_id = (
+             SELECT id FROM game_save WHERE slot_id = $1 ORDER BY updated_at DESC LIMIT 1
+           )
+       WHERE id = $2`,
       [req.params.id, req.userId]
     );
     
@@ -664,51 +884,6 @@ app.post('/api/slots/:id/switch', authMiddleware, async (req, res) => {
   }
 });
 
-// Получить текущий слот пользователя
-app.get('/api/slots/current', authMiddleware, async (req, res) => {
-  try {
-    const userResult = await pool.query(
-      'SELECT current_slot_id FROM users WHERE id = $1',
-      [req.userId]
-    );
-    
-    if (!userResult.rows[0]?.current_slot_id) {
-      res.json({ ok: true, slot: null, latestSave: null });
-      return;
-    }
-    
-    const slotId = userResult.rows[0].current_slot_id;
-    
-    const slotResult = await pool.query(
-      `SELECT id, name, description, created_at, updated_at, last_played_at, play_time_seconds
-       FROM game_slots WHERE id = $1`,
-      [slotId]
-    );
-    
-    if (slotResult.rowCount === 0) {
-      res.json({ ok: true, slot: null, latestSave: null });
-      return;
-    }
-    
-    // Получаем последнее сохранение для этого слота
-    const saveResult = await pool.query(
-      `SELECT id, name, save_type, data, created_at, updated_at
-       FROM game_save 
-       WHERE slot_id = $1 
-       ORDER BY updated_at DESC 
-       LIMIT 1`,
-      [slotId]
-    );
-    
-    res.json({ 
-      ok: true, 
-      slot: slotResult.rows[0],
-      latestSave: saveResult.rows[0] || null
-    });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e?.message ?? e) });
-  }
-});
 
 
 // ========== SAVES API ==========
@@ -770,7 +945,7 @@ app.get('/api/saves/:id', authMiddleware, async (req, res) => {
 });
 
 // Создать или обновить сохранение
-app.put('/api/saves', authMiddleware, async (req, res) => {
+app.put('/api/saves', authMiddleware, rateLimit(LIMITS.saves), async (req, res) => {
   try {
     const { name, saveType, data, saveId } = req.body;
     
@@ -806,21 +981,37 @@ app.put('/api/saves', authMiddleware, async (req, res) => {
 
     let result;
     
-    // Если передан saveId - обновляем существующее сохранение
+    /*
+     * Если передан saveId — обновляем существующее сохранение, НО только если оно принадлежит
+     * текущему слоту.
+     *
+     * Раньше условие было `WHERE id = $2 AND user_id = $3` без проверки слота, а saveId клиент
+     * берёт из users.current_save_id — поля, привязанного к ПОЛЬЗОВАТЕЛЮ, а не к слоту, и не
+     * сбрасываемого при переключении слота. Последовательность «поиграл в слоте A → переключился
+     * на слот B → автосохранение» записывала состояние слота B поверх сейва слота A. Игрок
+     * возвращался в слот A и попадал в чужую игру. Проверено сценарным тестом: слот A содержал
+     * данные слота B.
+     *
+     * Если saveId устарел (указывает на сейв другого слота или удалён), это НЕ ошибка: создаём
+     * новое сохранение для текущего слота. Возвращать 404 здесь нельзя — автосохранение молча
+     * перестало бы работать.
+     */
     if (saveId) {
       result = await pool.query(
         `UPDATE game_save 
          SET data = $1::jsonb, updated_at = NOW()
-         WHERE id = $2 AND user_id = $3
+         WHERE id = $2 AND user_id = $3 AND slot_id IS NOT DISTINCT FROM $4
          RETURNING id, name, save_type, slot_id, created_at, updated_at`,
-        [JSON.stringify(data), saveId, req.userId]
+        [JSON.stringify(data), saveId, req.userId, slotId]
       );
-      
-      if (result.rowCount === 0) {
-        res.status(404).json({ ok: false, error: 'SAVE_NOT_FOUND' });
-        return;
+    }
+
+    if (!saveId || result.rowCount === 0) {
+      if (saveId) {
+        console.warn(
+          `[saves] saveId=${saveId} не принадлежит слоту ${slotId} (user ${req.userId}) — создаём новое сохранение вместо перезаписи чужого`
+        );
       }
-    } else {
       // Создаем новое сохранение с привязкой к слоту
       result = await pool.query(
         `INSERT INTO game_save (user_id, slot_id, name, save_type, data)
@@ -924,21 +1115,29 @@ app.get('/api/saves/latest/manual', authMiddleware, async (req, res) => {
 
 await initDb();
 
+// Роли, баны, журнал администратора, объявления + бутстрап ADMIN_EMAILS
+await initAdminTables(pool);
+warnIfLegacyPasswordMode();
+
 // Инициализация таблиц для торговой биржи и гильдий
 await initMarketTables(pool);
 
+// Запуск серверной рыночной симуляции (единый источник правды по ценам).
+// Обязательно ПОСЛЕ initMarketTables: симуляция дополняет market_price_history
+// столбцом synthetic и опирается на её существование.
+await startMarketSim(pool);
+
 // Инициализация таблиц для синхронизации
-await initSyncTables();
 
 // Инициализация таблиц для P2P кредитования
 await initP2PLendingTables(pool);
 
 // Регистрация маршрутов для торговой биржи и гильдий
 createMarketRoutes(app, pool, authMiddleware);
+createMarketSimRoutes(app, pool);
 createGuildRoutes(app, pool, authMiddleware);
 
 // Регистрация маршрутов для синхронизации
-createSyncRoutes(app, authMiddleware);
 
 // Регистрация маршрутов для AI
 createAIRoutes(app, pool, authMiddleware);
@@ -955,6 +1154,9 @@ createOfflineTradingRoutes(app, pool, authMiddleware);
 // Регистрация маршрутов для P2P кредитования
 createP2PLendingRoutes(app, pool, authMiddleware);
 
+// Админ-панель (/api/admin/*) и публичные объявления (/api/announcements)
+createAdminRoutes(app, pool, authMiddleware);
+
 if (isProduction) {
   app.use(express.static(distDir));
   app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
@@ -962,8 +1164,61 @@ if (isProduction) {
   });
 }
 
-// Периодическая очистка истёкших бэкапов (каждый час)
-setInterval(cleanupExpiredBackups, 60 * 60 * 1000);
+// Несуществующий /api/* — тоже JSON, а не HTML-страница finalhandler'а.
+// Регистрируется ПОСЛЕ всех маршрутов и не трогает не-API пути (в production их
+// забирает SPA-fallback выше).
+app.use('/api', (req, res) => {
+  res.status(404).json({ ok: false, error: 'NOT_FOUND', message: `Маршрут не найден: ${req.method} /api${req.path}` });
+});
+
+// ============================================================================
+// ЗАМЫКАЮЩИЙ ОБРАБОТЧИК ОШИБОК — ВСЕГДА JSON
+// ============================================================================
+//
+// Регистрируется ПОСЛЕ всех маршрутов: до него доходит всё, что не поймал сам
+// обработчик (в том числе отказ пула соединений — 'timeout exceeded when trying
+// to connect' — который прилетал из await вне try/catch).
+//
+// Зачем: дефолтный обработчик Express отдаёт HTML-страницу со СТЕКОМ и
+// АБСОЛЮТНЫМИ ПУТЯМИ файловой системы. Наблюдалось живьём:
+//   <pre>Error: timeout exceeded when trying to connect<br>
+//        at /Volumes/.../node_modules/pg-pool/index.js:45:11<br> ...
+// Клиент при этом получал не-JSON и не мог ни показать русское сообщение, ни
+// прочитать код ошибки (error === undefined).
+//
+// Никакие детали наружу не идут — только код и сообщение; подробности в лог.
+app.use((err, req, res, _next) => {
+  const status = Number(err?.status ?? err?.statusCode);
+  const message = String(err?.message ?? '');
+  const overloaded =
+    err?.code === '53300' ||
+    err?.code === '55P03' ||
+    err?.code === '57014' ||
+    /timeout exceeded when trying to connect|Connection terminated due to connection timeout/i.test(message);
+
+  console.error(`[server] необработанная ошибка ${req.method} ${req.originalUrl}:`, err);
+
+  if (res.headersSent) {
+    // Часть ответа уже улетела — дописывать JSON нельзя, просто рвём соединение.
+    res.destroy();
+    return;
+  }
+
+  if (overloaded) {
+    res.status(503).json({ ok: false, error: 'SERVICE_BUSY', message: 'Сервер перегружен, повторите запрос через секунду.' });
+    return;
+  }
+  res.status(Number.isInteger(status) && status >= 400 && status < 600 ? status : 500).json({
+    ok: false,
+    error: 'INTERNAL',
+    message: 'Внутренняя ошибка сервера.',
+  });
+});
+
+
+// Зачистка биржи: истечение ордеров и прямых предложений с ВОЗВРАТОМ ЭСКРОУ.
+// До этого POST /api/market/expire-orders не вызывал никто, и ордера не истекали.
+startMarketMaintenance(pool);
 
 const server = app.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
@@ -972,6 +1227,10 @@ const server = app.listen(PORT, HOST, () => {
 
 async function shutdown(signal) {
   console.log(`[server] ${signal} received, shutting down`);
+  stopMarketSim();
+  stopMarketMaintenance();
+  stopAIOracle();
+
   server.close(async () => {
     await pool.end();
     process.exit(0);

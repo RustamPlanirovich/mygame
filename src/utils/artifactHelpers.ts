@@ -257,6 +257,8 @@ export function getEffectDescription(effect: ArtifactEffect): string {
     prestigeGain: 'Получение QP',
     ascensionPoints: 'Получение AP',
     galaxyUnlockCost: 'Стоимость галактик',
+    // Без этой строки артефакт с таким эффектом печатался как «+X% undefined».
+    logisticsPenaltyReduction: 'Снижение логистических штрафов',
   };
   
   const sign = effect.stat === 'galaxyUnlockCost' ? '-' : '+';

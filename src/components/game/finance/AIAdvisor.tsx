@@ -3,14 +3,18 @@
  * Рекомендации по торговле и автоматический трейдинг
  */
 
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { useAdvisorStore } from '../../../features/advisorStore';
 import { useFinanceStore } from '../../../features/financeStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { ADVISOR_PRICES } from '../../../core/gameTypes.ai';
 import type { FinancialAdvisorTier, AdvisorRecommendation } from '../../../core/gameTypes.ai';
+import { Alert, Badge, EmptyState, Field, Panel, Stat } from '../../ui';
 
-export function AIAdvisor() {
+// memo: родительская FinancePanel рендерится на каждый тик, пропсов у компонента нет.
+export const AIAdvisor = memo(AIAdvisorImpl);
+
+function AIAdvisorImpl() {
   const [showSettings, setShowSettings] = useState(false);
 
   const {
@@ -32,13 +36,17 @@ export function AIAdvisor() {
     startAutoTrader,
   } = useAdvisorStore();
 
-  const { bank, stocks, withdrawFromBank } = useFinanceStore();
+  // Точечные подписки на finance-стор: раньше `useFinanceStore()` будил советника
+  // на каждое изменение банка, кредитов и портфеля.
+  const bankBalance = useFinanceStore((s) => s.bank.balance);
+  const stocks = useFinanceStore((s) => s.stocks);
+  const withdrawFromBank = useFinanceStore((s) => s.withdrawFromBank);
 
   // Функция сброса stop-loss
   const resetStopLoss = () => {
     useAdvisorStore.setState({
       autoTraderStats: {
-        startingBalance: bank.balance, // Новый стартовый баланс
+        startingBalance: bankBalance, // Новый стартовый баланс
         tradesThisHour: 0,
         lastHourReset: Date.now(),
         totalProfitLoss: '0',
@@ -82,7 +90,7 @@ export function AIAdvisor() {
         prices[s.id] = s.currentPrice;
       });
       fetchMarketAnalysis(prices);
-      
+
       // Обновляем AI-дивиденды
       const stocksData = stocks.map(s => ({
         id: s.id,
@@ -202,26 +210,23 @@ export function AIAdvisor() {
   if (advisor.tier === 'none') {
     return (
       <div className="space-y-4">
-        <div className="bg-slate-800 rounded-lg p-4">
-          <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
-            🤖 AI Финансовый советник
-          </h3>
+        <Panel title="🤖 AI Финансовый советник">
           <p className="text-slate-400 text-sm mb-4">
             Получайте рекомендации от искусственного интеллекта по торговле акциями, фондами и управлению
             кредитами.
           </p>
 
           {!aiEnabled && (
-            <div className="bg-yellow-900/30 border border-yellow-600 rounded p-3 mb-4 text-sm">
+            <Alert tone="warning">
               ⚠️ DeepSeek AI не подключён. Будут использоваться базовые алгоритмы анализа.
-            </div>
+            </Alert>
           )}
-        </div>
+        </Panel>
 
         {/* Тарифы */}
         <div className="grid grid-cols-2 gap-4">
           {/* Базовый */}
-          <div className="bg-slate-800 rounded-lg p-4 border-2 border-blue-500">
+          <div className="card border-2 border-blue-500">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">📊</span>
               <h4 className="font-bold">Базовый</h4>
@@ -241,24 +246,24 @@ export function AIAdvisor() {
                 <span>✗</span> Автоматическая торговля
               </li>
             </ul>
-            <div className="text-lg font-bold text-blue-400 mb-2">
+            <div className="font-mono text-lg font-bold tabular-nums text-blue-400 mb-2">
               {formatNumber(D(ADVISOR_PRICES.basic.credits))} ₡
             </div>
             <button
               type="button"
               onClick={() => handlePurchase('basic')}
-              className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition-colors cursor-pointer"
+              className="btn-info btn-block"
             >
               Купить
             </button>
           </div>
 
           {/* Премиум */}
-          <div className="bg-slate-800 rounded-lg p-4 border-2 border-purple-500">
+          <div className="card border-2 border-purple-500">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">🚀</span>
               <h4 className="font-bold">Премиум</h4>
-              <span className="px-2 py-0.5 bg-purple-600 rounded text-xs">РЕКОМЕНДУЕМ</span>
+              <Badge className="text-purple-400">РЕКОМЕНДУЕМ</Badge>
             </div>
             <p className="text-slate-400 text-sm mb-3">{ADVISOR_PRICES.premium.description}</p>
             <ul className="text-sm space-y-1 mb-4">
@@ -275,13 +280,13 @@ export function AIAdvisor() {
                 <span className="text-green-400">✓</span> Управление кредитами
               </li>
             </ul>
-            <div className="text-lg font-bold text-purple-400 mb-2">
+            <div className="font-mono text-lg font-bold tabular-nums text-purple-400 mb-2">
               {formatNumber(D(ADVISOR_PRICES.premium.credits))} ₡
             </div>
             <button
               type="button"
               onClick={() => handlePurchase('premium')}
-              className="w-full py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium transition-colors cursor-pointer"
+              className="btn-block bg-purple-600 hover:bg-purple-700 btn"
             >
               Купить
             </button>
@@ -289,7 +294,7 @@ export function AIAdvisor() {
         </div>
 
         <div className="text-center text-slate-500 text-sm">
-          Баланс банковского счёта: {formatNumber(D(bank.balance))} ₡
+          Баланс банковского счёта: <span className="font-mono tabular-nums">{formatNumber(D(bankBalance))}</span> ₡
         </div>
       </div>
     );
@@ -299,25 +304,19 @@ export function AIAdvisor() {
   return (
     <div className="space-y-4">
       {/* Заголовок */}
-      <div className="bg-slate-800 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-bold text-lg flex items-center gap-2">
+      <Panel
+        title={
+          <span className="flex items-center gap-2">
             🤖 AI Советник
-            <span
-              className={`px-2 py-0.5 rounded text-xs ${
-                advisor.tier === 'premium' ? 'bg-purple-600' : 'bg-blue-600'
-              }`}
-            >
+            <Badge tone={advisor.tier === 'premium' ? 'accent' : 'info'}>
               {advisor.tier === 'premium' ? 'ПРЕМИУМ' : 'БАЗОВЫЙ'}
-            </span>
-          </h3>
-          <div className="flex items-center gap-2">
+            </Badge>
+          </span>
+        }
+        actions={
+          <>
             {advisor.tier === 'basic' && (
-              <button
-                type="button"
-                onClick={handleUpgrade}
-                className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm cursor-pointer transition-colors"
-              >
+              <button type="button" onClick={handleUpgrade} className="btn btn-xs">
                 ⬆️ Апгрейд до Премиум ({formatNumber(D(ADVISOR_PRICES.premium.credits).sub(D(ADVISOR_PRICES.basic.credits)))} ₡)
               </button>
             )}
@@ -325,14 +324,15 @@ export function AIAdvisor() {
               <button
                 type="button"
                 onClick={() => setShowSettings(!showSettings)}
-                className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm cursor-pointer transition-colors"
+                aria-expanded={showSettings}
+                className="btn btn-xs"
               >
                 ⚙️ Настройки
               </button>
             )}
-          </div>
-        </div>
-
+          </>
+        }
+      >
         {aiEnabled ? (
           <div className="text-sm text-green-400 flex items-center gap-1">
             <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
@@ -362,61 +362,70 @@ export function AIAdvisor() {
             {/* Статистика автотрейдера */}
             {advisor.autoTrading.enabled && autoTraderStats && (
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-slate-700 rounded p-2 text-center">
-                    <div className="text-slate-400">Сделок/час</div>
-                    <div className="font-bold">{autoTraderStats.tradesThisHour}/10</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="card">
+                    <Stat
+                      label="Сделок/час"
+                      value={`${autoTraderStats.tradesThisHour}/10`}
+                      align="center"
+                    />
                   </div>
-                  <div className="bg-slate-700 rounded p-2 text-center">
-                    <div className="text-slate-400">P/L</div>
-                    <div className={`font-bold ${D(autoTraderStats.totalProfitLoss || '0').gte(0) ? 'text-green-400' : 'text-red-400'}`}>
-                      {D(autoTraderStats.totalProfitLoss || '0').gte(0) ? '+' : ''}{formatNumber(D(autoTraderStats.totalProfitLoss || '0'))}
-                    </div>
+                  <div className="card">
+                    <Stat
+                      label="P/L"
+                      value={`${D(autoTraderStats.totalProfitLoss || '0').gte(0) ? '+' : ''}${formatNumber(D(autoTraderStats.totalProfitLoss || '0'))}`}
+                      tone={D(autoTraderStats.totalProfitLoss || '0').gte(0) ? 'accent' : 'danger'}
+                      align="center"
+                    />
                   </div>
-                  <div className="bg-slate-700 rounded p-2 text-center">
-                    <div className="text-slate-400">Торг. капитал</div>
-                    <div className="font-bold">{formatNumber(D(autoTraderStats.tradingCapital || '0'))}</div>
+                  <div className="card">
+                    <Stat
+                      label="Торг. капитал"
+                      value={formatNumber(D(autoTraderStats.tradingCapital || '0'))}
+                      align="center"
+                    />
                   </div>
                 </div>
-                
+
                 {/* Система защиты капитала */}
                 {autoTraderStats.capitalProtectionActive && (
-                  <div className="bg-slate-700/50 rounded p-2 space-y-1">
-                    <div className="text-xs text-slate-400 flex items-center gap-1">
+                  <div className="card space-y-1">
+                    <div className="stat-label flex items-center gap-1">
                       🛡️ Защита капитала
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-slate-400">Заморожено: </span>
-                        <span className="text-cyan-400 font-medium">{formatNumber(D(autoTraderStats.frozenProfit || '0'))}</span>
+                        <span className="font-mono tabular-nums text-cyan-400 font-medium">{formatNumber(D(autoTraderStats.frozenProfit || '0'))}</span>
                       </div>
                       <div>
                         <span className="text-slate-400">До разморозки: </span>
-                        <span className="text-amber-400 font-medium">
+                        <span className="font-mono tabular-nums text-amber-400 font-medium">
                           {formatNumber(D(autoTraderStats.tradingCapital || '0').mul(3).sub(D(autoTraderStats.frozenProfit || '0')).max(0))}
                         </span>
                       </div>
                       <div>
                         <span className="text-slate-400">Убытки: </span>
-                        <span className="text-red-400 font-medium">{formatNumber(D(autoTraderStats.accumulatedLoss || '0'))}</span>
+                        <span className="font-mono tabular-nums text-red-400 font-medium">{formatNumber(D(autoTraderStats.accumulatedLoss || '0'))}</span>
                       </div>
                       <div>
                         <span className="text-slate-400">На сбер.: </span>
-                        <span className="text-green-400 font-medium">{formatNumber(D(autoTraderStats.totalSavedToSavings || '0'))}</span>
+                        <span className="font-mono tabular-nums text-green-400 font-medium">{formatNumber(D(autoTraderStats.totalSavedToSavings || '0'))}</span>
                       </div>
                     </div>
-                    {/* Прогресс-бар до разморозки */}
+                    {/* Прогресс-бар до разморозки. Дорожка .meter, но заливка —
+                        двухцветный градиент, которого нет среди тонов <Meter>. */}
                     {D(autoTraderStats.tradingCapital || '0').gt(0) && (
                       <div className="mt-1">
-                        <div className="h-1.5 bg-slate-600 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-to-r from-cyan-500 to-green-500 transition-all duration-300"
-                            style={{ 
-                              width: `${Math.min(100, D(autoTraderStats.frozenProfit || '0').div(D(autoTraderStats.tradingCapital || '1').mul(3)).mul(100).toNumber())}%` 
+                        <div className="meter">
+                          <div
+                            className="meter-fill bg-gradient-to-r from-cyan-500 to-green-500"
+                            style={{
+                              width: `${Math.min(100, D(autoTraderStats.frozenProfit || '0').div(D(autoTraderStats.tradingCapital || '1').mul(3)).mul(100).toNumber())}%`
                             }}
                           />
                         </div>
-                        <div className="text-xs text-slate-500 text-right mt-0.5">
+                        <div className="font-mono text-xs tabular-nums text-slate-500 text-right mt-0.5">
                           {D(autoTraderStats.frozenProfit || '0').div(D(autoTraderStats.tradingCapital || '1').mul(3)).mul(100).toFixed(1)}% до 3x
                         </div>
                       </div>
@@ -428,39 +437,34 @@ export function AIAdvisor() {
 
             {/* Кнопка сброса stop-loss */}
             {autoTraderStats?.isPaused && (
-              <button
-                type="button"
-                onClick={resetStopLoss}
-                className="w-full py-2 bg-orange-600 hover:bg-orange-700 rounded text-sm cursor-pointer transition-colors"
-              >
+              <button type="button" onClick={resetStopLoss} className="btn btn-block">
                 🔄 Сбросить Stop-Loss и продолжить
               </button>
             )}
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Настройки автотрейдинга (premium) */}
       {showSettings && advisor.tier === 'premium' && (
-        <div className="bg-slate-800 rounded-lg p-4">
-          <h4 className="font-bold mb-3">⚙️ Настройки автоматической торговли</h4>
-
+        <Panel title="⚙️ Настройки автоматической торговли">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span>Автоторговля</span>
               <button
                 type="button"
                 onClick={() => updateAdvisorSettings({ enabled: !advisor.autoTrading.enabled })}
-                className={`px-4 py-1 rounded transition-colors cursor-pointer ${
-                  advisor.autoTrading.enabled ? 'bg-green-600' : 'bg-slate-600'
-                }`}
+                aria-pressed={advisor.autoTrading.enabled}
+                className={advisor.autoTrading.enabled ? 'btn-primary btn-xs' : 'btn btn-xs'}
               >
                 {advisor.autoTrading.enabled ? 'ВКЛ' : 'ВЫКЛ'}
               </button>
             </div>
 
-            <div>
-              <label className="text-sm text-slate-400">Макс. инвестиция (% от баланса, макс 20K₡)</label>
+            <Field
+              label="Макс. инвестиция (% от баланса, макс 20K₡)"
+              hint={<span className="font-mono tabular-nums">{advisor.autoTrading.maxInvestmentPercent}%</span>}
+            >
               <input
                 type="range"
                 min="5"
@@ -469,11 +473,12 @@ export function AIAdvisor() {
                 onChange={(e) => updateAdvisorSettings({ maxInvestmentPercent: parseInt(e.target.value) })}
                 className="w-full"
               />
-              <div className="text-right text-sm">{advisor.autoTrading.maxInvestmentPercent}%</div>
-            </div>
+            </Field>
 
-            <div>
-              <label className="text-sm text-slate-400">Мин. уверенность AI</label>
+            <Field
+              label="Мин. уверенность AI"
+              hint={<span className="font-mono tabular-nums">{Math.round(advisor.autoTrading.minConfidence * 100)}%</span>}
+            >
               <input
                 type="range"
                 min="50"
@@ -482,25 +487,25 @@ export function AIAdvisor() {
                 onChange={(e) => updateAdvisorSettings({ minConfidence: parseInt(e.target.value) / 100 })}
                 className="w-full"
               />
-              <div className="text-right text-sm">{Math.round(advisor.autoTrading.minConfidence * 100)}%</div>
-            </div>
+            </Field>
 
             <div>
-              <label className="text-sm text-slate-400">Толерантность к риску</label>
+              <span className="stat-label">Толерантность к риску</span>
               <div className="flex gap-2 mt-1">
                 {(['low', 'medium', 'high'] as const).map((risk) => (
                   <button
                     key={risk}
                     type="button"
                     onClick={() => updateAdvisorSettings({ riskTolerance: risk })}
-                    className={`flex-1 py-1 rounded text-sm cursor-pointer transition-colors ${
+                    aria-pressed={advisor.autoTrading.riskTolerance === risk}
+                    className={`flex-1 btn btn-xs ${
                       advisor.autoTrading.riskTolerance === risk
                         ? risk === 'low'
-                          ? 'bg-green-600'
+                          ? 'bg-green-600 border-green-600'
                           : risk === 'medium'
-                            ? 'bg-yellow-600'
-                            : 'bg-red-600'
-                        : 'bg-slate-700'
+                            ? 'bg-yellow-600 border-yellow-600'
+                            : 'bg-red-600 border-red-600'
+                        : ''
                     }`}
                   >
                     {risk === 'low' ? 'Низкий' : risk === 'medium' ? 'Средний' : 'Высокий'}
@@ -531,12 +536,12 @@ export function AIAdvisor() {
             </div>
 
             {/* Take-Profit и Stop-Loss */}
-            <div className="border-t border-slate-600 pt-3 mt-2">
+            <div className="divider" />
+            <div>
               <h5 className="text-sm font-medium mb-2">📈 Автоматическая фиксация</h5>
-              
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400">Take-Profit (фиксация прибыли)</label>
+                <Field label="Take-Profit (фиксация прибыли)">
                   <div className="flex items-center gap-2">
                     <input
                       type="range"
@@ -546,12 +551,11 @@ export function AIAdvisor() {
                       onChange={(e) => updateAdvisorSettings({ takeProfitPercent: parseInt(e.target.value) })}
                       className="flex-1"
                     />
-                    <span className="text-green-400 font-bold w-12 text-right">+{advisor.autoTrading.takeProfitPercent || 10}%</span>
+                    <span className="font-mono tabular-nums text-green-400 font-bold w-12 text-right">+{advisor.autoTrading.takeProfitPercent || 10}%</span>
                   </div>
-                </div>
-                
-                <div>
-                  <label className="text-xs text-slate-400">Stop-Loss (ограничение убытка)</label>
+                </Field>
+
+                <Field label="Stop-Loss (ограничение убытка)">
                   <div className="flex items-center gap-2">
                     <input
                       type="range"
@@ -561,35 +565,40 @@ export function AIAdvisor() {
                       onChange={(e) => updateAdvisorSettings({ stopLossPercent: parseInt(e.target.value) })}
                       className="flex-1"
                     />
-                    <span className="text-red-400 font-bold w-12 text-right">-{advisor.autoTrading.stopLossPercent || 5}%</span>
+                    <span className="font-mono tabular-nums text-red-400 font-bold w-12 text-right">-{advisor.autoTrading.stopLossPercent || 5}%</span>
                   </div>
-                </div>
+                </Field>
               </div>
-              
+
               <p className="text-xs text-slate-500 mt-2">
                 Бот автоматически продаст акции/фонды при достижении указанного % прибыли или убытка
               </p>
             </div>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Анализ рынка */}
       {marketAnalysis && (
-        <div className="bg-slate-800 rounded-lg p-4">
-          <h4 className="font-bold mb-3 flex items-center gap-2">
-            📊 Анализ рынка
-            {isLoadingAnalysis && <span className="animate-spin">⏳</span>}
-          </h4>
-
+        <Panel
+          title={
+            <span className="flex items-center gap-2">
+              📊 Анализ рынка
+              {isLoadingAnalysis && <span className="animate-spin">⏳</span>}
+            </span>
+          }
+        >
           <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="bg-slate-700 rounded p-3 text-center">
+            <div className="card text-center">
               <div className="text-2xl mb-1">{getSentimentEmoji(marketAnalysis.overallSentiment)}</div>
-              <div className="text-sm text-slate-400">Настроение</div>
-              <div className="font-medium">{getSentimentText(marketAnalysis.overallSentiment)}</div>
+              <Stat
+                label="Настроение"
+                value={getSentimentText(marketAnalysis.overallSentiment)}
+                align="center"
+              />
             </div>
 
-            <div className="bg-slate-700 rounded p-3 text-center">
+            <div className="card text-center">
               <div className="text-2xl mb-1">
                 {marketAnalysis.creditRatePrediction.rateDirection === 'rising'
                   ? '📈'
@@ -597,22 +606,24 @@ export function AIAdvisor() {
                     ? '📉'
                     : '➡️'}
               </div>
-              <div className="text-sm text-slate-400">Ставки</div>
-              <div className="font-medium">
-                {(marketAnalysis.creditRatePrediction.predictedBaseRate * 100).toFixed(1)}%
-              </div>
+              <Stat
+                label="Ставки"
+                value={`${(marketAnalysis.creditRatePrediction.predictedBaseRate * 100).toFixed(1)}%`}
+                align="center"
+              />
             </div>
 
-            <div className="bg-slate-700 rounded p-3 text-center">
+            <div className="card text-center">
               <div className="text-2xl mb-1">🕐</div>
-              <div className="text-sm text-slate-400">Обновлено</div>
-              <div className="font-medium text-sm">
-                {new Date(marketAnalysis.generatedAt).toLocaleTimeString()}
-              </div>
+              <Stat
+                label="Обновлено"
+                value={new Date(marketAnalysis.generatedAt).toLocaleTimeString()}
+                align="center"
+              />
             </div>
           </div>
 
-          <p className="text-sm text-slate-300 bg-slate-700 rounded p-3">{marketAnalysis.marketNarrative}</p>
+          <p className="card text-sm text-slate-300">{marketAnalysis.marketNarrative}</p>
 
           {/* Топ рекомендации */}
           <div className="grid grid-cols-2 gap-3 mt-3">
@@ -621,7 +632,7 @@ export function AIAdvisor() {
               {marketAnalysis.topBuyRecommendations.slice(0, 3).map((rec) => (
                 <div key={rec.stockId} className="flex items-center justify-between text-sm py-1">
                   <span className="font-mono">{rec.symbol}</span>
-                  <span className="text-green-400">+{rec.predictedChange.toFixed(1)}%</span>
+                  <span className="font-mono tabular-nums text-green-400">+{rec.predictedChange.toFixed(1)}%</span>
                 </div>
               ))}
             </div>
@@ -630,28 +641,26 @@ export function AIAdvisor() {
               {marketAnalysis.topSellRecommendations.slice(0, 3).map((rec) => (
                 <div key={rec.stockId} className="flex items-center justify-between text-sm py-1">
                   <span className="font-mono">{rec.symbol}</span>
-                  <span className="text-red-400">{rec.predictedChange.toFixed(1)}%</span>
+                  <span className="font-mono tabular-nums text-red-400">{rec.predictedChange.toFixed(1)}%</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* AI Дивиденды */}
       {dividendPrediction && dividendPrediction.dividendUpdates.length > 0 && (
-        <div className="bg-slate-800 rounded-lg p-4">
-          <h4 className="font-bold mb-3 flex items-center gap-2">
-            💰 AI Дивиденды
-            <span
-              className={`px-2 py-0.5 rounded text-xs ${
-                dividendPrediction.source === 'ai' ? 'bg-green-600' : 'bg-slate-600'
-              }`}
-            >
-              {dividendPrediction.source === 'ai' ? 'AI' : 'Базовые'}
+        <Panel
+          title={
+            <span className="flex items-center gap-2">
+              💰 AI Дивиденды
+              <Badge tone={dividendPrediction.source === 'ai' ? 'accent' : 'neutral'}>
+                {dividendPrediction.source === 'ai' ? 'AI' : 'Базовые'}
+              </Badge>
             </span>
-          </h4>
-
+          }
+        >
           <p className="text-sm text-slate-400 mb-3">{dividendPrediction.marketConditions}</p>
 
           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -663,7 +672,7 @@ export function AIAdvisor() {
                 return (
                   <div
                     key={dividend.stockId}
-                    className="flex items-center justify-between bg-slate-700 rounded px-3 py-2"
+                    className="flex items-center justify-between card py-2"
                   >
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-blue-400">{stock?.symbol || dividend.stockId}</span>
@@ -672,7 +681,7 @@ export function AIAdvisor() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span
-                        className={`font-bold ${
+                        className={`font-mono font-bold tabular-nums ${
                           dividend.newYield >= 0.03
                             ? 'text-green-400'
                             : dividend.newYield >= 0.01
@@ -692,23 +701,21 @@ export function AIAdvisor() {
           </div>
 
           <div className="text-xs text-slate-500 mt-2 text-right">
-            Обновлено: {new Date(dividendPrediction.generatedAt).toLocaleTimeString()}
+            Обновлено: <span className="font-mono tabular-nums">{new Date(dividendPrediction.generatedAt).toLocaleTimeString()}</span>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Рекомендации */}
-      <div className="bg-slate-800 rounded-lg p-4">
-        <h4 className="font-bold mb-3">💡 Рекомендации</h4>
-
+      <Panel title="💡 Рекомендации">
         {recommendations.length === 0 ? (
-          <div className="text-center text-slate-400 py-4">Анализируем рынок...</div>
+          <EmptyState title="Анализируем рынок..." icon={<span className="animate-spin text-lg">⏳</span>} />
         ) : (
           <div className="space-y-2">
             {recommendations.slice(0, 5).map((rec) => (
               <div
                 key={rec.id}
-                className={`bg-slate-700 rounded p-3 ${rec.executed ? 'opacity-50' : ''}`}
+                className={`card ${rec.executed ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
@@ -718,7 +725,7 @@ export function AIAdvisor() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span
-                      className={`text-sm ${
+                      className={`font-mono text-sm tabular-nums ${
                         rec.confidence >= 0.8
                           ? 'text-green-400'
                           : rec.confidence >= 0.6
@@ -732,7 +739,7 @@ export function AIAdvisor() {
                       <button
                         type="button"
                         onClick={() => handleExecute(rec)}
-                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs cursor-pointer transition-colors"
+                        className="btn-info btn-xs"
                       >
                         Выполнить
                       </button>
@@ -745,14 +752,14 @@ export function AIAdvisor() {
                 <p className="text-sm text-slate-400">{rec.reasoning}</p>
                 {rec.amount && (
                   <div className="text-sm text-slate-300 mt-1">
-                    Сумма: {formatNumber(D(rec.amount))} ₡
+                    Сумма: <span className="font-mono tabular-nums">{formatNumber(D(rec.amount))}</span> ₡
                   </div>
                 )}
               </div>
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }

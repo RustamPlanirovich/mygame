@@ -1,22 +1,36 @@
 /**
  * ProfitLossChart Component
- * 
+ *
  * График прибыли и убытков
  */
 
-import React, { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
-import { useAnalyticsStore, selectNetProfitLoss } from '../../../features/analyticsStore';
+import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { AreaChart } from './charts';
+import { EmptyState, Panel, Stat } from '../../ui';
 import { D, formatNumber } from '../../../core/math/format';
 import { toRechartsData, filterByTimeRange } from '../../../utils/analyticsHelpers';
 
-export function ProfitLossChart() {
+/** Стабильная ссылка: проп мемоизированного AreaChart. */
+const formatCredits = (v: number) => formatNumber(D(v));
+
+export const ProfitLossChart = memo(function ProfitLossChart() {
   const profitLossHistory = useAnalyticsStore(state => state.profitLossHistory);
   const totalCreditsEarned = useAnalyticsStore(state => state.totalCreditsEarned);
   const totalCreditsSpent = useAnalyticsStore(state => state.totalCreditsSpent);
   const timeRange = useAnalyticsStore(state => state.chartSettings.timeRange);
-  const netProfitLoss = useAnalyticsStore(selectNetProfitLoss);
+
+  /*
+   * Раньше здесь стоял `useAnalyticsStore(selectNetProfitLoss)`. Этот селектор строит
+   * НОВЫЙ Decimal на каждый вызов, поэтому Object.is всегда давал false и компонент
+   * перерисовывался на любое изменение стора аналитики, даже не связанное с финансами.
+   * Подписываемся на две строки-примитива и считаем разницу локально.
+   */
+  const netProfitLoss = useMemo(
+    () => D(totalCreditsEarned).sub(D(totalCreditsSpent)),
+    [totalCreditsEarned, totalCreditsSpent],
+  );
 
   const chartData = useMemo(() => {
     const filtered = filterByTimeRange(profitLossHistory, timeRange);
@@ -27,47 +41,40 @@ export function ProfitLossChart() {
   const color = isProfit ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <DollarSign className="w-5 h-5 text-cyber-green-400" />
-        <h3 className="text-lg font-medium text-cyber-gray-200">
-          Прибыль и убытки
-        </h3>
-      </div>
-
+    <Panel title="Прибыль и убытки" icon={<DollarSign className="h-5 w-5" />}>
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="p-4 bg-green-900/20 rounded-lg text-center">
-          <div className="flex items-center justify-center gap-1 mb-1">
-            <TrendingUp className="w-4 h-4 text-green-400" />
-            <span className="text-xs text-green-400/70">Заработано</span>
-          </div>
-          <p className="text-xl font-bold text-green-400">
-            {formatNumber(D(totalCreditsEarned))}
-          </p>
+      <div className="mb-6 grid grid-cols-3 gap-4">
+        <div className="rounded-lg bg-green-900/20 p-4">
+          <Stat
+            align="center"
+            tone="accent"
+            icon={<TrendingUp className="h-4 w-4" />}
+            label="Заработано"
+            value={formatNumber(D(totalCreditsEarned))}
+          />
         </div>
 
-        <div className="p-4 bg-red-900/20 rounded-lg text-center">
-          <div className="flex items-center justify-center gap-1 mb-1">
-            <TrendingDown className="w-4 h-4 text-red-400" />
-            <span className="text-xs text-red-400/70">Потрачено</span>
-          </div>
-          <p className="text-xl font-bold text-red-400">
-            {formatNumber(D(totalCreditsSpent))}
-          </p>
+        <div className="rounded-lg bg-red-900/20 p-4">
+          <Stat
+            align="center"
+            tone="danger"
+            icon={<TrendingDown className="h-4 w-4" />}
+            label="Потрачено"
+            value={formatNumber(D(totalCreditsSpent))}
+          />
         </div>
 
-        <div 
-          className="p-4 rounded-lg text-center"
+        <div
+          className="rounded-lg p-4"
           style={{ backgroundColor: isProfit ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }}
         >
-          <div className="flex items-center justify-center gap-1 mb-1">
-            <DollarSign className="w-4 h-4" style={{ color }} />
-            <span className="text-xs" style={{ color: `${color}b3` }}>Баланс</span>
-          </div>
-          <p className="text-xl font-bold" style={{ color }}>
-            {isProfit ? '+' : ''}{formatNumber(netProfitLoss)}
-          </p>
+          <Stat
+            align="center"
+            tone={isProfit ? 'accent' : 'danger'}
+            icon={<DollarSign className="h-4 w-4" />}
+            label="Баланс"
+            value={`${isProfit ? '+' : ''}${formatNumber(netProfitLoss)}`}
+          />
         </div>
       </div>
 
@@ -78,15 +85,11 @@ export function ProfitLossChart() {
           color={color}
           height={200}
           showGrid={true}
-          formatValue={(v) => formatNumber(D(v))}
+          formatValue={formatCredits}
         />
       ) : (
-        <div className="flex items-center justify-center h-48 bg-cyber-gray-900/50 rounded-lg">
-          <p className="text-cyber-gray-500 text-sm">
-            История прибыли/убытков ещё не записана
-          </p>
-        </div>
+        <EmptyState title="История прибыли/убытков ещё не записана" />
       )}
-    </div>
+    </Panel>
   );
-}
+});

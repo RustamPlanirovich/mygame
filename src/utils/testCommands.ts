@@ -14,6 +14,8 @@ declare global {
     testProceduralGalaxies: () => void;
     generateMultipleGalaxies: (count?: number) => void;
     updateDeposits: () => void;
+    checkSand: () => void;
+    giveEnergy: (amount?: number) => void;
   }
 }
 
@@ -178,7 +180,9 @@ export function setupRepeatableResearchTest() {
   window.updateDeposits = () => {
     const store = useGameStore.getState();
     const { grid } = store;
-    const { deposits, tiles, width, height } = grid;
+    const { tiles, width, height } = grid;
+    // grid.deposits опционально: на свежей карте его может не быть вовсе.
+    const deposits = grid.deposits ?? {};
     
     console.log('🗺️ Обновление месторождений на карте...');
     console.log(`📊 Текущий размер карты: ${width}×${height}`);

@@ -5,8 +5,7 @@
 
 import Decimal from 'break_eternity.js';
 import type { Stock, InvestmentFund } from '../core/gameTypes.finance';
-import type { DataPoint } from '../core/gameTypes.analytics';
-import { VOLATILITY_MULTIPLIERS, type StockDefinition } from '../core/constants/stocks';
+import { VOLATILITY_MULTIPLIERS } from '../core/constants/stocks';
 import { FINANCE_CONFIG } from '../core/gameTypes.finance';
 import { D } from '../core/math/format';
 

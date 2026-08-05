@@ -1,18 +1,17 @@
 /**
  * ProductionChart Component
- * 
+ *
  * График производства ресурсов
  */
 
-import React, { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { AreaChart } from './charts';
+import { EmptyState, Panel, Stat } from '../../ui';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
-import { useGameStore } from '../../../features/gameStore';
 import type { ResourceType } from '../../../core/gameTypes';
 import { D, formatNumber, formatRate } from '../../../core/math/format';
 import { toRechartsData } from '../../../utils/analyticsHelpers';
-import { getTimeRangeLabel } from '../../../core/gameTypes.analytics';
 
 interface ProductionChartProps {
   resource: ResourceType;
@@ -34,81 +33,68 @@ const RESOURCE_COLORS: Partial<Record<ResourceType, string>> = {
   computer: '#6366f1',
 };
 
-export function ProductionChart({ resource, height = 200 }: ProductionChartProps) {
+/**
+ * Модульная константа, а не стрелка в JSX: `formatValue` — проп мемоизированного
+ * AreaChart, и новая функция на каждый рендер сводила бы memo на нет.
+ */
+const formatPerSecond = (v: number) => formatRate(D(v));
+
+export const ProductionChart = memo(function ProductionChart({
+  resource,
+  height = 200,
+}: ProductionChartProps) {
   const history = useAnalyticsStore(state => state.productionHistory[resource]);
-  const timeRange = useAnalyticsStore(state => state.chartSettings.timeRange);
   const getFilteredHistory = useAnalyticsStore(state => state.getFilteredHistory);
-  
+
   const chartData = useMemo(() => {
     const filtered = getFilteredHistory(resource);
     return toRechartsData(filtered);
   }, [resource, getFilteredHistory, history]);
 
   const color = RESOURCE_COLORS[resource] || '#22c55e';
+  const label = resource.replace(/_/g, ' ');
 
   if (!history || history.data.length === 0) {
     return (
-      <div 
-        className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4"
-        style={{ height }}
+      <Panel
+        title={<span className="capitalize">{label}</span>}
+        icon={<span className="block h-3 w-3 rounded-full" style={{ backgroundColor: color }} />}
       >
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-cyber-gray-300 capitalize">
-            {resource.replace(/_/g, ' ')}
-          </span>
+        <div className="flex items-center justify-center" style={{ height: height - 60 }}>
+          <EmptyState title="Нет данных" />
         </div>
-        <div className="flex items-center justify-center h-32">
-          <p className="text-cyber-gray-500 text-sm">Нет данных</p>
-        </div>
-      </div>
+      </Panel>
     );
   }
 
-  const TrendIcon = history.trend === 'up' 
-    ? TrendingUp 
-    : history.trend === 'down' 
-      ? TrendingDown 
-      : Minus;
+  const TrendIcon =
+    history.trend === 'up' ? TrendingUp : history.trend === 'down' ? TrendingDown : Minus;
 
-  const trendColor = history.trend === 'up' 
-    ? 'text-green-400' 
-    : history.trend === 'down' 
-      ? 'text-red-400' 
-      : 'text-gray-400';
+  const trendColor =
+    history.trend === 'up'
+      ? 'text-green-400'
+      : history.trend === 'down'
+        ? 'text-red-400'
+        : 'text-gray-400';
 
   return (
-    <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span 
-            className="w-3 h-3 rounded-full" 
-            style={{ backgroundColor: color }}
-          />
-          <span className="text-sm font-medium text-cyber-gray-200 capitalize">
-            {resource.replace(/_/g, ' ')}
+    <Panel
+      title={<span className="capitalize">{label}</span>}
+      icon={<span className="block h-3 w-3 rounded-full" style={{ backgroundColor: color }} />}
+      actions={
+        <span className={`flex items-center gap-2 ${trendColor}`}>
+          <TrendIcon className="h-4 w-4" />
+          <span className="text-xs">
+            {history.trendPercent > 0 ? '+' : ''}
+            {history.trendPercent.toFixed(1)}%
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <TrendIcon className={`w-4 h-4 ${trendColor}`} />
-          <span className={`text-xs ${trendColor}`}>
-            {history.trendPercent > 0 ? '+' : ''}{history.trendPercent.toFixed(1)}%
-          </span>
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
-        <div>
-          <span className="text-cyber-gray-500">Средн.</span>
-          <p className="text-cyber-gray-200">{formatRate(D(history.avgProduction))}/с</p>
-        </div>
-        <div>
-          <span className="text-cyber-gray-500">Пик</span>
-          <p className="text-cyber-gray-200">{formatRate(D(history.peakProduction))}/с</p>
-        </div>
-        <div>
-          <span className="text-cyber-gray-500">Всего</span>
-          <p className="text-cyber-gray-200">{formatNumber(D(history.totalProduced))}</p>
-        </div>
+        </span>
+      }
+    >
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <Stat label="Средн." value={`${formatRate(D(history.avgProduction))}/с`} />
+        <Stat label="Пик" value={`${formatRate(D(history.peakProduction))}/с`} />
+        <Stat label="Всего" value={formatNumber(D(history.totalProduced))} />
       </div>
 
       <AreaChart
@@ -116,38 +102,41 @@ export function ProductionChart({ resource, height = 200 }: ProductionChartProps
         color={color}
         height={height - 100}
         showGrid={false}
-        formatValue={(v) => formatRate(D(v))}
+        formatValue={formatPerSecond}
       />
-    </div>
+    </Panel>
   );
-}
+});
 
 /**
  * Компонент для отображения нескольких ресурсов
  */
-export function ProductionChartsGrid() {
+export const ProductionChartsGrid = memo(function ProductionChartsGrid() {
   const productionHistory = useAnalyticsStore(state => state.productionHistory);
   const selectedResources = useAnalyticsStore(state => state.selectedResources);
-  
-  const resources = selectedResources.length > 0 
-    ? selectedResources 
-    : (Object.keys(productionHistory) as ResourceType[]).slice(0, 6);
+
+  const resources = useMemo(
+    () =>
+      selectedResources.length > 0
+        ? selectedResources
+        : (Object.keys(productionHistory) as ResourceType[]).slice(0, 6),
+    [selectedResources, productionHistory],
+  );
 
   if (resources.length === 0) {
     return (
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-8">
-        <p className="text-cyber-gray-500 text-center">
-          Данные о производстве ещё не собраны. Подождите несколько минут.
-        </p>
-      </div>
+      <EmptyState
+        title="Данные о производстве ещё не собраны"
+        hint="Подождите несколько минут."
+      />
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {resources.map(resource => (
         <ProductionChart key={resource} resource={resource} />
       ))}
     </div>
   );
-}
+});

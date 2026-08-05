@@ -13,10 +13,10 @@ import type {
 import type {
   Bottleneck,
   BottleneckSeverity,
-  BOTTLENECK_THRESHOLDS,
 } from '../core/gameTypes.analytics';
-import { D } from '../core/math/format';
-import { formatDuration } from '../core/gameTypes.analytics';
+// BOTTLENECK_THRESHOLDS — const, а не тип: он лежал в `import type`, поэтому пороги
+// ниже стояли числами по месту и разъезжались бы с конфигом.
+import { formatDuration, BOTTLENECK_THRESHOLDS } from '../core/gameTypes.analytics';
 import { 
   calculateResourceProduction, 
   calculateResourceConsumption 
@@ -54,7 +54,7 @@ export function detectBottlenecks(
     const severity = calculateSeverity(
       production, 
       consumption, 
-      state.current
+      state.amount
     );
     
     if (severity === null) continue;
@@ -64,8 +64,8 @@ export function detectBottlenecks(
     const consumers = findConsumers(buildings, resource);
     
     // Рассчитываем время до истощения
-    const timeToDepletion = deficit.gt(0) && state.current.gt(0)
-      ? state.current.div(deficit).toNumber()
+    const timeToDepletion = deficit.gt(0) && state.amount.gt(0)
+      ? state.amount.div(deficit).toNumber()
       : null;
     
     // Генерируем рекомендацию
@@ -74,8 +74,7 @@ export function detectBottlenecks(
       severity,
       production,
       consumption,
-      producers,
-      consumers
+      producers
     );
     
     bottlenecks.push({
@@ -87,7 +86,7 @@ export function detectBottlenecks(
       consumption: consumption.toString(),
       production: production.toString(),
       deficit: deficit.toString(),
-      currentStock: state.current.toString(),
+      currentStock: state.amount.toString(),
       timeToDepletion,
       recommendation,
       detectedAt: now,
@@ -122,18 +121,15 @@ export function calculateSeverity(
   
   const ratio = consumption.div(production);
   
-  // Потребление > производства × 2.0
-  if (ratio.gte(2.0)) {
+  if (ratio.gte(BOTTLENECK_THRESHOLDS.HIGH)) {
     return 'high';
   }
-  
-  // Потребление > производства × 1.5
-  if (ratio.gte(1.5)) {
+
+  if (ratio.gte(BOTTLENECK_THRESHOLDS.MEDIUM)) {
     return 'medium';
   }
-  
-  // Потребление > производства × 1.1
-  if (ratio.gte(1.1)) {
+
+  if (ratio.gte(BOTTLENECK_THRESHOLDS.LOW)) {
     return 'low';
   }
   
@@ -168,11 +164,7 @@ export function findProducers(
   resource: ResourceType
 ): string[] {
   return buildings
-    .filter(b => 
-      b.count > 0 && 
-      !b.disabled && 
-      b.production?.[resource]?.gt(0)
-    )
+    .filter(b => b.count > 0 && b.production?.[resource]?.gt(0))
     .map(b => b.id);
 }
 
@@ -183,12 +175,12 @@ export function findConsumers(
   buildings: Building[],
   resource: ResourceType
 ): string[] {
+      // Building has `consumption`, not `upkeep`/`inputs` — no building anywhere defines those
+      // two, so this filter matched nothing and the detector reported zero consumers for
+      // every resource. `disabled` is likewise not a Building field (per-tile disabling lives
+      // in grid.tileDisabled), so the check was always a no-op and is dropped.
   return buildings
-    .filter(b => 
-      b.count > 0 && 
-      !b.disabled && 
-      (b.upkeep?.[resource]?.gt(0) || b.inputs?.[resource]?.gt(0))
-    )
+    .filter(b => b.count > 0 && b.consumption?.[resource]?.gt(0))
     .map(b => b.id);
 }
 
@@ -204,8 +196,7 @@ export function generateRecommendation(
   severity: BottleneckSeverity,
   production: Decimal,
   consumption: Decimal,
-  producers: string[],
-  consumers: string[]
+  producers: string[]
 ): string {
   const resourceName = getResourceDisplayName(resource);
   
@@ -308,8 +299,8 @@ export function predictBottlenecks(
     const deficit = consumption.sub(production);
     
     // Рассчитываем время до истощения
-    if (state.current.gt(0)) {
-      const timeToDepletion = state.current.div(deficit).toNumber();
+    if (state.amount.gt(0)) {
+      const timeToDepletion = state.amount.div(deficit).toNumber();
       
       // Если истощится в пределах прогноза
       if (timeToDepletion <= secondsAhead && timeToDepletion > 0) {
@@ -325,7 +316,7 @@ export function predictBottlenecks(
           consumption: consumption.toString(),
           production: production.toString(),
           deficit: deficit.toString(),
-          currentStock: state.current.toString(),
+          currentStock: state.amount.toString(),
           timeToDepletion,
           recommendation: `⏰ ${getResourceDisplayName(resource)} закончится через ${formatDuration(timeToDepletion)}. Подготовьтесь заранее!`,
           detectedAt: now,

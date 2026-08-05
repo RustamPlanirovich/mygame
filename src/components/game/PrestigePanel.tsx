@@ -3,7 +3,8 @@ import { formatNumber } from '../../core/math/format';
 import { PRESTIGE_UPGRADES, canBuyPrestigeUpgrade, getTotalPrestigeBonuses } from '../../core/constants/prestige';
 import type { PrestigeUpgradeId } from '../../core/gameTypes';
 import { RotateCcw, Zap, Star, Info } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { Modal } from '../ui';
 
 type TabType = 'prestige' | 'ascension';
 
@@ -22,6 +23,14 @@ export function PrestigePanel() {
 
   const [activeTab, setActiveTab] = useState<TabType>('prestige');
   const [selectedUpgrade, setSelectedUpgrade] = useState<PrestigeUpgradeId | null>(null);
+
+  /*
+   * Панель подписана на весь стор (`useGameStore()` без селектора), поэтому
+   * перерисовывается на каждом тике — ~20 раз в секунду. Инлайновая стрелка в onClose
+   * была бы новой ссылкой на каждый такой рендер и заставляла бы Modal перерисовываться
+   * вхолостую вместе с панелью. Ссылка должна быть одна на всё время жизни панели.
+   */
+  const closeUpgrade = useCallback(() => setSelectedUpgrade(null), []);
 
   const quantumGain = calculatePrestigeGain();
   const totalBonuses = getTotalPrestigeBonuses(prestige);
@@ -367,44 +376,24 @@ export function PrestigePanel() {
       )}
 
       {/* Модальное окно с информацией об улучшении */}
-      {selectedUpgrade && (
-        <div 
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedUpgrade(null)}
-        >
-          <div 
-            className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-4 max-w-md w-full max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {(() => {
-              const upgrade = PRESTIGE_UPGRADES[selectedUpgrade];
-              const currentLevel = prestige.upgrades[selectedUpgrade] || 0;
-              const cost = upgrade.cost * (currentLevel + 1);
-              const check = canBuyPrestigeUpgrade(selectedUpgrade, prestige);
-              const maxed = currentLevel >= upgrade.maxLevel;
+      {selectedUpgrade &&
+        (() => {
+          const upgrade = PRESTIGE_UPGRADES[selectedUpgrade];
+          const currentLevel = prestige.upgrades[selectedUpgrade] || 0;
+          const cost = upgrade.cost * (currentLevel + 1);
+          const check = canBuyPrestigeUpgrade(selectedUpgrade, prestige);
+          const maxed = currentLevel >= upgrade.maxLevel;
 
-              return (
-                <>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-4xl">{upgrade.icon}</span>
-                      <div>
-                        <h3 className="text-xl font-bold text-white">{upgrade.name}</h3>
-                        {currentLevel > 0 && (
-                          <div className="text-sm text-blue-400 font-bold">
-                            Уровень {currentLevel}/{upgrade.maxLevel}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSelectedUpgrade(null)}
-                      className="text-gray-400 hover:text-white text-2xl"
-                    >
-                      ×
-                    </button>
-                  </div>
-
+          return (
+            <Modal
+              open
+              onClose={closeUpgrade}
+              size="sm"
+              icon={<span className="text-2xl leading-none">{upgrade.icon}</span>}
+              title={upgrade.name}
+              subtitle={currentLevel > 0 ? `Уровень ${currentLevel}/${upgrade.maxLevel}` : undefined}
+            >
+              <div className="p-4">
                   <p className="text-sm text-gray-300 mb-4">{upgrade.description}</p>
 
                   {/* Эффекты */}
@@ -489,12 +478,10 @@ export function PrestigePanel() {
                       <span className="text-green-400 font-bold text-base">✓ Максимальный уровень достигнут</span>
                     </div>
                   )}
-                </>
-              );
-            })()}
-          </div>
-        </div>
-      )}
+              </div>
+            </Modal>
+          );
+        })()}
     </div>
   );
 }

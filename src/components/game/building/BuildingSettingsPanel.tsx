@@ -5,7 +5,8 @@
 
 import { useState, useMemo } from 'react';
 import { useGameStore } from '../../../features/gameStore';
-import { 
+import { EmptyState, Modal, Tabs, type TabItem } from '../../ui';
+import {
   BUILDING_MODES,
   PRIORITY_LABELS,
   SETTINGS_PRESETS,
@@ -24,9 +25,18 @@ interface BuildingSettingsPanelProps {
   onClose: () => void;
 }
 
+type SettingsTabId = 'mode' | 'priority' | 'auto' | 'conditions';
+
+const SETTINGS_TABS: TabItem<SettingsTabId>[] = [
+  { id: 'mode', label: '⚙️ Режим' },
+  { id: 'priority', label: '📊 Приоритеты' },
+  { id: 'auto', label: '🤖 Авто-продажа' },
+  { id: 'conditions', label: '📋 Условия' },
+];
+
 export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'mode' | 'priority' | 'auto' | 'conditions'>('mode');
-  
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('mode');
+
   const buildingId = useGameStore((s) => s.grid.tiles[tileKey]);
   const buildings = useGameStore((s) => s.buildings);
   const tileSettings = useGameStore((s) => s.grid.tileSettings?.[tileKey]);
@@ -46,11 +56,11 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
 
   if (!buildingId || !building) {
     return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-cyber-dark border border-cyber-border rounded-lg p-6">
-          <p className="text-cyber-text">Здание не найдено</p>
+      <Modal open onClose={onClose} title="Настройки здания" size="sm">
+        <div className="p-4">
+          <EmptyState title="Здание не найдено" />
         </div>
-      </div>
+      </Modal>
     );
   }
 
@@ -84,127 +94,20 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
   const consumedResources = Object.keys(building.consumption ?? {}) as ResourceType[];
   const producedResources = Object.keys(building.production ?? {}) as ResourceType[];
 
+  const BuildingIcon = getBuildingIcon(buildingId);
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
-      <div 
-        className="bg-cyber-dark border border-cyber-border rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Заголовок */}
-        <div className="flex items-center justify-between p-4 border-b border-cyber-border">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{(() => { const Icon = getBuildingIcon(buildingId); return <Icon size={24} />; })()}</span>
-            <div>
-              <h2 className="text-lg font-bold text-cyber-text">{building.name}</h2>
-              <p className="text-sm text-cyber-muted">Настройки • {tileKey}</p>
-            </div>
-          </div>
-          <button 
-            onClick={onClose}
-            className="text-cyber-muted hover:text-cyber-text text-2xl"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Статус */}
-        <div className="flex items-center gap-4 p-4 bg-cyber-darker border-b border-cyber-border">
-          <div className="flex items-center gap-2">
-            <span 
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: settings.enabled ? currentMode.color : '#6b7280' }}
-            />
-            <span className="text-sm">
-              {settings.enabled ? currentMode.name : 'Отключено'}
-            </span>
-          </div>
-          
-          <div className="flex-1" />
-          
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-cyber-muted">Здоровье:</span>
-            <div className="w-24 h-2 bg-cyber-darker rounded overflow-hidden">
-              <div 
-                className="h-full transition-all"
-                style={{ 
-                  width: `${settings.health}%`,
-                  backgroundColor: settings.health > 70 ? '#22c55e' : settings.health > 30 ? '#f59e0b' : '#ef4444'
-                }}
-              />
-            </div>
-            <span className="text-sm">{settings.health}%</span>
-          </div>
-
-          {settings.health < 100 && (
-            <button
-              onClick={() => repairBuilding(tileKey)}
-              disabled={!canRepair}
-              className={`px-3 py-1 text-sm rounded ${
-                canRepair 
-                  ? 'bg-cyber-blue text-white hover:bg-cyber-blue/80' 
-                  : 'bg-cyber-darker text-cyber-muted cursor-not-allowed'
-              }`}
-            >
-              🔧 Ремонт ({formatNumber(repairCost)} ₡)
-            </button>
-          )}
-        </div>
-
-        {/* Табы */}
-        <div className="flex border-b border-cyber-border">
-          {[
-            { id: 'mode' as const, label: '⚙️ Режим', },
-            { id: 'priority' as const, label: '📊 Приоритеты' },
-            { id: 'auto' as const, label: '🤖 Авто-продажа' },
-            { id: 'conditions' as const, label: '📋 Условия' },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-cyber-blue/20 text-cyber-blue border-b-2 border-cyber-blue'
-                  : 'text-cyber-muted hover:text-cyber-text'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Контент табов */}
-        <div className="p-4 overflow-y-auto max-h-[calc(90vh-220px)]">
-          {activeTab === 'mode' && (
-            <ModeTab 
-              settings={settings} 
-              onModeChange={(mode) => setBuildingMode(tileKey, mode)}
-              onEnabledChange={(enabled) => setBuildingEnabled(tileKey, enabled)}
-            />
-          )}
-          
-          {activeTab === 'priority' && (
-            <PriorityTab
-              settings={settings}
-              consumedResources={consumedResources}
-              producedResources={producedResources}
-              onInputPriorityChange={(res, priority) => setInputPriority(tileKey, res, priority)}
-              onOutputPriorityChange={(priority) => setOutputPriority(tileKey, priority)}
-            />
-          )}
-          
-          {activeTab === 'auto' && (
-            <AutoSellTab settings={settings} tileKey={tileKey} producedResources={producedResources} />
-          )}
-          
-          {activeTab === 'conditions' && (
-            <ConditionsTab settings={settings} tileKey={tileKey} />
-          )}
-        </div>
-
-        {/* Футер с пресетами */}
-        <div className="p-4 border-t border-cyber-border bg-cyber-darker">
-          <p className="text-sm text-cyber-muted mb-2">Быстрые пресеты:</p>
-          <div className="flex gap-2 flex-wrap">
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={building.name}
+      subtitle={`Настройки • ${tileKey}`}
+      icon={<BuildingIcon size={24} />}
+      footer={
+        <>
+          <p className="mb-2 text-sm text-cyber-muted">Быстрые пресеты:</p>
+          <div className="flex flex-wrap gap-2">
             {Object.values(SETTINGS_PRESETS).map(preset => (
               <button
                 key={preset.id}
@@ -213,16 +116,94 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
                   const newSettings = applyPreset(settings, preset.id, producedResources);
                   updateTileSettings(tileKey, newSettings);
                 }}
-                className="px-3 py-1.5 text-sm bg-cyber-dark border border-cyber-border rounded hover:border-cyber-blue transition-colors"
+                className="btn btn-xs"
                 title={preset.description}
               >
                 {preset.emoji} {preset.name}
               </button>
             ))}
           </div>
+        </>
+      }
+    >
+      {/* Статус */}
+      <div className="flex items-center gap-4 border-b border-cyber-border bg-cyber-darker p-4">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-3 w-3 rounded-full"
+            style={{ backgroundColor: settings.enabled ? currentMode.color : '#6b7280' }}
+          />
+          <span className="text-sm">
+            {settings.enabled ? currentMode.name : 'Отключено'}
+          </span>
         </div>
+
+        <div className="flex-1" />
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-cyber-muted">Здоровье:</span>
+          {/*
+            `.meter` из дизайн-системы, но заливка красится вручную: здесь непрерывная
+            шкала (зелёный/жёлтый/красный по порогам 70/30), а `Meter` знает только
+            фиксированные семантические тона.
+          */}
+          <div className="meter w-24">
+            <div
+              className="meter-fill"
+              style={{
+                width: `${settings.health}%`,
+                backgroundColor: settings.health > 70 ? '#22c55e' : settings.health > 30 ? '#f59e0b' : '#ef4444'
+              }}
+            />
+          </div>
+          <span className="text-sm">{settings.health}%</span>
+        </div>
+
+        {settings.health < 100 && (
+          <button
+            onClick={() => repairBuilding(tileKey)}
+            disabled={!canRepair}
+            className="btn btn-info btn-xs"
+          >
+            🔧 Ремонт ({formatNumber(repairCost)} ₡)
+          </button>
+        )}
       </div>
-    </div>
+
+      {/* Табы */}
+      <div className="p-2">
+        <Tabs items={SETTINGS_TABS} value={activeTab} onChange={setActiveTab} />
+      </div>
+
+      {/* Контент табов */}
+      <div className="p-4">
+        {activeTab === 'mode' && (
+          <ModeTab
+            settings={settings}
+            onModeChange={(mode) => setBuildingMode(tileKey, mode)}
+            onEnabledChange={(enabled) => setBuildingEnabled(tileKey, enabled)}
+          />
+        )}
+
+        {activeTab === 'priority' && (
+          <PriorityTab
+            settings={settings}
+            consumedResources={consumedResources}
+            producedResources={producedResources}
+            onInputPriorityChange={(res, priority) => setInputPriority(tileKey, res, priority)}
+            onOutputPriorityChange={(priority) => setOutputPriority(tileKey, priority)}
+          />
+        )}
+
+        {activeTab === 'auto' && (
+          <AutoSellTab settings={settings} tileKey={tileKey} producedResources={producedResources} />
+        )}
+
+        {activeTab === 'conditions' && (
+          <ConditionsTab settings={settings} tileKey={tileKey} />
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -384,9 +365,7 @@ function PriorityTab({
       )}
 
       {consumedResources.length === 0 && producedResources.length === 0 && (
-        <p className="text-center text-cyber-muted py-8">
-          Это здание не потребляет ресурсы
-        </p>
+        <EmptyState title="Это здание не потребляет ресурсы" />
       )}
     </div>
   );
@@ -400,7 +379,6 @@ interface AutoSellTabProps {
 
 function AutoSellTab({ settings, tileKey, producedResources }: AutoSellTabProps) {
   const updateAutoSell = useGameStore((s) => s.updateAutoSell);
-  const removeAutoSell = useGameStore((s) => s.removeAutoSell);
 
   return (
     <div className="space-y-4">
@@ -409,9 +387,7 @@ function AutoSellTab({ settings, tileKey, producedResources }: AutoSellTabProps)
       </p>
 
       {producedResources.length === 0 ? (
-        <p className="text-center text-cyber-muted py-8">
-          Это здание не производит ресурсы
-        </p>
+        <EmptyState title="Это здание не производит ресурсы" />
       ) : (
         <div className="space-y-3">
           {producedResources.map(resource => {
@@ -493,24 +469,26 @@ function ConditionsTab({ settings, tileKey }: ConditionsTabProps) {
       </p>
 
       {settings.conditions.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-cyber-muted mb-4">Нет активных условий</p>
-          <button
-            onClick={() => {
-              addBuildingCondition(tileKey, {
-                id: `cond_${Date.now()}`,
-                type: 'resource_above',
-                resource: 'energy',
-                value: 80,
-                action: 'enable',
-                enabled: true,
-              });
-            }}
-            className="px-4 py-2 bg-cyber-blue text-white rounded hover:bg-cyber-blue/80"
-          >
-            + Добавить условие
-          </button>
-        </div>
+        <EmptyState
+          title="Нет активных условий"
+          action={
+            <button
+              onClick={() => {
+                addBuildingCondition(tileKey, {
+                  id: `cond_${Date.now()}`,
+                  type: 'resource_above',
+                  resource: 'energy',
+                  value: 80,
+                  action: 'enable',
+                  enabled: true,
+                });
+              }}
+              className="btn btn-info"
+            >
+              + Добавить условие
+            </button>
+          }
+        />
       ) : (
         <div className="space-y-2">
           {settings.conditions.map(condition => (

@@ -122,9 +122,10 @@ export function processLoanPayment(loan: Loan, paymentAmount: Decimal): {
   payment: LoanPayment;
   isFullyPaid: boolean;
 } {
+  // Считаем от фактически внесённой суммы (paymentAmount), а не от планового
+  // ежемесячного платежа — частичные и повышенные взносы тоже допустимы.
   const remainingBalance = D(loan.remainingBalance);
-  const monthlyPayment = D(loan.monthlyPayment);
-  
+
   // Рассчитываем, сколько идёт на проценты и основной долг
   // Для упрощения: проценты = остаток * месячная ставка
   const monthlyRate = loan.interestRate / 12;
@@ -203,8 +204,7 @@ export function calculateEarlyPayoff(loan: Loan): {
   savings: Decimal;
 } {
   const remainingBalance = D(loan.remainingBalance);
-  const monthlyPayment = D(loan.monthlyPayment);
-  
+
   // Досрочное погашение = текущий остаток минус скидка за досрочное погашение
   // Обычно скидка = непогашенные будущие проценты
   const monthsRemaining = Math.ceil(

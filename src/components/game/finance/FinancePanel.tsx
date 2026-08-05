@@ -3,7 +3,7 @@
  * Фаза 6: Вкладки для банка, акций, кредитов и портфеля
  */
 
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { useFinanceStore } from '../../../features/financeStore';
 import { useAdvisorStore } from '../../../features/advisorStore';
 import { BankAccount } from './BankAccount';
@@ -15,6 +15,7 @@ import { NetWorthTracker } from './NetWorthTracker';
 import { AIAdvisor } from './AIAdvisor';
 import { P2PLending } from './P2PLending';
 import { formatNumber } from '../../../core/math/format';
+import { Stat, Tabs, type TabItem } from '../../ui';
 import Decimal from 'break_eternity.js';
 
 type FinanceTab = 'overview' | 'bank' | 'stocks' | 'funds' | 'loans' | 'advisor' | 'p2p';
@@ -24,61 +25,90 @@ interface FinancePanelProps {
   onTransfer: (amount: Decimal, direction: 'toBank' | 'fromBank') => void;
 }
 
-export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) {
+/*
+ * memo со сравнением по ЗНАЧЕНИЮ: SidePanelTabs берёт creditsBalance из gameStore, а
+ * tick() создаёт новый Decimal каждые 50 мс — по ссылке он «меняется» всегда, поэтому
+ * memo по умолчанию не отсёк бы ни одного рендера. onTransfer стабилизирован
+ * useCallback на стороне SidePanelTabs.
+ *
+ * Панель всё равно будет просыпаться на пересчёт netWorth/liquidAssets (её собственные
+ * селекторы), но каждый дочерний компонент обёрнут в memo и на этих рендерах не
+ * пересчитывается — раньше все десять перерисовывались вместе с родителем.
+ */
+export const FinancePanel = memo(
+  FinancePanelImpl,
+  (prev, next) =>
+    prev.onTransfer === next.onTransfer && prev.creditsBalance.eq(next.creditsBalance),
+);
+
+function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
   const [activeTab, setActiveTab] = useState<FinanceTab>('overview');
-  
-  const {
-    bank,
-    creditScore,
-    netWorth,
-    liquidAssets,
-    totalDebt,
-    loans,
-    positions,
-    fundInvestments,
-    stocks,
-    initializeFinance,
-    recalculateNetWorth,
-  } = useFinanceStore();
-  
+
+  /*
+   * Раньше здесь стояло `useFinanceStore()` без селектора: панель перерисовывалась на
+   * ЛЮБОЙ set() стора. Эффект ниже вызывает recalculateNetWorth() на каждое изменение
+   * creditsBalance (20 раз в секунду), а он делает set() — то есть подписка на весь стор
+   * удваивала работу. Точечные селекторы отдают ровно те же ссылки, но будят компонент
+   * только когда меняются именно эти поля.
+   */
+  const savingsBalance = useFinanceStore((s) => s.bank.savingsBalance);
+  const creditScore = useFinanceStore((s) => s.creditScore);
+  const netWorth = useFinanceStore((s) => s.netWorth);
+  const liquidAssets = useFinanceStore((s) => s.liquidAssets);
+  const totalDebt = useFinanceStore((s) => s.totalDebt);
+  const loans = useFinanceStore((s) => s.loans);
+  const positions = useFinanceStore((s) => s.positions);
+  const fundInvestments = useFinanceStore((s) => s.fundInvestments);
+  const stocksCount = useFinanceStore((s) => s.stocks.length);
+  const initializeFinance = useFinanceStore((s) => s.initializeFinance);
+  const recalculateNetWorth = useFinanceStore((s) => s.recalculateNetWorth);
+
   // Инициализация при первом рендере
   useEffect(() => {
-    if (stocks.length === 0) {
+    if (stocksCount === 0) {
       initializeFinance();
     }
-  }, [stocks.length, initializeFinance]);
-  
+  }, [stocksCount, initializeFinance]);
+
   // Пересчёт чистой стоимости
   useEffect(() => {
     recalculateNetWorth(creditsBalance);
   }, [creditsBalance, positions, fundInvestments, loans, recalculateNetWorth]);
-  
-  const tabs: { id: FinanceTab; label: string; icon: string }[] = [
-    { id: 'overview', label: 'Обзор', icon: '📊' },
-    { id: 'bank', label: 'Банк', icon: '🏦' },
-    { id: 'stocks', label: 'Акции', icon: '📈' },
-    { id: 'funds', label: 'Фонды', icon: '💼' },
-    { id: 'loans', label: 'Кредиты', icon: '💳' },
-    { id: 'advisor', label: 'AI', icon: '🤖' },
-    { id: 'p2p', label: 'P2P', icon: '💱' },
-  ];
-  
+
   const activeLoans = loans.filter(l => l.status === 'active').length;
-  
+
   // P2P кредиты
-  const { myLoansAsBorrower, fetchMyP2PData } = useAdvisorStore();
-  
+  const myLoansAsBorrower = useAdvisorStore((s) => s.myLoansAsBorrower);
+  const fetchMyP2PData = useAdvisorStore((s) => s.fetchMyP2PData);
+
   useEffect(() => {
     fetchMyP2PData();
   }, [fetchMyP2PData]);
-  
+
   const activeP2PLoans = myLoansAsBorrower.filter(l => l.status === 'active');
   const p2pDebt = activeP2PLoans.reduce(
     (sum, loan) => sum.add(new Decimal(loan.remainingBalance)),
     new Decimal(0)
   );
   const combinedTotalDebt = new Decimal(totalDebt).add(p2pDebt);
-  
+
+  const loansBadge = activeLoans + activeP2PLoans.length;
+
+  const tabs: TabItem<FinanceTab>[] = [
+    { id: 'overview', label: 'Обзор', icon: <span aria-hidden="true">📊</span> },
+    { id: 'bank', label: 'Банк', icon: <span aria-hidden="true">🏦</span> },
+    { id: 'stocks', label: 'Акции', icon: <span aria-hidden="true">📈</span> },
+    { id: 'funds', label: 'Фонды', icon: <span aria-hidden="true">💼</span> },
+    {
+      id: 'loans',
+      label: 'Кредиты',
+      icon: <span aria-hidden="true">💳</span>,
+      badge: loansBadge > 0 ? loansBadge : undefined,
+    },
+    { id: 'advisor', label: 'AI', icon: <span aria-hidden="true">🤖</span> },
+    { id: 'p2p', label: 'P2P', icon: <span aria-hidden="true">💱</span> },
+  ];
+
   return (
     <div className="flex flex-col min-h-full bg-slate-900 text-white">
       {/* Заголовок */}
@@ -89,109 +119,90 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
           </h2>
           <CreditScore score={creditScore} compact />
         </div>
-        
+
         {/* Быстрая статистика */}
-        <div className="grid grid-cols-4 gap-2 text-sm">
-          <div className="bg-slate-800 rounded p-2">
-            <div className="text-slate-400">Чистая стоимость</div>
-            <div className={`font-bold ${parseFloat(netWorth) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {formatNumber(new Decimal(netWorth))} ₡
-            </div>
+        <div className="grid grid-cols-4 gap-2">
+          <div className="card">
+            <Stat
+              label="Чистая стоимость"
+              value={`${formatNumber(new Decimal(netWorth))} ₡`}
+              tone={parseFloat(netWorth) >= 0 ? 'accent' : 'danger'}
+            />
           </div>
-          <div className="bg-slate-800 rounded p-2">
-            <div className="text-slate-400">Ликвидные активы</div>
-            <div className="font-bold text-blue-400">
-              {formatNumber(new Decimal(liquidAssets))} ₡
-            </div>
+          <div className="card">
+            <Stat
+              label="Ликвидные активы"
+              value={`${formatNumber(new Decimal(liquidAssets))} ₡`}
+              tone="info"
+            />
           </div>
-          <div className="bg-slate-800 rounded p-2">
-            <div className="text-slate-400">Долги</div>
-            <div className="font-bold text-orange-400">
-              {formatNumber(combinedTotalDebt)} ₡
-              {p2pDebt.gt(0) && (
-                <span className="text-xs text-purple-400 ml-1">
-                  (P2P: {formatNumber(p2pDebt)})
-                </span>
-              )}
-            </div>
+          <div className="card">
+            <Stat
+              label="Долги"
+              value={`${formatNumber(combinedTotalDebt)} ₡`}
+              tone="warning"
+              hint={p2pDebt.gt(0) ? `(P2P: ${formatNumber(p2pDebt)})` : undefined}
+            />
           </div>
-          <div className="bg-slate-800 rounded p-2">
-            <div className="text-slate-400">Сбережения</div>
-            <div className="font-bold text-emerald-400">
-              {formatNumber(new Decimal(bank.savingsBalance))} ₡
-            </div>
+          <div className="card">
+            <Stat
+              label="Сбережения"
+              value={`${formatNumber(new Decimal(savingsBalance))} ₡`}
+              tone="accent"
+            />
           </div>
         </div>
       </div>
-      
+
       {/* Табы */}
-      <div className="flex border-b border-slate-700 shrink-0">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors cursor-pointer
-              ${activeTab === tab.id 
-                ? 'bg-slate-800 text-white border-b-2 border-blue-500' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-          >
-            <span className="mr-1">{tab.icon}</span>
-            {tab.label}
-            {tab.id === 'loans' && (activeLoans > 0 || activeP2PLoans.length > 0) && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-orange-500 rounded-full">
-                {activeLoans + activeP2PLoans.length}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="shrink-0 px-4 pt-3">
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" />
       </div>
-      
+
       {/* Контент */}
       <div className="p-4">
         {activeTab === 'overview' && (
           <div className="space-y-4">
             <NetWorthTracker />
-            
+
             <div className="grid grid-cols-2 gap-4">
               {/* Краткая информация о портфеле */}
-              <div className="bg-slate-800 rounded-lg p-4">
+              <div className="card">
                 <h3 className="font-bold mb-3 flex items-center gap-2">
                   📊 Портфель
                 </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Акции</span>
-                    <span>{positions.length} позиций</span>
+                    <span><span className="font-mono tabular-nums">{positions.length}</span> позиций</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Фонды</span>
-                    <span>{fundInvestments.length} инвестиций</span>
+                    <span><span className="font-mono tabular-nums">{fundInvestments.length}</span> инвестиций</span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setActiveTab('stocks')}
-                  className="mt-3 w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm cursor-pointer transition-colors"
+                  className="btn-info btn-block mt-3"
                 >
                   Подробнее
                 </button>
               </div>
-              
+
               {/* Краткая информация о кредитах */}
-              <div className="bg-slate-800 rounded-lg p-4">
+              <div className="card">
                 <h3 className="font-bold mb-3 flex items-center gap-2">
                   💳 Кредиты
                 </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Активные</span>
-                    <span>{activeLoans} кредитов</span>
+                    <span><span className="font-mono tabular-nums">{activeLoans}</span> кредитов</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Общий долг</span>
-                    <span className="text-orange-400">
+                    <span className="font-mono tabular-nums text-orange-400">
                       {formatNumber(new Decimal(totalDebt))} ₡
                     </span>
                   </div>
@@ -199,7 +210,7 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
                 <button
                   type="button"
                   onClick={() => setActiveTab('loans')}
-                  className="mt-3 w-full py-2 bg-orange-600 hover:bg-orange-700 rounded text-sm cursor-pointer transition-colors"
+                  className="btn btn-block mt-3"
                 >
                   Управление
                 </button>
@@ -207,30 +218,30 @@ export function FinancePanel({ creditsBalance, onTransfer }: FinancePanelProps) 
             </div>
           </div>
         )}
-        
+
         {activeTab === 'bank' && (
-          <BankAccount 
+          <BankAccount
             creditsBalance={creditsBalance}
             onTransfer={onTransfer}
           />
         )}
-        
+
         {activeTab === 'stocks' && (
           <StockMarket />
         )}
-        
+
         {activeTab === 'funds' && (
           <Portfolio />
         )}
-        
+
         {activeTab === 'loans' && (
           <LoanManager />
         )}
-        
+
         {activeTab === 'advisor' && (
           <AIAdvisor />
         )}
-        
+
         {activeTab === 'p2p' && (
           <P2PLending />
         )}

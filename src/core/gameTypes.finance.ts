@@ -3,7 +3,6 @@
  * Фаза 6: Банковская система, инвестиции, кредиты, акции
  */
 
-import type Decimal from 'break_eternity.js';
 import type { DataPoint } from './gameTypes.analytics';
 
 // ==========================================

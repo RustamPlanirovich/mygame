@@ -59,6 +59,9 @@ export const SettingsPanel: React.FC = () => {
       const result = await saveSettingsToServer(settings);
       
       if (result.ok) {
+        // App подписан на это событие: без него сохранённый targetFPS/качество применялись
+        // только после перезагрузки страницы.
+        window.dispatchEvent(new CustomEvent('settingsChanged', { detail: settings }));
         setSaveStatus('✓ Настройки сохранены!');
       } else {
         setSaveStatus('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
@@ -91,6 +94,7 @@ export const SettingsPanel: React.FC = () => {
       const result = await saveSettingsToServer(DEFAULT_SETTINGS);
       
       if (result.ok) {
+        window.dispatchEvent(new CustomEvent('settingsChanged', { detail: DEFAULT_SETTINGS }));
         setSaveStatus('✓ Настройки сброшены!');
       } else {
         setSaveStatus('Ошибка: ' + (result.error || 'Неизвестная ошибка'));

@@ -3,12 +3,13 @@
  * Процедурная генерация карт на основе MapDefinition
  */
 
-import type { ResourceType, DepositType } from '../core/gameTypes';
+import type { DepositType } from '../core/gameTypes';
 import type { 
-  MapDefinition, 
-  GridType, 
+  MapDefinition,
+  GridType,
   MapModifier,
-  ActiveMapState 
+  MapId,
+  ActiveMapState
 } from '../core/gameTypes.maps';
 import { MODIFIER_EFFECTS } from '../core/gameTypes.maps';
 import { getMapDefinition } from '../core/constants/maps';
@@ -176,7 +177,7 @@ function generateAsteroidField(
   // Собираем острова
   for (let i = 0; i < islandCount; i++) {
     const islandTiles: number[] = [];
-    tiles.forEach((tile, key) => {
+    tiles.forEach((tile) => {
       if (tile.isIsland === i) {
         islandTiles.push(tile.x * 1000 + tile.y);
       }
@@ -200,7 +201,7 @@ function generateDeposits(
   baseX: number,
   baseY: number
 ): void {
-  const { width, height } = mapDef.gridDimensions;
+  // Габариты карты здесь не нужны: обходим уже созданный набор клеток, а не координатную сетку.
   const depositDensity = mapDef.depositDensity;
   const availableDeposits = mapDef.availableDeposits;
 
@@ -279,28 +280,27 @@ export function convertToGridFormat(genMap: GeneratedMap): {
 }
 
 /**
- * Инициализация ActiveMapState
+ * Инициализация ActiveMapState.
+ *
+ * Возвращала объект из старой схемы (mapId/startedAt/gridType/modifiers/stats) — ни одного
+ * из этих полей в ActiveMapState нет уже давно, так что результат не подходил ни под слайс
+ * maps, ни под сериализацию. Вызовов у функции нет: живой путь инициализации — INITIAL_MAPS
+ * в gameStore. Приведено к актуальной схеме, чтобы helper снова можно было подключить.
  */
-export function createActiveMapState(mapId: string): ActiveMapState {
+export function createActiveMapState(mapId: MapId): ActiveMapState {
   const mapDef = getMapDefinition(mapId);
   if (!mapDef) {
     throw new Error(`Map not found: ${mapId}`);
   }
 
   return {
-    mapId,
-    startedAt: Date.now(),
-    gridType: mapDef.gridType,
-    gridDimensions: mapDef.gridDimensions,
-    modifiers: mapDef.modifiers,
-    activeEvents: [],
-    discoveredArtifacts: [],
-    stats: {
-      buildingsPlaced: 0,
-      resourcesProduced: 0,
-      enemiesDefeated: 0,
-      eventsTriggered: 0,
-    },
+    currentMapId: mapId,
+    unlockedMaps: [mapId],
+    mapProgress: {},
+    activeMapData: null,
+    mapSeed: Date.now(),
+    currentEvent: null,
+    eventHistory: [],
   };
 }
 

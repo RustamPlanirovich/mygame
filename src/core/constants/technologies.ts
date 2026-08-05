@@ -11,7 +11,10 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 0, // Starting technology
     prerequisites: [],
     unlocks: {
-      buildings: ['coal_mine', 'iron_mine', 'copper_mine'],
+      // Зданий coal_mine/iron_mine в каталоге нет: уголь даёт «Сборщик Углерода», руду —
+      // «Авто-Майнер». Технология стартовая (INITIAL_RESEARCH.basic_mining = true), поэтому
+      // именно эти три здания определяют, что игрок вообще может построить в первую минуту.
+      buildings: ['carbon_harvester_mk1', 'miner_mk1', 'copper_mine_mk1'],
       resources: ['ore', 'carbon', 'copper']
     }
   },
@@ -23,7 +26,12 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 150,
     prerequisites: ['basic_mining'],
     unlocks: {
-      buildings: ['coal_power_plant']
+      // Угольной электростанции в каталоге нет. Ближайшее здание — generator_mk1, но это
+      // «Аварийный Генератор»: единственный источник энергии на старте и цель первого квеста
+      // (quest_first_generator, 50 RP). Закрыть его технологией = игрок не может ни построить
+      // что-либо (вся стоимость зданий в энергии), ни заработать первые RP. Оставляем пустым:
+      // технология работает как предпосылка для solar_panels и gas_power.
+      buildings: []
     }
   },
   basic_processing: {
@@ -34,7 +42,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 250,
     prerequisites: ['basic_mining'],
     unlocks: {
-      buildings: ['steel_mill'],
+      buildings: ['steel_smelter_mk1'], // в каталоге сталелитейное здание называется «Плавильня: Сталь»
       resources: ['steel']
     }
   },
@@ -46,7 +54,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 600,
     prerequisites: ['simple_power'],
     unlocks: {
-      buildings: ['solar_panel']
+      buildings: ['solar_panel_mk1']
     }
   },
 
@@ -59,7 +67,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 1200,
     prerequisites: ['basic_mining'],
     unlocks: {
-      buildings: ['gas_well'],
+      buildings: ['gas_well_mk1'],
       resources: ['natural_gas']
     }
   },
@@ -71,7 +79,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 1800,
     prerequisites: ['gas_exploration'],
     unlocks: {
-      buildings: ['oil_well'],
+      buildings: ['oil_well_mk1'],
       resources: ['oil']
     }
   },
@@ -83,7 +91,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 2200,
     prerequisites: ['basic_processing'],
     unlocks: {
-      buildings: ['oil_refinery', 'gas_refinery', 'chemical_plant'],
+      buildings: ['oil_refinery_mk1', 'gas_refinery_mk1', 'chemical_plant_mk1'],
       resources: ['gasoline', 'chemicals']
     }
   },
@@ -95,7 +103,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 3200,
     prerequisites: ['advanced_processing'],
     unlocks: {
-      buildings: ['glass_factory'],
+      buildings: ['glass_factory_mk1'],
       resources: ['plastic', 'glass']
     }
   },
@@ -107,7 +115,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 5500,
     prerequisites: ['plastics_glass'],
     unlocks: {
-      buildings: ['semiconductor_factory', 'sand_quarry'],
+      buildings: ['semiconductor_factory_mk1', 'sand_quarry_mk1'],
       resources: ['semiconductors', 'sand']
     }
   },
@@ -119,7 +127,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 4500,
     prerequisites: ['gas_exploration', 'simple_power'],
     unlocks: {
-      buildings: ['gas_power_plant']
+      buildings: ['gas_power_plant_mk1']
     }
   },
 
@@ -132,7 +140,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 8000,
     prerequisites: ['semiconductors'],
     unlocks: {
-      buildings: ['integrated_circuit_factory'],
+      buildings: ['ic_factory_mk1'], // «Завод Интегральных Микросхем» в каталоге сокращён до ic_factory_mk1
       resources: ['integrated_circuit']
     }
   },
@@ -144,7 +152,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 12000,
     prerequisites: ['microchips'],
     unlocks: {
-      buildings: ['computer_factory', 'bitcoin_farm_mk1'],
+      buildings: ['computer_factory_mk1', 'bitcoin_farm_mk1'],
       resources: ['computer']
     }
   },
@@ -156,7 +164,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 10000,
     prerequisites: ['microchips'],
     unlocks: {
-      buildings: ['display_factory'],
+      buildings: ['display_factory_mk1'],
       resources: ['display']
     }
   },
@@ -168,7 +176,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 12000,
     prerequisites: ['computers'],
     unlocks: {
-      buildings: ['robot_factory'],
+      buildings: ['robot_factory_mk1'],
       resources: ['robot']
     }
   },
@@ -193,7 +201,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 22000,
     prerequisites: ['automation'],
     unlocks: {
-      buildings: ['weapon_factory'],
+      buildings: ['weapon_factory_mk1'],
       resources: ['weapon']
     }
   },
@@ -205,7 +213,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 28000,
     prerequisites: ['advanced_weapons'],
     unlocks: {
-      buildings: ['artillery_factory'],
+      buildings: ['artillery_factory_mk1'],
       resources: ['artillery']
     }
   },
@@ -217,7 +225,11 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 30000,
     prerequisites: ['advanced_weapons'],
     unlocks: {
-      buildings: ['defense_platform', 'turret', 'defense_turret_mk1', 'shield_generator_mk1', 'armor_plating_mk1']
+      // defense_platform в каталоге отсутствует вовсе. turret означал turret_mk1, но это базовая
+      // «Турель Mk.I» — единственный источник урона по Глитчам на самой базе (CombatPanel и
+      // HelpPanel учат строить её с первых минут). Убирать её за технологию 4-й эры значит
+      // оставить новичка без обороны, поэтому она сознательно остаётся вне дерева.
+      buildings: ['defense_turret_mk1', 'shield_generator_mk1', 'armor_plating_mk1']
     }
   },
   radar_tech: {
@@ -228,7 +240,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 28000,
     prerequisites: ['advanced_weapons'],
     unlocks: {
-      buildings: ['radar_factory', 'radar_station_mk1'],
+      buildings: ['radar_factory_mk1', 'radar_station_mk1'],
       resources: ['radar']
     }
   },
@@ -240,7 +252,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 35000,
     prerequisites: ['defense_systems'],
     unlocks: {
-      buildings: ['uranium_mine', 'uranium_enrichment_plant'],
+      buildings: ['uranium_mine_mk1', 'uranium_enrichment_plant_mk1'],
       resources: ['uranium', 'enriched_uranium']
     }
   },
@@ -252,7 +264,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 45000,
     prerequisites: ['nuclear_physics'],
     unlocks: {
-      buildings: ['nuclear_power_plant', 'nuclear_bomb_factory', 'power_substation_mk1', 'cooling_system_mk1'],
+      buildings: ['nuclear_power_plant', 'nuclear_bomb_factory_mk1', 'power_substation_mk1', 'cooling_system_mk1'],
       resources: ['nuclear_bomb']
     }
   },
@@ -277,7 +289,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 50000,
     prerequisites: ['nuclear_power'],
     unlocks: {
-      buildings: ['jet_engine_factory'],
+      buildings: ['jet_engine_factory_mk1'],
       resources: ['jet_engine']
     }
   },
@@ -289,7 +301,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 60000,
     prerequisites: ['rocket_science'],
     unlocks: {
-      buildings: ['satellite_factory'],
+      buildings: ['satellite_factory_mk1'],
       resources: ['satellite']
     }
   },
@@ -301,7 +313,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 80000,
     prerequisites: ['satellites'],
     unlocks: {
-      buildings: ['rocket_factory', 'spaceship_factory'],
+      buildings: ['rocket_factory_mk1', 'spaceship_factory_mk1'],
       resources: ['rocket', 'spaceship']
     }
   },
@@ -313,7 +325,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 100000,
     prerequisites: ['spaceships'],
     unlocks: {
-      buildings: ['console_factory'],
+      buildings: ['console_factory_mk1'],
       resources: ['console']
     }
   },
@@ -325,7 +337,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 120000,
     prerequisites: ['interplanetary'],
     unlocks: {
-      buildings: ['space_colony']
+      buildings: ['space_colony_mk1']
     }
   },
 
@@ -349,7 +361,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 200000,
     prerequisites: ['intergalactic_gates'],
     unlocks: {
-      buildings: ['space_station_factory'],
+      buildings: ['space_station_factory_mk1'],
       resources: ['space_station']
     }
   },
@@ -361,7 +373,7 @@ export const TECHNOLOGIES: Record<TechnologyId, Technology> = {
     cost: 250000,
     prerequisites: ['space_stations'],
     unlocks: {
-      buildings: ['quantum_lab']
+      buildings: ['quantum_lab_mk1']
     }
   },
   advanced_colonies: {

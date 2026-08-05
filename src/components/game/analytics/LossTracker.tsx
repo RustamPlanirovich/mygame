@@ -1,19 +1,26 @@
 /**
  * LossTracker Component
- * 
+ *
  * Отслеживание потерь ресурсов
  */
 
-import React, { useMemo } from 'react';
+import { memo, useMemo, type ComponentType, type CSSProperties } from 'react';
 import { AlertCircle, Trash2, Flame, Swords, Sparkles, RefreshCw } from 'lucide-react';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
+import { EmptyState, Panel, Stat } from '../../ui';
 import type { ResourceLoss, LossReason } from '../../../core/gameTypes.analytics';
 import { D, formatNumber } from '../../../core/math/format';
 import { PieChart } from './charts';
 
-const LOSS_REASON_CONFIG: Record<LossReason, { 
-  label: string; 
-  icon: React.ComponentType<{ className?: string }>; 
+/**
+ * Иконкам ниже передаётся `style` (цвет причины потери), поэтому тип должен его
+ * допускать — с прежним `ComponentType<{ className?: string }>` это была ошибка типов.
+ */
+type LossIcon = ComponentType<{ className?: string; style?: CSSProperties }>;
+
+const LOSS_REASON_CONFIG: Record<LossReason, {
+  label: string;
+  icon: LossIcon;
   color: string;
 }> = {
   overflow: { label: 'Переполнение', icon: Trash2, color: '#f59e0b' },
@@ -27,28 +34,28 @@ interface LossItemProps {
   loss: ResourceLoss;
 }
 
-function LossItem({ loss }: LossItemProps) {
+const LossItem = memo(function LossItem({ loss }: LossItemProps) {
   const config = LOSS_REASON_CONFIG[loss.reason];
   const Icon = config.icon;
   const timeAgo = getTimeAgo(loss.timestamp);
 
   return (
-    <div className="flex items-center justify-between p-3 bg-cyber-gray-900/50 rounded-lg">
+    <div className="flex items-center justify-between rounded-lg bg-cyber-gray-900/50 p-3">
       <div className="flex items-center gap-3">
-        <div 
-          className="w-8 h-8 rounded-full flex items-center justify-center"
+        <div
+          className="flex h-8 w-8 items-center justify-center rounded-full"
           style={{ backgroundColor: `${config.color}20` }}
         >
-          <Icon className="w-4 h-4" style={{ color: config.color }} />
+          <Icon className="h-4 w-4" style={{ color: config.color }} />
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-cyber-gray-200 capitalize">
+            <span className="text-sm font-medium capitalize text-cyber-gray-200">
               {loss.resource.replace(/_/g, ' ')}
             </span>
-            <span 
-              className="text-xs px-2 py-0.5 rounded"
-              style={{ 
+            <span
+              className="rounded px-2 py-0.5 text-xs"
+              style={{
                 backgroundColor: `${config.color}20`,
                 color: config.color,
               }}
@@ -69,18 +76,18 @@ function LossItem({ loss }: LossItemProps) {
       </div>
     </div>
   );
-}
+});
 
 function getTimeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  
+
   if (seconds < 60) return 'только что';
   if (seconds < 3600) return `${Math.floor(seconds / 60)} мин назад`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} ч назад`;
   return `${Math.floor(seconds / 86400)} дн назад`;
 }
 
-export function LossTracker() {
+export const LossTracker = memo(function LossTracker() {
   const losses = useAnalyticsStore(state => state.losses);
   const clearOldLosses = useAnalyticsStore(state => state.clearOldLosses);
 
@@ -93,23 +100,23 @@ export function LossTracker() {
       event: 0,
       conversion: 0,
     };
-    
+
     for (const loss of losses) {
       stats[loss.reason] += D(loss.amount).toNumber();
     }
-    
+
     return stats;
   }, [losses]);
 
   // Статистика по ресурсам
   const statsByResource = useMemo(() => {
     const stats: Record<string, number> = {};
-    
+
     for (const loss of losses) {
       const amount = D(loss.amount).toNumber();
       stats[loss.resource] = (stats[loss.resource] || 0) + amount;
     }
-    
+
     return Object.entries(stats)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
@@ -134,54 +141,47 @@ export function LossTracker() {
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-400" />
-            <h3 className="text-lg font-medium text-cyber-gray-200">
-              Потери ресурсов
-            </h3>
-          </div>
-          <button
-            onClick={clearOldLosses}
-            className="text-xs bg-cyber-gray-700 hover:bg-cyber-gray-600 text-cyber-gray-300 px-3 py-1 rounded transition-colors"
-          >
+      <Panel
+        title="Потери ресурсов"
+        icon={<AlertCircle className="h-5 w-5 text-red-400" />}
+        actions={
+          <button onClick={clearOldLosses} className="btn btn-xs">
             Очистить старые
           </button>
-        </div>
-
+        }
+      >
         {losses.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-2">✨</div>
-            <p className="text-green-400 font-medium">Потерь не зафиксировано</p>
-            <p className="text-cyber-gray-500 text-sm mt-1">
-              Ресурсы используются эффективно
-            </p>
-          </div>
+          <EmptyState
+            icon={<span className="text-4xl">✨</span>}
+            title={<span className="text-green-400">Потерь не зафиксировано</span>}
+            hint="Ресурсы используются эффективно"
+          />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Stats */}
             <div className="space-y-4">
-              <div className="p-4 bg-red-900/20 rounded-lg text-center">
-                <p className="text-3xl font-bold text-red-400">
-                  {formatNumber(totalLosses)}
-                </p>
-                <p className="text-sm text-red-400/70">Всего потеряно</p>
+              <div className="rounded-lg bg-red-900/20 p-4">
+                <Stat
+                  align="center"
+                  tone="danger"
+                  label="Всего потеряно"
+                  value={formatNumber(totalLosses)}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(LOSS_REASON_CONFIG).map(([reason, config]) => {
                   const value = statsByReason[reason as LossReason];
                   if (value === 0) return null;
-                  
+
                   const Icon = config.icon;
                   return (
-                    <div 
+                    <div
                       key={reason}
-                      className="flex items-center gap-2 p-2 rounded"
+                      className="flex items-center gap-2 rounded p-2"
                       style={{ backgroundColor: `${config.color}10` }}
                     >
-                      <Icon className="w-4 h-4" style={{ color: config.color }} />
+                      <Icon className="h-4 w-4" style={{ color: config.color }} />
                       <div>
                         <p className="text-xs text-cyber-gray-400">{config.label}</p>
                         <p className="text-sm font-medium" style={{ color: config.color }}>
@@ -195,16 +195,16 @@ export function LossTracker() {
 
               {/* Top lost resources */}
               <div>
-                <h4 className="text-sm font-medium text-cyber-gray-400 mb-2">
+                <h4 className="mb-2 text-sm font-medium text-cyber-gray-400">
                   Больше всего потеряно:
                 </h4>
                 <div className="space-y-1">
                   {statsByResource.map(([resource, value]) => (
-                    <div 
+                    <div
                       key={resource}
                       className="flex items-center justify-between text-sm"
                     >
-                      <span className="text-cyber-gray-300 capitalize">
+                      <span className="capitalize text-cyber-gray-300">
                         {resource.replace(/_/g, ' ')}
                       </span>
                       <span className="text-red-400">-{formatNumber(D(value))}</span>
@@ -216,29 +216,22 @@ export function LossTracker() {
 
             {/* Pie Chart */}
             {pieData.length > 0 && (
-              <PieChart
-                data={pieData}
-                title="По причинам"
-                height={250}
-              />
+              <PieChart data={pieData} title="По причинам" height={250} />
             )}
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Recent Losses */}
       {losses.length > 0 && (
-        <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-          <h4 className="text-sm font-medium text-cyber-gray-300 mb-3">
-            Последние потери
-          </h4>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+        <Panel title="Последние потери">
+          <div className="max-h-64 space-y-2 overflow-y-auto">
             {losses.slice(0, 20).map(loss => (
               <LossItem key={loss.id} loss={loss} />
             ))}
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );
-}
+});

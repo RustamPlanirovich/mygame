@@ -3,6 +3,10 @@ import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format.ts';
 import type { PolicyId, PolicyCategory } from '../../core/gameTypes';
 import { POLICIES, canActivatePolicy, getPoliciesByCategory } from '../../core/constants/policies';
+import {
+  HANDLED_SPECIAL_EFFECTS,
+  SPECIAL_EFFECT_LABELS_RU,
+} from '../../core/production/policyEffects';
 import { Landmark, Info, XCircle } from 'lucide-react';
 import { notify } from '../../utils/notifications';
 
@@ -228,7 +232,25 @@ export function PoliticsPanel() {
                       {policy.effects.specialEffect && (
                         <div>
                           <span className="text-slate-400">Особый эффект:</span>
-                          <span className="text-cyan-300 ml-2">{policy.effects.specialEffect}</span>
+                          <span className="text-cyan-300 ml-2">
+                            {SPECIAL_EFFECT_LABELS_RU[policy.effects.specialEffect] ??
+                              policy.effects.specialEffect}
+                          </span>
+                          {/*
+                            Раньше строка вроде `gas_power_produces_gasoline` показывалась как
+                            обычный эффект, хотя ни один из них не реализован — политику можно
+                            было купить за влияние и платить upkeep вечно ни за что.
+                            Числовые множители теперь работают (см. core/production/policyEffects),
+                            а специальные эффекты помечены честно.
+                          */}
+                          {!HANDLED_SPECIAL_EFFECTS.has(policy.effects.specialEffect) && (
+                            <span
+                              className="badge badge-warning ml-2 align-middle"
+                              title="Этот эффект пока не влияет на игру. Числовые множители политики работают."
+                            >
+                              не реализовано
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

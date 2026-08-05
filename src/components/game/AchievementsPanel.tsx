@@ -41,7 +41,10 @@ export default function AchievementsPanel() {
     const achievement = ACHIEVEMENTS.find(a => a.id === achievementId);
     if (!achievement) return { current: 0, target: 0, percent: 0 };
 
-    const { type, target, specificBuilding, specificResource } = achievement.requirement;
+    const { type, specificBuilding, specificResource } = achievement.requirement;
+    // target необязателен: у 'custom'-достижений вместо него собственный предикат,
+    // измеримой шкалы прогресса у них нет.
+    const target = achievement.requirement.target ?? 0;
     let current = 0;
 
     switch (type) {
@@ -82,7 +85,8 @@ export default function AchievementsPanel() {
         break;
     }
 
-    const percent = Math.min(100, Math.floor((current / target) * 100));
+    // Без цели деление давало NaN/Infinity и полоска прогресса ломалась.
+    const percent = target > 0 ? Math.min(100, Math.floor((current / target) * 100)) : 0;
     return { current, target, percent };
   };
 

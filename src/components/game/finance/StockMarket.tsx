@@ -3,39 +3,48 @@
  * Просмотр акций, покупка и продажа
  */
 
-import { useState, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import { useFinanceStore } from '../../../features/financeStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { getStockSectorName, FINANCE_CONFIG } from '../../../core/gameTypes.finance';
 import type { Stock, StockSector } from '../../../core/gameTypes.finance';
+import { Alert, EmptyState, Panel, Stat } from '../../ui';
 
 type SortBy = 'symbol' | 'price' | 'change' | 'volume' | 'dividend';
 type SortOrder = 'asc' | 'desc';
 
-export function StockMarket() {
+/*
+ * memo обязателен: FinancePanel перерисовывается на каждый тик (recalculateNetWorth
+ * пишет новые netWorth/liquidAssets), а дочерние элементы рендерятся обычным JSX —
+ * без memo React перерисовывал бы их 20 раз в секунду, сколь угодно узкими
+ * ни были бы их селекторы. Пропсов нет, поэтому достаточно memo по умолчанию.
+ */
+export const StockMarket = memo(StockMarketImpl);
+
+function StockMarketImpl() {
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [buyAmount, setBuyAmount] = useState('');
   const [sellAmount, setSellAmount] = useState('');
   const [filterSector, setFilterSector] = useState<StockSector | 'all'>('all');
   const [sortBy, setSortBy] = useState<SortBy>('symbol');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
-  
-  const {
-    stocks,
-    positions,
-    marketEvents,
-    buyStock,
-    sellStock,
-  } = useFinanceStore();
-  
+
+  // Точечные подписки вместо `useFinanceStore()`: подписка на весь стор будила таблицу
+  // даже на изменение банковского баланса или кредитов, которых здесь нет.
+  const stocks = useFinanceStore((s) => s.stocks);
+  const positions = useFinanceStore((s) => s.positions);
+  const marketEvents = useFinanceStore((s) => s.marketEvents);
+  const buyStock = useFinanceStore((s) => s.buyStock);
+  const sellStock = useFinanceStore((s) => s.sellStock);
+
   // Фильтрация и сортировка
   const filteredStocks = useMemo(() => {
     let result = [...stocks];
-    
+
     if (filterSector !== 'all') {
       result = result.filter(s => s.sector === filterSector);
     }
-    
+
     result.sort((a, b) => {
       let comparison = 0;
       switch (sortBy) {
@@ -57,17 +66,17 @@ export function StockMarket() {
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
-    
+
     return result;
   }, [stocks, filterSector, sortBy, sortOrder]);
-  
+
   const sectors: StockSector[] = ['energy', 'mining', 'technology', 'manufacturing', 'aerospace', 'entertainment', 'biotech', 'exotic'];
-  
+
   const handleBuy = () => {
     if (!selectedStock) return;
     const shares = D(buyAmount || '0');
     if (shares.lte(0)) return;
-    
+
     const result = buyStock(selectedStock.id, shares);
     if (result.success) {
       setBuyAmount('');
@@ -75,12 +84,12 @@ export function StockMarket() {
       alert(result.error);
     }
   };
-  
+
   const handleSell = () => {
     if (!selectedStock) return;
     const shares = D(sellAmount || '0');
     if (shares.lte(0)) return;
-    
+
     const result = sellStock(selectedStock.id, shares);
     if (result.success) {
       setSellAmount('');
@@ -88,9 +97,9 @@ export function StockMarket() {
       alert(result.error);
     }
   };
-  
+
   const getPosition = (stockId: string) => positions.find(p => p.stockId === stockId);
-  
+
   const handleSort = (column: SortBy) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -99,227 +108,221 @@ export function StockMarket() {
       setSortOrder('asc');
     }
   };
-  
+
   return (
     <div className="space-y-4">
       {/* Новости рынка */}
       {marketEvents.length > 0 && (
-        <div className="bg-slate-800 rounded-lg p-3">
-          <h4 className="font-medium mb-2 flex items-center gap-2">
-            📰 Последние новости
-          </h4>
-          <div className="space-y-1 text-sm max-h-24 overflow-y-auto">
+        <Panel title="📰 Последние новости">
+          <div className="space-y-1 max-h-24 overflow-y-auto">
             {marketEvents.slice(-3).reverse().map((event, idx) => (
-              <div
-                key={idx}
-                className={`p-2 rounded ${
-                  event.magnitude > 0 ? 'bg-green-900/30' : 'bg-red-900/30'
-                }`}
-              >
+              <Alert key={idx} tone={event.magnitude > 0 ? 'accent' : 'danger'}>
                 {event.description}
-              </div>
+              </Alert>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
-      
-      {/* Фильтры */}
+
+      {/* Фильтры по секторам. Это набор чипов с переносом строк, а не таб-бар:
+          <Tabs> раскладывает элементы в один нерастягивающийся ряд, а секторов девять. */}
       <div className="flex gap-1 flex-wrap">
         <button
+          type="button"
           onClick={() => setFilterSector('all')}
-          className={`px-2 py-1 rounded text-xs ${
-            filterSector === 'all' ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
-          }`}
+          className={`btn btn-xs ${filterSector === 'all' ? 'btn-info' : ''}`}
         >
           Все
         </button>
         {sectors.map(sector => (
           <button
             key={sector}
+            type="button"
             onClick={() => setFilterSector(sector)}
-            className={`px-2 py-1 rounded text-xs ${
-              filterSector === sector ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
-            }`}
+            className={`btn btn-xs ${filterSector === sector ? 'btn-info' : ''}`}
           >
             {getStockSectorName(sector)}
           </button>
         ))}
       </div>
-      
+
       {/* Таблица акций */}
-      <div className="bg-slate-800 rounded-lg overflow-hidden">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-700">
-            <tr>
-              <th 
-                className="text-left p-2 cursor-pointer hover:bg-slate-600"
-                onClick={() => handleSort('symbol')}
-              >
-                Тикер {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
-                onClick={() => handleSort('price')}
-              >
-                Цена {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
-                onClick={() => handleSort('change')}
-              >
-                Изм. {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                className="text-right p-2 cursor-pointer hover:bg-slate-600 whitespace-nowrap"
-                onClick={() => handleSort('dividend')}
-              >
-                Див. {sortBy === 'dividend' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
-              <th className="text-right p-2 whitespace-nowrap">Ваши</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredStocks.map(stock => {
-              const position = getPosition(stock.id);
-              const isSelected = selectedStock?.id === stock.id;
-              
-              return (
-                <tr
-                  key={stock.id}
-                  className={`border-t border-slate-700 hover:bg-slate-700/50 cursor-pointer ${
-                    isSelected ? 'bg-blue-900/30' : ''
-                  }`}
-                  onClick={() => setSelectedStock(stock)}
+      <div className="panel overflow-hidden">
+        {filteredStocks.length === 0 ? (
+          <div className="p-3">
+            <EmptyState title="Нет акций в этом секторе" hint="Выберите другой сектор или «Все»." />
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th
+                  className="text-left cursor-pointer"
+                  onClick={() => handleSort('symbol')}
                 >
-                  <td className="p-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-base">{stock.emoji}</span>
-                      <div>
-                        <div className="font-bold text-sm">{stock.symbol}</div>
-                        <div className="text-[10px] text-slate-400 truncate max-w-[80px]">{stock.name}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="text-right p-2 font-mono whitespace-nowrap">
-                    {formatNumber(D(stock.currentPrice))} ₡
-                  </td>
-                  <td className={`text-right p-2 font-mono whitespace-nowrap ${
-                    stock.dayChange > 0 ? 'text-green-400' : stock.dayChange < 0 ? 'text-red-400' : ''
-                  }`}>
-                    {stock.dayChange > 0 ? '+' : ''}{stock.dayChange.toFixed(1)}%
-                  </td>
-                  <td className="text-right p-2 text-emerald-400 whitespace-nowrap">
-                    {stock.dividendYield > 0 ? `${(stock.dividendYield * 100).toFixed(1)}%` : '-'}
-                  </td>
-                  <td className="text-right p-2 whitespace-nowrap">
-                    {position ? (
-                      <div>
-                        <div className="font-medium">{formatNumber(D(position.shares))}</div>
-                        <div className={`text-[10px] ${
-                          D(position.unrealizedPnL).gt(0) ? 'text-green-400' : 
-                          D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
-                        }`}>
-                          {D(position.unrealizedPnL).gt(0) ? '+' : ''}
-                          {formatNumber(D(position.unrealizedPnL))}
+                  Тикер {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th
+                  className="text-right cursor-pointer whitespace-nowrap"
+                  onClick={() => handleSort('price')}
+                >
+                  Цена {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th
+                  className="text-right cursor-pointer whitespace-nowrap"
+                  onClick={() => handleSort('change')}
+                >
+                  Изм. {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th
+                  className="text-right cursor-pointer whitespace-nowrap"
+                  onClick={() => handleSort('dividend')}
+                >
+                  Див. {sortBy === 'dividend' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th className="text-right whitespace-nowrap">Ваши</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStocks.map(stock => {
+                const position = getPosition(stock.id);
+                const isSelected = selectedStock?.id === stock.id;
+
+                return (
+                  <tr
+                    key={stock.id}
+                    className={`cursor-pointer ${isSelected ? 'bg-blue-900/30' : ''}`}
+                    onClick={() => setSelectedStock(stock)}
+                  >
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-base">{stock.emoji}</span>
+                        <div>
+                          <div className="font-mono font-bold text-sm">{stock.symbol}</div>
+                          <div className="text-2xs text-slate-400 truncate max-w-[80px]">{stock.name}</div>
                         </div>
                       </div>
-                    ) : (
-                      <span className="text-slate-500">-</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div className="text-[10px] text-slate-500 text-center py-1 border-t border-slate-700">
+                    </td>
+                    <td className="text-right font-mono tabular-nums whitespace-nowrap">
+                      {formatNumber(D(stock.currentPrice))} ₡
+                    </td>
+                    <td className={`text-right font-mono tabular-nums whitespace-nowrap ${
+                      stock.dayChange > 0 ? 'text-green-400' : stock.dayChange < 0 ? 'text-red-400' : ''
+                    }`}>
+                      {stock.dayChange > 0 ? '+' : ''}{stock.dayChange.toFixed(1)}%
+                    </td>
+                    <td className="text-right font-mono tabular-nums text-emerald-400 whitespace-nowrap">
+                      {stock.dividendYield > 0 ? `${(stock.dividendYield * 100).toFixed(1)}%` : '-'}
+                    </td>
+                    <td className="text-right whitespace-nowrap">
+                      {position ? (
+                        <div>
+                          <div className="font-mono font-medium tabular-nums">{formatNumber(D(position.shares))}</div>
+                          <div className={`font-mono text-2xs tabular-nums ${
+                            D(position.unrealizedPnL).gt(0) ? 'text-green-400' :
+                            D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
+                          }`}>
+                            {D(position.unrealizedPnL).gt(0) ? '+' : ''}
+                            {formatNumber(D(position.unrealizedPnL))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <div className="text-2xs text-slate-500 text-center py-1 border-t border-edge">
           Нажмите на акцию для торговли
         </div>
       </div>
-      
+
       {/* Панель торговли */}
       {selectedStock && (
-        <div className="bg-slate-800 rounded-lg p-4">
-          <div className="flex justify-between items-start mb-3">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">{selectedStock.emoji}</span>
-              <div>
-                <h3 className="font-bold text-lg">{selectedStock.symbol}</h3>
-                <div className="text-sm text-slate-400">{selectedStock.name}</div>
-              </div>
-            </div>
+        <Panel
+          icon={<span className="text-2xl">{selectedStock.emoji}</span>}
+          title={selectedStock.symbol}
+          subtitle={selectedStock.name}
+          actions={
             <button
+              type="button"
               onClick={() => setSelectedStock(null)}
-              className="text-slate-400 hover:text-white text-xl"
+              aria-label="Закрыть"
+              className="icon-btn"
             >
               ✕
             </button>
-          </div>
-          
-          <p className="text-sm text-slate-300 mb-3">{selectedStock.description}</p>
-          
+          }
+          bodyClassName="space-y-3"
+        >
+          <p className="text-sm text-slate-300">{selectedStock.description}</p>
+
           {/* Компактные метрики */}
-          <div className="grid grid-cols-4 gap-2 mb-3 text-xs">
-            <div className="bg-slate-700/70 rounded px-2 py-1.5">
-              <div className="text-slate-400">Цена</div>
-              <div className="font-bold text-sm">{formatNumber(D(selectedStock.currentPrice))} ₡</div>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="card">
+              <Stat label="Цена" value={`${formatNumber(D(selectedStock.currentPrice))} ₡`} />
             </div>
-            <div className="bg-slate-700/70 rounded px-2 py-1.5">
-              <div className="text-slate-400">Изменение</div>
-              <div className={`font-bold text-sm ${
-                selectedStock.dayChange > 0 ? 'text-green-400' : 
-                selectedStock.dayChange < 0 ? 'text-red-400' : ''
-              }`}>
-                {selectedStock.dayChange > 0 ? '+' : ''}{selectedStock.dayChange.toFixed(2)}%
-              </div>
+            <div className="card">
+              <Stat
+                label="Изменение"
+                value={`${selectedStock.dayChange > 0 ? '+' : ''}${selectedStock.dayChange.toFixed(2)}%`}
+                tone={selectedStock.dayChange > 0 ? 'accent' : selectedStock.dayChange < 0 ? 'danger' : 'neutral'}
+              />
             </div>
-            <div className="bg-slate-700/70 rounded px-2 py-1.5">
-              <div className="text-slate-400">Волатильность</div>
-              <div className={`font-bold text-sm ${
-                selectedStock.volatility === 'extreme' ? 'text-red-400' :
-                selectedStock.volatility === 'very_high' ? 'text-orange-400' :
-                selectedStock.volatility === 'high' ? 'text-yellow-400' : ''
-              }`}>
-                {selectedStock.volatility}
-              </div>
+            <div className="card">
+              <Stat
+                label="Волатильность"
+                value={selectedStock.volatility}
+                tone={
+                  selectedStock.volatility === 'extreme'
+                    ? 'danger'
+                    : selectedStock.volatility === 'very_high' || selectedStock.volatility === 'high'
+                      ? 'warning'
+                      : 'neutral'
+                }
+              />
             </div>
-            <div className="bg-slate-700/70 rounded px-2 py-1.5">
-              <div className="text-slate-400">Дивиденды</div>
-              <div className="font-bold text-sm text-emerald-400">
-                {selectedStock.dividendYield > 0 ? `${(selectedStock.dividendYield * 100).toFixed(1)}%` : '-'}
-              </div>
+            <div className="card">
+              <Stat
+                label="Дивиденды"
+                value={selectedStock.dividendYield > 0 ? `${(selectedStock.dividendYield * 100).toFixed(1)}%` : '-'}
+                tone="accent"
+              />
             </div>
           </div>
-          
+
           {/* Ваша позиция - компактно */}
           {(() => {
             const position = getPosition(selectedStock.id);
             if (!position) return null;
-            
+
             return (
-              <div className="bg-slate-700/30 border border-slate-600 rounded p-2 mb-3 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Ваши акции:</span>
-                  <span className="font-medium">{formatNumber(D(position.shares))} шт.</span>
-                  <span className="text-slate-400">Ср. цена:</span>
-                  <span className="font-medium">{formatNumber(D(position.avgBuyPrice))} ₡</span>
-                  <span className="text-slate-400">P&L:</span>
-                  <span className={`font-medium ${
-                    D(position.unrealizedPnL).gt(0) ? 'text-green-400' : 
-                    D(position.unrealizedPnL).lt(0) ? 'text-red-400' : ''
-                  }`}>
-                    {D(position.unrealizedPnL).gt(0) ? '+' : ''}
-                    {formatNumber(D(position.unrealizedPnL))} ₡
-                  </span>
-                </div>
+              <div className="card grid grid-cols-3 gap-2">
+                <Stat label="Ваши акции:" value={`${formatNumber(D(position.shares))} шт.`} />
+                <Stat label="Ср. цена:" value={`${formatNumber(D(position.avgBuyPrice))} ₡`} />
+                <Stat
+                  label="P&L:"
+                  value={`${D(position.unrealizedPnL).gt(0) ? '+' : ''}${formatNumber(D(position.unrealizedPnL))} ₡`}
+                  tone={
+                    D(position.unrealizedPnL).gt(0)
+                      ? 'accent'
+                      : D(position.unrealizedPnL).lt(0)
+                        ? 'danger'
+                        : 'neutral'
+                  }
+                />
               </div>
             );
           })()}
-          
-          {/* Покупка/Продажа - улучшенный UI */}
+
+          {/* Покупка/Продажа */}
           <div className="grid grid-cols-2 gap-3">
             {/* Покупка */}
-            <div className="bg-green-900/20 border border-green-700/30 rounded p-3">
+            <div className="card border-green-700/30 bg-green-900/20">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-green-400">📈</span>
                 <span className="font-medium text-green-400">Купить</span>
@@ -331,12 +334,12 @@ export function StockMarket() {
                 value={buyAmount}
                 onChange={(e) => setBuyAmount(e.target.value)}
                 placeholder="Кол-во акций"
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 mb-2 text-sm focus:border-green-500 focus:outline-none"
+                className="w-full px-3 py-2 mb-2 text-sm"
               />
               <div className="text-xs text-slate-400 mb-2 h-8">
                 {buyAmount && parseFloat(buyAmount) > 0 ? (
                   <>
-                    Итого: {formatNumber(D(buyAmount).mul(D(selectedStock.currentPrice)))} ₡
+                    Итого: <span className="font-mono tabular-nums">{formatNumber(D(buyAmount).mul(D(selectedStock.currentPrice)))}</span> ₡
                     <span className="text-slate-500 ml-1">
                       (+{(FINANCE_CONFIG.STOCK_TRADING_FEE * 100).toFixed(1)}% комиссия)
                     </span>
@@ -346,16 +349,17 @@ export function StockMarket() {
                 )}
               </div>
               <button
+                type="button"
                 onClick={handleBuy}
                 disabled={!buyAmount || parseFloat(buyAmount) <= 0}
-                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded font-medium transition-colors"
+                className="btn-primary btn-block"
               >
                 Купить
               </button>
             </div>
-            
+
             {/* Продажа */}
-            <div className="bg-red-900/20 border border-red-700/30 rounded p-3">
+            <div className="card border-red-700/30 bg-red-900/20">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-red-400">📉</span>
                 <span className="font-medium text-red-400">Продать</span>
@@ -367,13 +371,13 @@ export function StockMarket() {
                 value={sellAmount}
                 onChange={(e) => setSellAmount(e.target.value)}
                 placeholder="Кол-во акций"
-                className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 mb-2 text-sm focus:border-red-500 focus:outline-none"
+                className="w-full px-3 py-2 mb-2 text-sm"
                 disabled={!getPosition(selectedStock.id)}
               />
               <div className="text-xs text-slate-400 mb-2 h-8">
                 {sellAmount && parseFloat(sellAmount) > 0 ? (
                   <>
-                    Получите: {formatNumber(D(sellAmount).mul(D(selectedStock.currentPrice)).mul(1 - FINANCE_CONFIG.STOCK_TRADING_FEE))} ₡
+                    Получите: <span className="font-mono tabular-nums">{formatNumber(D(sellAmount).mul(D(selectedStock.currentPrice)).mul(1 - FINANCE_CONFIG.STOCK_TRADING_FEE))}</span> ₡
                   </>
                 ) : getPosition(selectedStock.id) ? (
                   <span className="text-slate-500">Введите количество акций</span>
@@ -382,15 +386,16 @@ export function StockMarket() {
                 )}
               </div>
               <button
+                type="button"
                 onClick={handleSell}
                 disabled={!sellAmount || parseFloat(sellAmount) <= 0 || !getPosition(selectedStock.id)}
-                className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded font-medium transition-colors"
+                className="btn-danger btn-block"
               >
                 Продать
               </button>
             </div>
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );

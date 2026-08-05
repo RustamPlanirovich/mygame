@@ -2,7 +2,6 @@
  * Типы для системы карт (Фаза 4)
  */
 
-import type { Decimal } from 'break_eternity.js';
 import type { ResourceType, TechnologyId } from './gameTypes';
 
 // Размер карты
@@ -147,7 +146,10 @@ export type MapId =
   | 'map_ice_giant'
   | 'map_toxic_swamp'
   | 'map_asteroid_belt'
-  | 'map_ancient_ruins';
+  | 'map_ancient_ruins'
+  // map_creative объявлена в MAP_DEFINITIONS, но в этот union не попала, из-за чего
+  // творческий режим нельзя было положить в currentMapId/unlockedMaps.
+  | 'map_creative';
 
 // Размеры карт
 export const MAP_SIZE_DIMENSIONS: Record<MapSize, { width: number; height: number }> = {
@@ -232,5 +234,11 @@ export const MODIFIER_EFFECTS: Record<MapModifier, {
   ancient_ruins: {
     description: 'Можно найти артефакты',
     effects: { specialMechanic: 'artifacts' },
+  },
+  // Модификатор карты map_creative: записи здесь не было, поэтому
+  // MODIFIER_EFFECTS['unlimited'] возвращал undefined и песочница оставалась без описания.
+  unlimited: {
+    description: 'Творческий режим — без ограничений',
+    effects: { specialMechanic: 'creative' },
   },
 };

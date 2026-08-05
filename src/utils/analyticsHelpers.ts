@@ -16,8 +16,10 @@ import type {
   LabeledDataPoint,
   AggregatedDataPoint,
   TimeRange,
-  ANALYTICS_CONFIG,
 } from '../core/gameTypes.analytics';
+// ANALYTICS_CONFIG — это const, а не тип: он лежал в `import type`, поэтому не
+// компилировался в реальный импорт и лимиты дублировались числом 288 по месту.
+import { ANALYTICS_CONFIG } from '../core/gameTypes.analytics';
 import { D, formatRate } from '../core/math/format';
 
 // ============================================================================
@@ -40,7 +42,7 @@ export function createDataPoint(value: Decimal): DataPoint {
 export function addDataPoint(
   history: DataPoint[],
   point: DataPoint,
-  maxPoints: number = 288
+  maxPoints: number = ANALYTICS_CONFIG.MAX_DATA_POINTS
 ): DataPoint[] {
   const newHistory = [...history, point];
   if (newHistory.length > maxPoints) {
@@ -59,7 +61,7 @@ export function calculateResourceProduction(
   let total = D(0);
   
   for (const building of buildings) {
-    if (!building || building.count === 0 || building.disabled) continue;
+    if (!building || building.count === 0) continue;
     
     const prod = building.production?.[resource];
     if (prod) {
@@ -80,16 +82,13 @@ export function calculateResourceConsumption(
   let total = D(0);
   
   for (const building of buildings) {
-    if (!building || building.count === 0 || building.disabled) continue;
+    if (!building || building.count === 0) continue;
     
-    // Используем upkeep или inputs для расчёта потребления
-    const upkeep = building.upkeep?.[resource];
+    // Расход берётся из consumption: полей `upkeep`/`inputs` нет ни в типе Building,
+    // ни в определениях зданий, поэтому старое чтение всегда давало 0.
+    const upkeep = building.consumption?.[resource];
     if (upkeep) {
       total = total.add(D(upkeep).mul(building.count));
-    }
-    const input = building.inputs?.[resource];
-    if (input) {
-      total = total.add(D(input).mul(building.count));
     }
   }
   
@@ -103,7 +102,7 @@ export function updateProductionHistory(
   existingHistory: ProductionHistory | undefined,
   resource: ResourceType,
   currentProduction: Decimal,
-  maxPoints: number = 288
+  maxPoints: number = ANALYTICS_CONFIG.MAX_DATA_POINTS
 ): ProductionHistory {
   const now = Date.now();
   const newPoint = createDataPoint(currentProduction);
@@ -372,8 +371,8 @@ export function calculateStorageEfficiency(
   
   for (const res of Object.values(resources)) {
     if (!res) continue;
-    const cap = res.cap ? D(res.cap) : D(0);
-    const current = res.current ? D(res.current) : D(0);
+    const cap = res.max ? D(res.max) : D(0);
+    const current = res.amount ? D(res.amount) : D(0);
     if (cap.gt(0)) {
       totalUsed = totalUsed.add(current);
       totalCap = totalCap.add(cap);
@@ -419,7 +418,7 @@ export function createResourceDistributionData(
   const entries = Object.entries(resources)
     .map(([key, state]) => ({
       label: key,
-      value: state?.current ? D(state.current) : D(0),
+      value: state?.amount ? D(state.amount) : D(0),
     }))
     .filter(e => e.value && e.value.gt(0))
     .sort((a, b) => b.value.cmp(a.value))
@@ -447,9 +446,9 @@ export function createEnergyConsumptionData(
   const consumption = new Map<string, Decimal>();
   
   for (const building of buildings) {
-    if (building.count === 0 || building.disabled) continue;
+    if (building.count === 0) continue;
     
-    const energyUse = building.upkeep?.energy || building.inputs?.energy;
+    const energyUse = building.consumption?.energy ?? building.energyConsumption;
     if (energyUse) {
       const total = energyUse.mul(building.count);
       consumption.set(

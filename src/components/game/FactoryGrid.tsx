@@ -3,13 +3,15 @@ import * as PIXI from 'pixi.js';
 import { THEME_COLORS } from '../../core/constants/themeColors';
 import { useGameStore, getBasePos } from '../../features/gameStore';
 import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
-import { formatNumber, D } from '../../core/math/format';
-import type { Building, ResourceType } from '../../core/gameTypes';
+import type { Building } from '../../core/gameTypes';
 import { getMapDefinition } from '../../core/constants/maps';
+import type { GridType } from '../../core/gameTypes.maps';
 import { ProximityWarningModal } from './ProximityWarningModal';
 import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
-import { getPowerSources, isInRadius, isBuildingPowered } from '../../utils/powerGridHelpers';
-import { getLogisticsHubs, isInLogisticsZone, calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
+// Радиусы разворачиваются в poweredTiles/activeLogisticsHubs один раз в useMemo ниже,
+// поэтому пер-тайловые isInRadius / isBuildingPowered / isInLogisticsZone здесь не нужны.
+import { getPowerSources } from '../../utils/powerGridHelpers';
+import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 
@@ -20,13 +22,13 @@ const HEX_HEIGHT = 2 * HEX_SIZE; // Height from top to bottom
 const HEX_HORIZ = HEX_WIDTH; // Horizontal spacing between column centers
 const HEX_VERT = HEX_SIZE * 1.5; // Vertical spacing between row centers
 
-// Isometric projection constants
-const ISO_TILE_WIDTH = 64;
-const ISO_TILE_HEIGHT = 32;
-
-// Grid display mode - теперь динамический на основе текущей карты
-type GridMode = 'square' | 'hex' | 'isometric';
-// GRID_MODE больше не константа - используется currentGridMode из хука
+// Grid display mode - динамический, берётся из текущей карты.
+// ВАЖНО: схема карт (core/gameTypes.maps.ts -> GridType) допускает ТОЛЬКО 'square' | 'hex',
+// и ни одна из карт в core/constants/maps.ts не объявляет ничего другого.
+// Раньше здесь был третий режим 'isometric': недостижимая ветка, которую TypeScript
+// и помечал ошибкой TS2367 на сравнении `currentGridMode === 'isometric'`.
+// Мёртвый режим удалён — тип теперь честно совпадает с тем, что реально бывает в данных.
+type GridMode = GridType;
 
 // Legacy constants for square mode compatibility
 const CELL = 48; // Увеличен для лучшей видимости, как в Industry Idle
@@ -36,13 +38,6 @@ const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4.0;
 
 const DRAG_THRESHOLD_PX = 4;
-
-const RESOURCE_SHORT: Partial<Record<ResourceType, string>> = {
-  ore: 'РУД',
-  ice: 'ЛЁД',
-  carbon: 'УГЛ',
-  energy: 'ЭН',
-};
 
 // Кэшируем стили для текста чтобы не создавать новые объекты каждый кадр
 const TEXT_STYLES = {
@@ -91,6 +86,51 @@ const TEXT_STYLES = {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+// ─── Конвертеры координат ──────────────────────────────────────────────────
+// Чистые функции уровня модуля: режим сетки приходит АРГУМЕНТОМ, поэтому они
+// физически не могут замкнуться на устаревшем режиме.
+function gridToPixelIn(mode: GridMode, x: number, y: number): { px: number; py: number } {
+  if (mode === 'hex') {
+    // Hexagonal grid (flat-top hexagons). Odd columns are shifted down by HEX_VERT.
+    const offsetY = (x % 2 === 1) ? HEX_VERT : 0;
+    return {
+      px: x * HEX_HORIZ,
+      py: y * HEX_VERT * 2 + offsetY,
+    };
+  }
+  return {
+    px: GAP + x * (CELL + GAP),
+    py: GAP + y * (CELL + GAP),
+  };
+}
+
+function pixelToGridIn(mode: GridMode, px: number, py: number): { x: number; y: number } {
+  if (mode === 'hex') {
+    // Approximate hexagonal conversion
+    const col = Math.round(px / HEX_HORIZ);
+    const offsetY = (col % 2 === 1) ? HEX_VERT : 0;
+    const row = Math.round((py - offsetY) / (HEX_VERT * 2));
+    return { x: col, y: row };
+  }
+  return {
+    x: Math.floor((px - GAP) / (CELL + GAP)),
+    y: Math.floor((py - GAP) / (CELL + GAP)),
+  };
+}
+
+function worldSizeIn(mode: GridMode, width: number, height: number): { w: number; h: number } {
+  if (mode === 'hex') {
+    return {
+      w: (width + 1) * HEX_HORIZ + HEX_WIDTH,
+      h: (height + 1) * HEX_VERT * 2 + HEX_HEIGHT,
+    };
+  }
+  return {
+    w: width * (CELL + GAP) + GAP,
+    h: height * (CELL + GAP) + GAP,
+  };
 }
 
 export function FactoryGrid() {
@@ -191,69 +231,31 @@ export function FactoryGrid() {
     lastY: 0,
   });
 
-  // Convert grid coordinates to pixel coordinates based on mode
-  const gridToPixel = (x: number, y: number): { px: number; py: number } => {
-    if (currentGridMode === 'square') {
-      return {
-        px: GAP + x * (CELL + GAP),
-        py: GAP + y * (CELL + GAP),
-      };
-    } else if (currentGridMode === 'hex') {
-      // Hexagonal grid (flat-top hexagons)
-      // Odd columns are shifted down by HEX_VERT
-      const offsetY = (x % 2 === 1) ? HEX_VERT : 0;
-      return {
-        px: x * HEX_HORIZ,
-        py: y * HEX_VERT * 2 + offsetY,
-      };
-    } else {
-      // Isometric projection
-      return {
-        px: (x - y) * (ISO_TILE_WIDTH / 2),
-        py: (x + y) * (ISO_TILE_HEIGHT / 2),
-      };
-    }
-  };
+  // ─── ЗАЩИТА ОТ УСТАРЕВШЕГО РЕЖИМА СЕТКИ ────────────────────────────────────
+  // Bootstrap-эффект Pixi имеет deps [] и навсегда захватывает функции ПЕРВОГО
+  // рендера (handlePrimaryClick, fitCamera, обработчик GO_TO_BASE). А <FactoryGrid/>
+  // рендерится в App.tsx без key, поэтому смена карты компонент не перемонтирует.
+  // Раньше конвертеры замыкались на `currentGridMode`, и после перехода
+  // square -> hex клики продолжали считаться по квадратной математике,
+  // то есть попадали не в ту клетку.
+  //
+  // Теперь режим живёт в ref'е, который переписывается на КАЖДОМ рендере, а сами
+  // конвертеры читают его в МОМЕНТ ВЫЗОВА. Захваченное замыкание может быть сколь
+  // угодно старым — значение оно всё равно возьмёт актуальное. Устареть больше нечему:
+  // единственный источник режима — этот ref, и в нём нет копии, живущей дольше рендера.
+  const gridModeRef = useRef<GridMode>(currentGridMode);
+  gridModeRef.current = currentGridMode;
 
-  // Convert pixel coordinates to grid coordinates
-  const pixelToGrid = (px: number, py: number): { x: number; y: number } => {
-    if (currentGridMode === 'square') {
-      return {
-        x: Math.floor((px - GAP) / (CELL + GAP)),
-        y: Math.floor((py - GAP) / (CELL + GAP)),
-      };
-    } else if (currentGridMode === 'hex') {
-      // Approximate hexagonal conversion
-      const col = Math.round(px / HEX_HORIZ);
-      const offsetY = (col % 2 === 1) ? HEX_VERT : 0;
-      const row = Math.round((py - offsetY) / (HEX_VERT * 2));
-      return { x: col, y: row };
-    } else {
-      // Isometric to grid
-      const isoX = px / (ISO_TILE_WIDTH / 2);
-      const isoY = py / (ISO_TILE_HEIGHT / 2);
-      const x = Math.round((isoX + isoY) / 2);
-      const y = Math.round((isoY - isoX) / 2);
-      return { x, y };
-    }
-  };
+  // Convert grid coordinates to pixel coordinates based on the CURRENT mode
+  const gridToPixel = (x: number, y: number) => gridToPixelIn(gridModeRef.current, x, y);
 
-  const worldSize = useMemo(() => {
-    if (currentGridMode === 'square') {
-      const w = grid.width * (CELL + GAP) + GAP;
-      const h = grid.height * (CELL + GAP) + GAP;
-      return { w, h };
-    } else if (currentGridMode === 'hex') {
-      const w = (grid.width + 1) * HEX_HORIZ + HEX_WIDTH;
-      const h = (grid.height + 1) * HEX_VERT * 2 + HEX_HEIGHT;
-      return { w, h };
-    } else {
-      // Isometric
-      const w = (grid.width + grid.height) * (ISO_TILE_WIDTH / 2) + ISO_TILE_WIDTH;
-      const h = (grid.width + grid.height) * (ISO_TILE_HEIGHT / 2) + ISO_TILE_HEIGHT * 2;
-      return { w, h };
-    }
-  }, [grid.width, grid.height, currentGridMode]);
+  // Convert pixel coordinates to grid coordinates based on the CURRENT mode
+  const pixelToGrid = (px: number, py: number) => pixelToGridIn(gridModeRef.current, px, py);
+
+  const worldSize = useMemo(
+    () => worldSizeIn(currentGridMode, grid.width, grid.height),
+    [grid.width, grid.height, currentGridMode],
+  );
 
   useEffect(() => {
     worldSizeRef.current = worldSize;
@@ -849,17 +851,6 @@ export function FactoryGrid() {
       g.poly(points);
     };
 
-    // Draw isometric tile helper
-    const drawIsoTile = (g: PIXI.Graphics, x: number, y: number, width: number, height: number) => {
-      // Diamond shape for isometric tile
-      g.poly([
-        x, y - height / 2,           // top
-        x + width / 2, y,            // right
-        x, y + height / 2,           // bottom
-        x - width / 2, y,            // left
-      ]);
-    };
-
     // Оптимизация: вычисляем видимую область (culling)
     const cam = camRef.current;
     const renderer = app.renderer;
@@ -917,9 +908,7 @@ export function FactoryGrid() {
     const isSquare = currentGridMode === 'square';
     const isHex = currentGridMode === 'hex';
     const cellHalf = CELL / 2;
-    // Оптимизация смещения текста для изометрии (константа)
-    const textOffsetY = currentGridMode === 'isometric' ? -8 : 0;
-    
+
     // Low zoom optimization flags
     const isZoomVeryLow = cam.zoom < 0.5;
     const buildingAlphaBoost = isZoomVeryLow ? 0.5 : 0.35;
@@ -931,7 +920,7 @@ export function FactoryGrid() {
     const COLOR_BUILDING_FILL = THEME_COLORS.cyberBlue;
     const COLOR_DEFAULT_FILL = THEME_COLORS.cyberDark;
     
-    const COLOR_BASE_STROKE = THEME_COLORS.cyberGray;
+    // Отдельной COLOR_BASE_STROKE нет: у базы обводка совпадает с обычной (cyberGray).
     const COLOR_HIGHLIGHT_STROKE = THEME_COLORS.cyberYellow;
     const COLOR_BUILDING_STROKE = THEME_COLORS.cyberBlue;
     const COLOR_DEFAULT_STROKE = THEME_COLORS.cyberGray;
@@ -946,9 +935,11 @@ export function FactoryGrid() {
 
         const isBase = x === basePos.x && y === basePos.y;
         
-        let fill = COLOR_DEFAULT_FILL;
+        // THEME_COLORS объявлен `as const`, поэтому без аннотации fill/strokeColor
+        // сузились бы до литерала значения по умолчанию и любая перекраска ниже не типилась бы.
+        let fill: number = COLOR_DEFAULT_FILL;
         let alpha = 0.4;
-        let strokeColor = COLOR_DEFAULT_STROKE;
+        let strokeColor: number = COLOR_DEFAULT_STROKE;
         let strokeAlpha = 0.6;
         let strokeWidth = 1;
 
@@ -975,28 +966,22 @@ export function FactoryGrid() {
         }
         
         // Draw Fill
-        if (isSquare) {
-          g.roundRect(px, py, CELL, CELL, 2).fill({ color: fill, alpha });
-        } else if (isHex) {
+        if (isHex) {
           drawHexagon(g, px, py, HEX_SIZE);
           g.fill({ color: fill, alpha });
         } else {
-          drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
-          g.fill({ color: fill, alpha });
+          g.roundRect(px, py, CELL, CELL, 2).fill({ color: fill, alpha });
         }
 
         // Draw Stroke (Conditional)
         const shouldDrawStroke = showText || (hasBuilding && isZoomVeryLow);
         if (shouldDrawStroke) {
            const finalAlpha = strokeAlpha * (showText ? 0.5 : 1);
-           if (isSquare) {
-             g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
-           } else if (isHex) {
+           if (isHex) {
              drawHexagon(g, px, py, HEX_SIZE);
              g.stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
            } else {
-             drawIsoTile(g, px, py, ISO_TILE_WIDTH, ISO_TILE_HEIGHT);
-             g.stroke({ color: strokeColor, width: strokeWidth * 1.5, alpha: strokeAlpha }); // Iso keeps full alpha usually
+             g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
            }
         }
 
@@ -1058,7 +1043,7 @@ export function FactoryGrid() {
             const centerX = isHex ? px : px + cellHalf;
             const centerY = isHex ? py : py + cellHalf;
             t.x = centerX;
-            t.y = centerY + textOffsetY;
+            t.y = centerY;
           } else if (hasBuilding) {
             const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
             // Optimization: Only compute if needed
@@ -1076,7 +1061,7 @@ export function FactoryGrid() {
             const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
             const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
             t.x = centerX;
-            t.y = centerY + textOffsetY - (isDisabled ? 6 : 0);
+            t.y = centerY - (isDisabled ? 6 : 0);
             
             // КРУГОВОЙ ИНДИКАТОР ЗАГРУЗКИ для работающих зданий
             // Здание работает если не отключено вручную
@@ -1092,7 +1077,7 @@ export function FactoryGrid() {
                 
                 const indicatorRadius = currentGridMode === 'hex' ? HEX_SIZE * 0.7 : CELL / 2 - 4;
                 const cx = centerX;
-                const cy = centerY + textOffsetY;
+                const cy = centerY;
                 
                 // Рисуем вращающуюся дугу вокруг иконки здания (начинаем новый путь для каждой дуги)
                 // Основная дуга - более тусклый цвет
@@ -1117,7 +1102,7 @@ export function FactoryGrid() {
               const star = getTextFromPool('⭐', TEXT_STYLES.warning);
               star.anchor.set(0.5, 0.5);
               star.x = centerX + (currentGridMode === 'hex' ? 12 : 18);
-              star.y = centerY + textOffsetY - 8;
+              star.y = centerY - 8;
             }
 
             // Иконка паузы когда здание отключено
@@ -1125,7 +1110,7 @@ export function FactoryGrid() {
               const pauseIcon = getTextFromPool('⏸️', TEXT_STYLES.warning);
               pauseIcon.anchor.set(0.5, 0.5);
               pauseIcon.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
-              pauseIcon.y = centerY + textOffsetY - 6;
+              pauseIcon.y = centerY - 6;
             }
           } else {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
@@ -1137,7 +1122,7 @@ export function FactoryGrid() {
               const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
               const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
               t.x = centerX;
-              t.y = centerY + textOffsetY;
+              t.y = centerY;
             }
           }
         }
@@ -1305,14 +1290,11 @@ export function FactoryGrid() {
 
     if (grid.selected) {
       const selPos = gridToPixel(grid.selected.x, grid.selected.y);
-      if (currentGridMode === 'square') {
-        g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
-      } else if (currentGridMode === 'hex') {
+      if (isHex) {
         drawHexagon(g, selPos.px, selPos.py, HEX_SIZE + 2);
         g.stroke({ color: THEME_COLORS.cyberGreen, width: 2.5, alpha: 0.9 });
       } else {
-        drawIsoTile(g, selPos.px, selPos.py, ISO_TILE_WIDTH + 4, ISO_TILE_HEIGHT + 2);
-        g.stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
+        g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
       }
     }
   }, [

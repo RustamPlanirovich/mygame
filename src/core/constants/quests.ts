@@ -19,9 +19,12 @@ export const STARTER_QUESTS: Quest[] = [
   {
     id: 'quest_coal_mine',
     title: 'Добыча ресурсов',
-    description: 'Постройте Угольную шахту для добычи угля',
+    // Было target: 'coal_mine' — такого здания нет, и угля нет даже среди ресурсов
+    // (в игре `carbon`). Квест не мог выполниться никогда, а это 30 RP на старте,
+    // когда других источников исследований почти нет.
+    description: 'Постройте Сборщик Углерода',
     type: 'build',
-    target: 'coal_mine',
+    target: 'carbon_harvester_mk1',
     targetAmount: 1,
     currentAmount: 0,
     reward: {
@@ -36,7 +39,8 @@ export const STARTER_QUESTS: Quest[] = [
     title: 'Наука - сила!',
     description: 'Постройте Исследовательский центр',
     type: 'build',
-    target: 'research_center',
+    // Было 'research_center' без суффикса — 200 RP висели недостижимыми.
+    target: 'research_center_mk1',
     targetAmount: 1,
     currentAmount: 0,
     reward: {
@@ -96,7 +100,8 @@ export const STARTER_QUESTS: Quest[] = [
     title: 'За пределы дома',
     description: 'Откройте вторую галактику',
     type: 'explore',
-    target: 'gas_giants',
+    // Было 'gas_giants' — настоящий id второй галактики в galaxies.ts другой.
+    target: 'galaxy_2_gas_giants',
     targetAmount: 1,
     currentAmount: 0,
     reward: {

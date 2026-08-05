@@ -1,4 +1,4 @@
-import type { Policy, PolicyId } from '../gameTypes';
+import type { Policy, PolicyCategory, PolicyId } from '../gameTypes';
 import { D } from '../math/format';
 
 // All available policies in the game
@@ -27,7 +27,6 @@ export const POLICIES: Record<PolicyId, Policy> = {
     influenceUpkeep: 1.5,
     effects: {
       productionMultiplier: 0.9,
-      // TODO: Implement consumption reduction in production logic
       specialEffect: 'reduces_consumption_20',
     },
   },
@@ -48,13 +47,13 @@ export const POLICIES: Record<PolicyId, Policy> = {
   double_silicon: {
     id: 'double_silicon',
     name: 'Двойной кремний',
-    description: '+100% производства кремния, но +50% потребления энергии',
+    // Ресурса `silicon` в игре нет; кремниевая цепочка — sand -> semiconductors -> ИС.
+    description: '+100% выпуска полупроводников, но +50% потребления энергии',
     category: 'production',
     influenceCost: 200,
     influenceUpkeep: 4,
     prerequisites: ['semiconductors'],
     effects: {
-      // TODO: Implement specific resource multipliers
       specialEffect: 'double_silicon_production',
       energyConsumptionMultiplier: 1.5,
     },
@@ -207,7 +206,9 @@ export const POLICIES: Record<PolicyId, Policy> = {
   energy_independence: {
     id: 'energy_independence',
     name: 'Энергетическая независимость',
-    description: 'Уменьшает потери энергии при передаче на 50%',
+    // Потерь при передаче в игре нет — сеть бинарная, здание либо запитано, либо нет.
+    // Единственная настоящая потеря энергии — дефицит, режущий всё производство.
+    description: 'Просадка производства при нехватке энергии вдвое слабее',
     category: 'energy',
     influenceCost: 250,
     influenceUpkeep: 5,
@@ -216,16 +217,23 @@ export const POLICIES: Record<PolicyId, Policy> = {
     },
   },
 
-  // ============ ECONOMIC POLICIES (7) ============
+  // ============ ECONOMIC POLICIES (6) ============
   free_market: {
     id: 'free_market',
     name: 'Свободный рынок',
-    description: 'Рыночные цены -20% (выгоднее покупать ресурсы)',
+    description: 'Торговля выгоднее на 25%: продажа дороже, закупка дешевле',
     category: 'economic',
     influenceCost: 150,
     influenceUpkeep: 3,
     effects: {
-      tradePriceMultiplier: 0.8,
+      /*
+       * Было 0.8 при описании «цены -20%, выгоднее покупать». В сторе множитель работает
+       * в одну сторону для обеих операций: выручка `price * tradeMult` (gameStore ~3385),
+       * закупка `price / tradeMult` (~3441). То есть 0.8 делало продажу на 20% хуже И
+       * закупку на 25% дороже — политика была строго вредной, хотя стоила 150 влияния
+       * и 3/с содержания. Значение >1 — единственное, что соответствует названию.
+       */
+      tradePriceMultiplier: 1.25,
     },
   },
 
@@ -256,7 +264,7 @@ export const POLICIES: Record<PolicyId, Policy> = {
   bitcoin_boom: {
     id: 'bitcoin_boom',
     name: 'Биткоин-бум',
-    description: 'Биткоин-фермы производят +100% кредитов',
+    description: 'Биткоин-фермы и майнинг-риги производят +100% кредитов',
     category: 'economic',
     influenceCost: 250,
     influenceUpkeep: 5,
@@ -274,19 +282,6 @@ export const POLICIES: Record<PolicyId, Policy> = {
     influenceUpkeep: 6,
     effects: {
       creditsPerSecond: D(10),
-    },
-  },
-
-  investments: {
-    id: 'investments',
-    name: 'Инвестиции',
-    description: 'Пассивный доход от колоний +50%',
-    category: 'economic',
-    influenceCost: 400,
-    influenceUpkeep: 8,
-    prerequisites: ['first_colony'],
-    effects: {
-      specialEffect: 'colony_income_50',
     },
   },
 
@@ -406,46 +401,7 @@ export const POLICIES: Record<PolicyId, Policy> = {
     },
   },
 
-  // ============ SPACE POLICIES (4) ============
-  galaxy_exploration: {
-    id: 'galaxy_exploration',
-    name: 'Исследование галактик',
-    description: 'Открытие новых галактик происходит быстрее',
-    category: 'space',
-    influenceCost: 300,
-    influenceUpkeep: 6,
-    prerequisites: ['interplanetary'],
-    effects: {
-      specialEffect: 'faster_galaxy_unlock',
-    },
-  },
-
-  colonial_expansion: {
-    id: 'colonial_expansion',
-    name: 'Колониальная экспансия',
-    description: 'Колонии производят +50% влияния',
-    category: 'space',
-    influenceCost: 350,
-    influenceUpkeep: 7,
-    prerequisites: ['first_colony'],
-    effects: {
-      specialEffect: 'colony_influence_50',
-    },
-  },
-
-  space_fleet: {
-    id: 'space_fleet',
-    name: 'Космический флот',
-    description: 'Космические корабли строятся на +30% быстрее',
-    category: 'space',
-    influenceCost: 400,
-    influenceUpkeep: 8,
-    prerequisites: ['spaceships'],
-    effects: {
-      specialEffect: 'spaceship_speed_30',
-    },
-  },
-
+  // ============ SPACE POLICIES (1) ============
   terraforming: {
     id: 'terraforming',
     name: 'Терраформирование',

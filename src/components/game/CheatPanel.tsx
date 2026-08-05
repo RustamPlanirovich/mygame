@@ -3,6 +3,7 @@ import { useGameStore } from '../../features/gameStore';
 import type { ResourceType } from '../../core/gameTypes';
 import { MAP_DEFINITIONS } from '../../core/constants/maps';
 import type { MapId } from '../../core/gameTypes.maps';
+import { Modal } from '../ui';
 
 // Список всех ресурсов по категориям
 const resourceCategories = {
@@ -233,19 +234,8 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
   const presetAmounts = [100, 1000, 10000, 100000, 1000000];
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Заголовок */}
-        <div className="flex justify-between items-center mb-4 border-b border-cyan-500 pb-3">
-          <h2 className="text-2xl font-bold text-cyan-400">🎮 Чит-панель</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white text-2xl leading-none"
-          >
-            ×
-          </button>
-        </div>
-
+    <Modal open onClose={onClose} title="🎮 Чит-панель" size="xl">
+      <div className="p-6">
         {/* Быстрые действия */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold text-cyan-300 mb-2">⚡ Быстрые действия</h3>
@@ -518,6 +508,6 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
           💡 Совет: Используйте горячую клавишу <kbd className="px-2 py-1 bg-gray-800 rounded">Ctrl+K</kbd> для быстрого открытия панели
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

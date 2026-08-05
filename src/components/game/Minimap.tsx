@@ -6,7 +6,13 @@ import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 const MINIMAP_SIZE = 80; // фиксированный размер мини-карты в пикселях
 
 export const Minimap = () => {
-  const grid = useGameStore(state => state.grid);
+  // ВАЖНО: НЕ подписываемся на весь `state.grid`. tick() возвращает новый объект grid
+  // 20 раз в секунду (новые buffers/activeTransports/lastDtSeconds), поэтому подписка на
+  // слайс целиком перерисовывала мини-карту 20 раз в секунду.
+  // Мини-карте нужны только tiles/width/height, а их ссылки spread'ом не меняются.
+  const tiles = useGameStore(state => state.grid.tiles);
+  const gridWidth = useGameStore(state => state.grid.width);
+  const gridHeight = useGameStore(state => state.grid.height);
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Создаем карту цветов для зданий по их ID
@@ -46,13 +52,13 @@ export const Minimap = () => {
   // Генерируем клетки мини-карты
   const cells = useMemo(() => {
     const result = [];
-    const maxDimension = Math.max(grid.width, grid.height);
+    const maxDimension = Math.max(gridWidth, gridHeight);
     const cellSize = MINIMAP_SIZE / maxDimension;
     
-    for (let y = 0; y < grid.height; y++) {
-      for (let x = 0; x < grid.width; x++) {
+    for (let y = 0; y < gridHeight; y++) {
+      for (let x = 0; x < gridWidth; x++) {
         const key = `${x},${y}`;
-        const buildingId = grid.tiles[key];
+        const buildingId = tiles[key];
         
         if (buildingId) {
           const color = getBuildingColor(buildingId);
@@ -69,7 +75,7 @@ export const Minimap = () => {
       }
     }
     return result;
-  }, [grid.tiles, grid.width, grid.height]);
+  }, [tiles, gridWidth, gridHeight]);
 
   const mapSize = isExpanded ? MINIMAP_SIZE * 2 : MINIMAP_SIZE;
 
@@ -110,8 +116,8 @@ export const Minimap = () => {
             className="absolute inset-0"
           >
             {/* Вертикальные линии */}
-            {Array.from({ length: grid.width + 1 }).map((_, i) => {
-              const maxDim = Math.max(grid.width, grid.height);
+            {Array.from({ length: gridWidth + 1 }).map((_, i) => {
+              const maxDim = Math.max(gridWidth, gridHeight);
               const cellSize = mapSize / maxDim;
               return (
                 <line
@@ -126,8 +132,8 @@ export const Minimap = () => {
               );
             })}
             {/* Горизонтальные линии */}
-            {Array.from({ length: grid.height + 1 }).map((_, i) => {
-              const maxDim = Math.max(grid.width, grid.height);
+            {Array.from({ length: gridHeight + 1 }).map((_, i) => {
+              const maxDim = Math.max(gridWidth, gridHeight);
               const cellSize = mapSize / maxDim;
               return (
                 <line
@@ -199,7 +205,7 @@ export const Minimap = () => {
         )}
 
         <div className="mt-2 pt-2 border-t border-cyber-gray/50 text-[10px] text-cyber-text-dim text-center">
-          Всего зданий: {cells.length}/{grid.width * grid.height}
+          Всего зданий: {cells.length}/{gridWidth * gridHeight}
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../features/gameStore';
 import { TileInspector } from './TileInspector';
 import { CombatPanel } from './CombatPanel';
@@ -58,9 +59,29 @@ type TabId =
   | 'help';
 
 export function SidePanelTabs() {
-  const mainGrid = useGameStore((s) => s.grid);
   const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
-  const platforms = useGameStore((s) => s.galaxies.platforms);
+
+  // ВАЖНО: раньше здесь были подписки на `s.grid` и `s.galaxies.platforms` целиком.
+  // tick() (gameStore.ts, return в конце tick) 20 раз в секунду отдаёт и новый объект
+  // grid, и новый массив platforms (platforms: survivingPlatforms.map(...)), поэтому
+  // SidePanelTabs перерисовывался 20 раз в секунду — вместе со ВСЕЙ открытой панелью
+  // (Финансы, Аналитика с Recharts и т.д.), которая создаётся в renderContent().
+  // Теперь выбираем только те поля активной сетки, которые действительно читаем;
+  // их ссылки внутри tick не меняются, поэтому shallow-сравнение гасит тик целиком.
+  const grid = useGameStore(
+    useShallow((s) => {
+      const apid = s.galaxies.activePlatformId;
+      const active = (apid ? s.galaxies.platforms.find((p) => p.id === apid)?.grid : null) ?? s.grid;
+      return {
+        selected: active.selected,
+        tiles: active.tiles,
+        deposits: active.deposits,
+        width: active.width,
+        height: active.height,
+      };
+    }),
+  );
+
   const activeEventsCount = useGameStore(s => s.randomEvents.activeEvents.filter(e => e.status === 'pending').length);
   const unlockedAchievementsCount = useGameStore(s => Object.keys(s.achievements.unlocked).length);
   const recentAchievementsCount = useGameStore(s => {
@@ -77,25 +98,25 @@ export function SidePanelTabs() {
   const addCredits = useGameStore(s => s.addCredits);
   const spendCredits = useGameStore(s => s.spendCredits);
   
-  // Обёртка для передачи в FinancePanel
-  const handleFinanceTransfer = (amount: Decimal, direction: 'toBank' | 'fromBank') => {
-    if (direction === 'toBank') {
-      // Переводим кредиты игры в расчётный счёт банка
-      spendCredits(amount);
-      useFinanceStore.getState().depositToBank(amount);
-    } else {
-      // Переводим с расчётного счёта банка в кредиты игры
-      const success = useFinanceStore.getState().withdrawFromBank(amount);
-      if (success) {
-        addCredits(amount);
+  // Обёртка для передачи в FinancePanel.
+  // useCallback обязателен: FinancePanel обёрнута в memo, и новая функция на каждый
+  // рендер SidePanelTabs пробивала бы это memo насквозь.
+  const handleFinanceTransfer = useCallback(
+    (amount: Decimal, direction: 'toBank' | 'fromBank') => {
+      if (direction === 'toBank') {
+        // Переводим кредиты игры в расчётный счёт банка
+        spendCredits(amount);
+        useFinanceStore.getState().depositToBank(amount);
+      } else {
+        // Переводим с расчётного счёта банка в кредиты игры
+        const success = useFinanceStore.getState().withdrawFromBank(amount);
+        if (success) {
+          addCredits(amount);
+        }
       }
-    }
-  };
-  
-  // Получаем активный грид (платформа или основная база)
-  const grid = activePlatformId 
-    ? platforms.find(p => p.id === activePlatformId)?.grid || mainGrid
-    : mainGrid;
+    },
+    [spendCredits, addCredits],
+  );
   
   // Определяем тип выбранной клетки
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;

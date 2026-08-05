@@ -1,13 +1,14 @@
 /**
  * EnergyBreakdown Component
- * 
+ *
  * Показывает разбивку потребления энергии по зданиям
  * с учётом уровней зданий и эволюции
  */
 
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Zap, TrendingUp, TrendingDown } from 'lucide-react';
 import { useGameStore } from '../../../features/gameStore';
+import { Alert, EmptyState, Meter, Panel, Stat } from '../../ui';
 import { D, formatNumber } from '../../../core/math/format';
 import { getEvolutionMultiplier } from '../../../core/constants/buildingEvolutions';
 import Decimal from 'break_eternity.js';
@@ -21,7 +22,41 @@ interface EnergyUsage {
   percentage: number;
 }
 
-export function EnergyBreakdown() {
+/** Строка списка производителя/потребителя — вынесена, чтобы мемоизироваться отдельно. */
+const UsageRow = memo(function UsageRow({
+  usage,
+  tone,
+}: {
+  usage: EnergyUsage;
+  tone: 'accent' | 'danger';
+}) {
+  const sign = tone === 'accent' ? '+' : '-';
+  const valueClass = tone === 'accent' ? 'text-green-400' : 'text-red-400';
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between text-xs">
+          <span className="truncate text-cyber-gray-300">{usage.buildingName}</span>
+          <span className={`ml-2 font-mono ${valueClass}`}>
+            {sign}{formatNumber(usage.total)}/с
+          </span>
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <Meter value={usage.percentage} max={100} tone={tone} className="flex-1" />
+          <span className="w-12 text-right text-[10px] text-cyber-gray-500">
+            {usage.percentage.toFixed(1)}%
+          </span>
+        </div>
+        <div className="mt-0.5 text-[10px] text-cyber-gray-600">
+          {usage.count}× ~{formatNumber(usage.perBuilding)}/с (в среднем)
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export const EnergyBreakdown = memo(function EnergyBreakdown() {
   const buildings = useGameStore(state => state.buildings);
   const tiles = useGameStore(state => state.grid.tiles);
   const tileLevels = useGameStore(state => state.grid.tileLevels);
@@ -32,7 +67,7 @@ export function EnergyBreakdown() {
   const { consumers, producers, totalConsumption, totalProduction } = useMemo(() => {
     // Создаём Map для быстрого доступа к зданиям
     const buildingsMap = new Map(buildings.map(b => [b.id, b]));
-    
+
     const consumerMap = new Map<string, EnergyUsage>();
     const producerMap = new Map<string, EnergyUsage>();
     let totalCons = D(0);
@@ -42,12 +77,12 @@ export function EnergyBreakdown() {
     for (const [tileKey, buildingId] of Object.entries(tiles)) {
       const building = buildingsMap.get(buildingId);
       if (!building) continue;
-      
+
       // Проверяем, не отключено ли здание
       if (tileDisabled?.[tileKey]) continue;
       const tileSett = tileSettings?.[tileKey];
       if (tileSett && !tileSett.enabled) continue;
-      
+
       const buildingLevel = tileLevels?.[tileKey] || 1;
       const evolutionLevel = tileEvolutionLevels?.[tileKey] || 0;
       const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
@@ -75,12 +110,12 @@ export function EnergyBreakdown() {
       }
 
       // Потребители энергии (energyConsumption или consumption.energy)
-      const energyConsumption = building.energyConsumption 
-        ? D(building.energyConsumption) 
-        : building.consumption?.energy 
-          ? D(building.consumption.energy) 
+      const energyConsumption = building.energyConsumption
+        ? D(building.energyConsumption)
+        : building.consumption?.energy
+          ? D(building.consumption.energy)
           : D(0);
-          
+
       if (energyConsumption.gt(0)) {
         const tileConsumption = energyConsumption.mul(buildingLevel);
         totalCons = totalCons.add(tileConsumption);
@@ -128,119 +163,80 @@ export function EnergyBreakdown() {
   return (
     <div className="space-y-4">
       {/* Сводка */}
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Zap className="w-5 h-5 text-yellow-400" />
-          <h3 className="text-lg font-medium text-cyber-gray-200">Энергобаланс</h3>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="p-2 rounded bg-green-900/30 border border-green-500/30">
-            <div className="text-lg font-bold text-green-400">+{formatNumber(totalProduction)}</div>
-            <div className="text-[10px] text-green-300/70">Производство/с</div>
+      <Panel title="Энергобаланс" icon={<Zap className="h-5 w-5 text-yellow-400" />}>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded border border-green-500/30 bg-green-900/30 p-2">
+            <Stat
+              align="center"
+              tone="accent"
+              label="Производство/с"
+              value={`+${formatNumber(totalProduction)}`}
+            />
           </div>
-          <div className="p-2 rounded bg-red-900/30 border border-red-500/30">
-            <div className="text-lg font-bold text-red-400">-{formatNumber(totalConsumption)}</div>
-            <div className="text-[10px] text-red-300/70">Потребление/с</div>
+          <div className="rounded border border-red-500/30 bg-red-900/30 p-2">
+            <Stat
+              align="center"
+              tone="danger"
+              label="Потребление/с"
+              value={`-${formatNumber(totalConsumption)}`}
+            />
           </div>
-          <div className={`p-2 rounded ${isDeficit ? 'bg-red-900/40 border-red-500/50' : 'bg-cyan-900/30 border-cyan-500/30'}`}>
-            <div className={`text-lg font-bold ${isDeficit ? 'text-red-400' : 'text-cyan-400'}`}>
-              {balance.gte(0) ? '+' : ''}{formatNumber(balance)}
-            </div>
-            <div className={`text-[10px] ${isDeficit ? 'text-red-300/70' : 'text-cyan-300/70'}`}>Баланс/с</div>
+          <div
+            className={`rounded p-2 ${
+              isDeficit
+                ? 'border border-red-500/50 bg-red-900/40'
+                : 'border border-cyan-500/30 bg-cyan-900/30'
+            }`}
+          >
+            <Stat
+              align="center"
+              tone={isDeficit ? 'danger' : 'info'}
+              label="Баланс/с"
+              value={`${balance.gte(0) ? '+' : ''}${formatNumber(balance)}`}
+            />
           </div>
         </div>
 
         {isDeficit && (
-          <div className="mt-2 p-2 bg-red-900/30 rounded text-xs text-red-300">
-            ⚠️ Дефицит энергии! Постройте больше электростанций.
+          <div className="mt-2">
+            <Alert tone="danger" title="⚠️ Дефицит энергии! Постройте больше электростанций." />
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Производители */}
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <TrendingUp className="w-4 h-4 text-green-400" />
-          <h4 className="text-sm font-medium text-cyber-gray-200">Производители энергии</h4>
-          <span className="text-xs text-cyber-gray-500">({producers.length})</span>
-        </div>
-
+      <Panel
+        title="Производители энергии"
+        icon={<TrendingUp className="h-4 w-4 text-green-400" />}
+        actions={<span className="text-xs text-cyber-gray-500">({producers.length})</span>}
+      >
         {producers.length === 0 ? (
-          <div className="text-xs text-cyber-gray-500 text-center py-4">
-            Нет электростанций
-          </div>
+          <EmptyState title="Нет электростанций" />
         ) : (
           <div className="space-y-2">
             {producers.map(p => (
-              <div key={p.buildingId} className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-cyber-gray-300 truncate">{p.buildingName}</span>
-                    <span className="text-green-400 font-mono ml-2">+{formatNumber(p.total)}/с</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1.5 bg-cyber-gray-900 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-green-500 transition-all"
-                        style={{ width: `${p.percentage}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-cyber-gray-500 w-12 text-right">
-                      {p.percentage.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-cyber-gray-600 mt-0.5">
-                    {p.count}× ~{formatNumber(p.perBuilding)}/с (в среднем)
-                  </div>
-                </div>
-              </div>
+              <UsageRow key={p.buildingId} usage={p} tone="accent" />
             ))}
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Потребители */}
-      <div className="bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <TrendingDown className="w-4 h-4 text-red-400" />
-          <h4 className="text-sm font-medium text-cyber-gray-200">Потребители энергии</h4>
-          <span className="text-xs text-cyber-gray-500">({consumers.length})</span>
-        </div>
-
+      <Panel
+        title="Потребители энергии"
+        icon={<TrendingDown className="h-4 w-4 text-red-400" />}
+        actions={<span className="text-xs text-cyber-gray-500">({consumers.length})</span>}
+      >
         {consumers.length === 0 ? (
-          <div className="text-xs text-cyber-gray-500 text-center py-4">
-            Нет зданий, потребляющих энергию
-          </div>
+          <EmptyState title="Нет зданий, потребляющих энергию" />
         ) : (
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+          <div className="max-h-[300px] space-y-2 overflow-y-auto">
             {consumers.map(c => (
-              <div key={c.buildingId} className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-cyber-gray-300 truncate">{c.buildingName}</span>
-                    <span className="text-red-400 font-mono ml-2">-{formatNumber(c.total)}/с</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-1.5 bg-cyber-gray-900 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-red-500 transition-all"
-                        style={{ width: `${c.percentage}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-cyber-gray-500 w-12 text-right">
-                      {c.percentage.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-cyber-gray-600 mt-0.5">
-                    {c.count}× ~{formatNumber(c.perBuilding)}/с (в среднем)
-                  </div>
-                </div>
-              </div>
+              <UsageRow key={c.buildingId} usage={c} tone="danger" />
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
-}
+});

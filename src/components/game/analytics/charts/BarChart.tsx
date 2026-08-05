@@ -1,10 +1,10 @@
 /**
  * BarChart Component
- * 
+ *
  * Столбчатая диаграмма
  */
 
-import React from 'react';
+import { memo, useMemo } from 'react';
 import {
   BarChart as RechartsBarChart,
   Bar,
@@ -16,7 +16,16 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { EmptyState } from '../../../ui';
 import { D, formatNumber } from '../../../../core/math/format';
+import {
+  AXIS_STROKE,
+  CHART_MARGIN,
+  DEFAULT_SERIES_COLOR,
+  GRID_STROKE,
+  TOOLTIP_CONTENT_STYLE,
+  TOOLTIP_LABEL_STYLE,
+} from './chartTheme';
 
 interface BarDataPoint {
   name: string;
@@ -35,62 +44,61 @@ interface BarChartProps {
   formatValue?: (value: number) => string;
 }
 
-const DEFAULT_COLOR = '#22c55e';
+const BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
 
-export function BarChart({
+/** Мемоизирован по той же причине, что и AreaChart. */
+export const BarChart = memo(function BarChart({
   data,
   title,
-  color = DEFAULT_COLOR,
+  color = DEFAULT_SERIES_COLOR,
   showGrid = true,
   showLegend = false,
   height = 300,
   horizontal = false,
   formatValue,
 }: BarChartProps) {
+  const tickFormatter = useMemo(
+    () => (value: number) => (formatValue ? formatValue(value) : formatNumber(D(value))),
+    [formatValue],
+  );
+
+  const tooltipFormatter = useMemo(
+    () => (value: number | undefined) =>
+      [formatValue ? formatValue(value ?? 0) : formatNumber(D(value ?? 0)), 'Значение'] as [string, string],
+    [formatValue],
+  );
+
   if (data.length === 0) {
     return (
-      <div 
-        className="flex items-center justify-center bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700"
-        style={{ height }}
-      >
-        <p className="text-cyber-gray-500">Нет данных для отображения</p>
+      <div className="flex items-center justify-center" style={{ height }}>
+        <EmptyState title="Нет данных для отображения" />
       </div>
     );
   }
 
-  const ChartComponent = RechartsBarChart;
-  
   return (
     <div className="w-full" style={{ height }}>
-      {title && (
-        <h3 className="text-sm font-medium text-cyber-gray-300 mb-2">{title}</h3>
-      )}
+      {title && <h3 className="mb-2 text-sm font-medium text-cyber-gray-300">{title}</h3>}
       <ResponsiveContainer width="100%" height="100%">
-        <ChartComponent
+        <RechartsBarChart
           data={data}
           layout={horizontal ? 'vertical' : 'horizontal'}
-          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+          margin={CHART_MARGIN}
         >
-          {showGrid && (
-            <CartesianGrid 
-              strokeDasharray="3 3" 
-              stroke="#374151" 
-              opacity={0.5}
-            />
-          )}
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} opacity={0.5} />}
           {horizontal ? (
             <>
-              <XAxis 
+              <XAxis
                 type="number"
-                stroke="#9ca3af"
+                stroke={AXIS_STROKE}
                 fontSize={12}
                 tickLine={false}
-                tickFormatter={(value) => formatValue ? formatValue(value) : formatNumber(D(value))}
+                tickFormatter={tickFormatter}
               />
-              <YAxis 
+              <YAxis
                 type="category"
                 dataKey="name"
-                stroke="#9ca3af"
+                stroke={AXIS_STROKE}
                 fontSize={12}
                 tickLine={false}
                 width={100}
@@ -98,47 +106,28 @@ export function BarChart({
             </>
           ) : (
             <>
-              <XAxis 
-                dataKey="name" 
-                stroke="#9ca3af"
+              <XAxis dataKey="name" stroke={AXIS_STROKE} fontSize={12} tickLine={false} />
+              <YAxis
+                stroke={AXIS_STROKE}
                 fontSize={12}
                 tickLine={false}
-              />
-              <YAxis 
-                stroke="#9ca3af"
-                fontSize={12}
-                tickLine={false}
-                tickFormatter={(value) => formatValue ? formatValue(value) : formatNumber(D(value))}
+                tickFormatter={tickFormatter}
               />
             </>
           )}
           <Tooltip
-            contentStyle={{
-              backgroundColor: '#1f2937',
-              border: '1px solid #374151',
-              borderRadius: '8px',
-              color: '#e5e7eb',
-            }}
-            labelStyle={{ color: '#9ca3af' }}
-            formatter={(value: number) => [
-              formatValue ? formatValue(value) : formatNumber(D(value)),
-              'Значение'
-            ]}
+            contentStyle={TOOLTIP_CONTENT_STYLE}
+            labelStyle={TOOLTIP_LABEL_STYLE}
+            formatter={tooltipFormatter}
           />
           {showLegend && <Legend />}
-          <Bar 
-            dataKey="value" 
-            radius={[4, 4, 0, 0]}
-          >
+          <Bar dataKey="value" radius={BAR_RADIUS}>
             {data.map((entry, index) => (
-              <Cell 
-                key={`cell-${index}`} 
-                fill={entry.color || color} 
-              />
+              <Cell key={`cell-${index}`} fill={entry.color || color} />
             ))}
           </Bar>
-        </ChartComponent>
+        </RechartsBarChart>
       </ResponsiveContainer>
     </div>
   );
-}
+});

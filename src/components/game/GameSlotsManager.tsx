@@ -12,13 +12,13 @@ import {
   Trash2, 
   Play, 
   X, 
-  Gamepad2, 
-  Clock, 
-  Calendar, 
+  Gamepad2,
+  Clock,
+  Calendar,
   Edit3,
   Check,
-  AlertTriangle
 } from 'lucide-react';
+import { Alert, EmptyState, Modal, SkeletonRows } from '../ui';
 import { useConfirmDialog } from './ConfirmDialog';
 
 interface GameSlotsManagerProps {
@@ -41,13 +41,42 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
   // Подавляем предупреждение о неиспользуемых пропсах
   void onSlotSwitch;
   
-  const { confirm: showConfirm, DialogComponent: ConfirmDialogComponent } = useConfirmDialog();
+  const {
+    confirm: showConfirm,
+    DialogComponent: ConfirmDialogComponent,
+    isConfirmOpen,
+  } = useConfirmDialog();
 
   useEffect(() => {
     if (isOpen) {
       loadSlots();
     }
   }, [isOpen]);
+
+  // Escape внутри окна: сначала закрывается переименование слота, затем форма
+  // «Новая игра», и только потом само окно (этим уже занимается Modal).
+  // Перехват на window в фазе capture не даёт нажатию дойти до слушателя Modal
+  // на document — тот же приём, что в components/admin/AdminPlayerDetail.tsx.
+  // Пока открыт диалог подтверждения, Escape принадлежит ему.
+  useEffect(() => {
+    if (!isOpen || isConfirmOpen) return;
+    if (editingSlotId === null && !showNewSlotDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      if (editingSlotId !== null) {
+        setEditingSlotId(null);
+        return;
+      }
+      setShowNewSlotDialog(false);
+      setNewSlotName('');
+      setNewSlotDescription('');
+      setError('');
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isOpen, isConfirmOpen, editingSlotId, showNewSlotDialog]);
 
   const loadSlots = async () => {
     setLoading(true);
@@ -200,31 +229,22 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
 
   return (
     <>
-    <ConfirmDialogComponent />
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg max-w-3xl w-full max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-cyan-500/30">
-          <h2 className="text-xl font-bold text-cyan-400 flex items-center gap-2">
-            <Gamepad2 className="w-5 h-5" />
-            Мои игры
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
+    <Modal
+      open
+      onClose={onClose}
+      title="Мои игры"
+      icon={<Gamepad2 className="w-5 h-5" />}
+      size="lg"
+      footer={
+        <p className="text-xs text-gray-500 text-center">
+          Каждая игра — это отдельный прогресс со своими сохранениями.
+          Создавайте новые игры для тестирования стратегий!
+        </p>
+      }
+    >
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {error && (
-            <div className="bg-red-900/50 border border-red-500 text-red-200 px-3 py-2 rounded flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" />
-              {error}
-            </div>
-          )}
+        <div className="p-4 space-y-4">
+          {error && <Alert tone="danger">{error}</Alert>}
 
           {/* New Game Button */}
           <button
@@ -311,20 +331,24 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
                             onChange={(e) => setEditingName(e.target.value)}
                             className="flex-1 bg-gray-900 border border-cyan-500 rounded px-2 py-1 text-white focus:outline-none"
                             autoFocus
+                            aria-label={`Новое название игры «${slot.name}»`}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSaveEditName(slot.id);
-                              if (e.key === 'Escape') setEditingSlotId(null);
                             }}
                           />
                           <button
                             onClick={() => handleSaveEditName(slot.id)}
                             className="text-green-400 hover:text-green-300"
+                            title="Сохранить название"
+                            aria-label="Сохранить название"
                           >
                             <Check className="w-5 h-5" />
                           </button>
                           <button
                             onClick={() => setEditingSlotId(null)}
                             className="text-gray-400 hover:text-gray-300"
+                            title="Отменить переименование"
+                            aria-label="Отменить переименование"
                           >
                             <X className="w-5 h-5" />
                           </button>
@@ -341,6 +365,7 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
                             onClick={() => handleStartEditName(slot)}
                             className="text-gray-500 hover:text-gray-300"
                             title="Переименовать"
+                            aria-label={`Переименовать игру «${slot.name}»`}
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
@@ -379,6 +404,7 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
                           disabled={loading}
                           className="bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                           title="Играть"
+                          aria-label={`Играть в «${slot.name}»`}
                         >
                           <Play className="w-4 h-4" />
                         </button>
@@ -388,6 +414,7 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
                         disabled={loading}
                         className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                         title="Удалить"
+                        aria-label={`Удалить игру «${slot.name}»`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -397,29 +424,19 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
               ))}
             </div>
           ) : !loading && (
-            <div className="text-center text-gray-400 py-8">
-              <Gamepad2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>У вас пока нет игр</p>
-              <p className="text-sm">Создайте первую игру, чтобы начать!</p>
-            </div>
+            <EmptyState
+              icon={<Gamepad2 className="w-6 h-6" />}
+              title="У вас пока нет игр"
+              hint="Создайте первую игру, чтобы начать!"
+            />
           )}
 
-          {loading && (
-            <div className="text-center text-cyan-400 py-8">
-              Загрузка...
-            </div>
-          )}
+          {loading && <SkeletonRows rows={3} />}
         </div>
-        
-        {/* Footer info */}
-        <div className="shrink-0 p-4 border-t border-cyan-500/30 bg-gray-800/50">
-          <p className="text-xs text-gray-500 text-center">
-            Каждая игра — это отдельный прогресс со своими сохранениями. 
-            Создавайте новые игры для тестирования стратегий!
-          </p>
-        </div>
-      </div>
-    </div>
+    </Modal>
+    {/* После <Modal>: подтверждение — вложенное окно, его слой в стеке Modal назначается
+        по порядку монтирования, порядок в JSX держим тем же. */}
+    <ConfirmDialogComponent />
     </>
   );
 };

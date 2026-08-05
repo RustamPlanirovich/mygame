@@ -1,5 +1,6 @@
 import Decimal from 'break_eternity.js';
 import type { Achievement, AchievementCategory } from '../gameTypes';
+import { TECHNOLOGIES } from './technologies';
 
 /**
  * Фаза 8.7: Система достижений
@@ -228,7 +229,10 @@ export const ACHIEVEMENTS: Achievement[] = [
     icon: '🎓',
     requirement: {
       type: 'technology_count',
-      target: 50, // Approximate number of all technologies
+      // Дерево технологий сейчас содержит 49 узлов, а здесь стояло «примерно 50» —
+      // достижение «исследуйте все технологии» было недостижимо в принципе.
+      // Берём размер каталога, чтобы порог не расходился при добавлении новых технологий.
+      target: Object.keys(TECHNOLOGIES).length,
     },
     reward: {
       credits: new Decimal(100000),
@@ -290,7 +294,9 @@ export const ACHIEVEMENTS: Achievement[] = [
     requirement: {
       type: 'building_count',
       target: 50,
-      specificBuilding: 'solar_panel',
+      // В каталоге зданий солнечная панель называется solar_panel_mk1 (все здания идут с суффиксом
+      // ревизии); id без суффикса не существует, поэтому счётчик по типу всегда был 0.
+      specificBuilding: 'solar_panel_mk1',
     },
     reward: {
       credits: new Decimal(5000),
@@ -536,7 +542,8 @@ export const ACHIEVEMENTS: Achievement[] = [
     requirement: {
       type: 'building_count',
       target: 1,
-      specificBuilding: 'bitcoin_farm',
+      // Реальный id фермы в каталоге — bitcoin_farm_mk1.
+      specificBuilding: 'bitcoin_farm_mk1',
     },
     reward: {
       credits: new Decimal(5000),
@@ -710,7 +717,10 @@ export const ACHIEVEMENTS: Achievement[] = [
     requirement: {
       type: 'building_count',
       target: 10,
-      specificBuilding: 'logistics_center',
+      // Здания с id logistics_center в каталоге нет и никогда не было. Ближайший (и единственный)
+      // эквивалент — logistics_hub_mk1, который в игре так и называется «Логистический Центр v1»,
+      // поэтому русское описание достижения остаётся верным без изменений.
+      specificBuilding: 'logistics_hub_mk1',
     },
     reward: {
       credits: new Decimal(10000),
@@ -860,7 +870,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'first_evolution',
     name: 'Первая Эволюция',
     description: 'Эволюционировать здание впервые',
-    category: 'buildings',
+    category: 'construction',
     icon: '🧬',
     requirement: {
       type: 'custom',
@@ -877,7 +887,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'evolution_master',
     name: 'Мастер Эволюции',
     description: 'Эволюционировать 10 зданий',
-    category: 'buildings',
+    category: 'construction',
     icon: '🌟',
     requirement: {
       type: 'custom',
@@ -895,7 +905,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'ultimate_evolution',
     name: 'Окончательная Форма',
     description: 'Достичь максимальной эволюции (уровень 3) хотя бы у одного здания',
-    category: 'buildings',
+    category: 'construction',
     icon: '⭐',
     requirement: {
       type: 'custom',
@@ -913,7 +923,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'evolution_city',
     name: 'Эволюционный Город',
     description: '25 зданий достигли максимальной эволюции',
-    category: 'buildings',
+    category: 'construction',
     icon: '✨',
     requirement: {
       type: 'custom',
@@ -932,7 +942,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'evolution_metropolis',
     name: 'Эволюционный Мегаполис',
     description: '50 зданий достигли максимальной эволюции',
-    category: 'buildings',
+    category: 'construction',
     icon: '🌠',
     requirement: {
       type: 'custom',

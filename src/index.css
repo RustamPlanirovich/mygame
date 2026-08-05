@@ -2,78 +2,620 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   TOKENS
+   Mirrors tailwind.config.js so raw CSS and inline styles can use the same
+   values instead of the 52 one-off hex/rgba literals that were scattered
+   across components.
+   ========================================================================== */
 :root {
-  --bg-color: #0a0a12;
-  --text-color: #e8e8f0;
-  --accent-color: #00ff9d;
+  color-scheme: dark;
+
+  --ink-50: #eef1f7;
+  --ink-100: #d7dce7;
+  --ink-200: #b3bccd;
+  --ink-300: #8b96ac;
+  --ink-400: #66718a;
+  --ink-500: #4a5468;
+  --ink-600: #353d4e;
+  --ink-700: #272e3c;
+  --ink-750: #202632;
+  --ink-800: #1a1f29;
+  --ink-850: #141821;
+  --ink-900: #0f131b;
+  --ink-925: #0b0e15;
+  --ink-950: #070910;
+
+  --accent: #2ce8a5;
+  --accent-hover: #55f5bb;
+  --accent-press: #12cf8c;
+  --info: #3eb2ff;
+  --warning: #ffc94a;
+  --danger: #ff647f;
+
+  --surface-base: var(--ink-950);
+  --surface-1: var(--ink-925);
+  --surface-2: var(--ink-850);
+  --surface-3: var(--ink-800);
+  --surface-4: var(--ink-750);
+
+  --edge-subtle: rgb(255 255 255 / 0.06);
+  --edge: var(--ink-700);
+  --edge-strong: var(--ink-600);
+
+  --text-primary: var(--ink-50);
+  --text-secondary: var(--ink-200);
+  --text-muted: var(--ink-300);
+  --text-faint: var(--ink-400);
+
+  /* legacy variable names kept for anything still referencing them */
+  --bg-color: var(--ink-950);
+  --text-color: var(--ink-50);
+  --accent-color: var(--accent);
+
+  --radius: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+
+  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 280ms;
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* ==========================================================================
+   BASE
+   ========================================================================== */
+@layer base {
+  * {
+    /* Consistent border colour so `border` alone never falls back to a
+       light-theme default that flashes bright on a dark surface. */
+    border-color: var(--edge);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--surface-base);
+    color: var(--text-primary);
+    font-family: theme('fontFamily.sans');
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* A faint vignette gives the page depth without costing a repaint. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgb(44 232 165 / 0.05), transparent 70%),
+      radial-gradient(900px 500px at 110% 10%, rgb(62 178 255 / 0.045), transparent 70%);
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: theme('fontFamily.display');
+    font-weight: 650;
+    letter-spacing: -0.011em;
+    line-height: 1.25;
+  }
+
+  /* Numbers must not jitter as they tick. Every numeric readout in an idle game
+     changes several times a second; proportional digits make the UI shiver. */
+  .font-mono,
+  code,
+  kbd,
+  samp,
+  pre,
+  [data-numeric],
+  input[type='number'] {
+    font-family: theme('fontFamily.mono');
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Visible keyboard focus everywhere. There was none before. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius);
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: var(--text-primary);
+    background-color: var(--surface-3);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-md);
+    transition: border-color var(--dur) var(--ease-snap), box-shadow var(--dur) var(--ease-snap);
+  }
+  input:hover:not(:disabled),
+  select:hover:not(:disabled),
+  textarea:hover:not(:disabled) {
+    border-color: var(--edge-strong);
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgb(44 232 165 / 0.15);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-faint);
+  }
+  /* Number spinners are unusable at these sizes. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    appearance: textfield;
+  }
+
+  select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: right 0.9rem center, right 0.55rem center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 1.75rem;
+  }
+
+  ::selection {
+    background: rgb(44 232 165 / 0.28);
+    color: var(--text-primary);
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--edge);
+  }
 }
 
-body {
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  font-family: 'Courier New', Courier, monospace;
-  overflow-x: hidden;
-  overflow-y: hidden;
-}
-
+/* ==========================================================================
+   COMPONENT PRIMITIVES
+   ========================================================================== */
 @layer components {
-  .cyber-button {
-    @apply border-2 border-cyber-green text-cyber-green px-6 py-3 uppercase transition-all duration-200 hover:bg-cyber-green hover:text-cyber-black active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-cyber-green;
-    box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+  /* ---- surfaces ---- */
+  .surface-1 {
+    background-color: var(--surface-1);
   }
-  
-  .cyber-button:hover:not(:disabled) {
-    box-shadow: 0 0 20px rgba(0, 255, 157, 0.6);
+  .surface-2 {
+    background-color: var(--surface-2);
+  }
+  .surface-3 {
+    background-color: var(--surface-3);
   }
 
+  /* Legacy class, restyled rather than removed: 37 components use it. */
   .cyber-panel {
-    @apply border border-cyber-gray bg-cyber-dark p-4;
+    @apply rounded-lg border p-3;
+    background-color: var(--surface-2);
+    border-color: var(--edge);
+    box-shadow: theme('boxShadow.elev-1');
+  }
+
+  .panel {
+    @apply rounded-xl border;
+    background-color: var(--surface-2);
+    border-color: var(--edge);
+    box-shadow: theme('boxShadow.elev-2');
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2;
+    background-color: var(--surface-3);
+    border-color: var(--edge);
+  }
+
+  .card {
+    @apply rounded-lg border p-3 transition-colors;
+    background-color: var(--surface-3);
+    border-color: var(--edge);
+    transition-duration: var(--dur);
+    transition-timing-function: var(--ease-snap);
+  }
+  .card:hover {
+    border-color: var(--edge-strong);
+    background-color: var(--surface-4);
+  }
+
+  .card-interactive {
+    @apply card cursor-pointer;
+  }
+  .card-interactive:hover {
+    border-color: rgb(44 232 165 / 0.4);
+    box-shadow: theme('boxShadow.elev-2');
+  }
+  .card-interactive:active {
+    transform: scale(0.995);
+  }
+
+  /* ---- buttons ---- */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-1.5 rounded-md border
+           px-3 py-1.5 text-sm font-semibold transition-all;
+    border-color: var(--edge);
+    background-color: var(--surface-3);
+    color: var(--text-primary);
+    transition-duration: var(--dur-fast);
+    transition-timing-function: var(--ease-snap);
+    min-height: 2rem;
+  }
+  .btn:hover:not(:disabled) {
+    background-color: var(--surface-4);
+    border-color: var(--edge-strong);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+  }
+
+  .btn-primary {
+    @apply btn;
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: var(--ink-950);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(44 232 165 / 0.5);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  .btn-primary:active:not(:disabled) {
+    background-color: var(--accent-press);
+  }
+
+  .btn-info {
+    @apply btn;
+    background-color: var(--info);
+    border-color: var(--info);
+    color: var(--ink-950);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(62 178 255 / 0.5);
+  }
+
+  .btn-danger {
+    @apply btn;
+    background-color: var(--danger);
+    border-color: var(--danger);
+    color: var(--ink-950);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(255 100 127 / 0.45);
+  }
+
+  .btn-ghost {
+    @apply btn;
+    background-color: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: rgb(255 255 255 / 0.05);
+    border-color: transparent;
+    color: var(--text-primary);
+  }
+
+  .btn-outline-accent {
+    @apply btn;
+    background-color: rgb(44 232 165 / 0.08);
+    border-color: rgb(44 232 165 / 0.4);
+    color: var(--accent);
+  }
+  .btn-outline-accent:hover:not(:disabled) {
+    background-color: rgb(44 232 165 / 0.16);
+    border-color: var(--accent);
+  }
+
+  .btn-xs {
+    @apply px-2 py-1 text-2xs;
+    min-height: 1.5rem;
+  }
+  .btn-lg {
+    @apply px-4 py-2.5 text-base;
+    min-height: 2.75rem;
+  }
+  .btn-block {
+    @apply w-full;
+  }
+
+  /* Legacy class, kept because 37 components use it. Restyled, not removed. */
+  .cyber-button {
+    @apply btn-outline-accent uppercase tracking-wide;
+  }
+
+  /* ---- icon button: many icon-only buttons had no hit area ---- */
+  .icon-btn {
+    @apply inline-flex items-center justify-center rounded-md transition-colors;
+    width: 2rem;
+    height: 2rem;
+    color: var(--text-muted);
+    transition-duration: var(--dur-fast);
+  }
+  .icon-btn:hover:not(:disabled) {
+    background-color: rgb(255 255 255 / 0.06);
+    color: var(--text-primary);
+  }
+
+  /* ---- tabs ---- */
+  .tabs {
+    @apply flex gap-1 rounded-lg border p-1;
+    background-color: var(--surface-1);
+    border-color: var(--edge);
+  }
+  .tab {
+    @apply flex-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all;
+    color: var(--text-muted);
+    transition-duration: var(--dur-fast);
+    transition-timing-function: var(--ease-snap);
+  }
+  .tab:hover:not(.tab-active) {
+    background-color: rgb(255 255 255 / 0.04);
+    color: var(--text-primary);
+  }
+  .tab-active {
+    background-color: var(--surface-4);
+    color: var(--accent);
+    box-shadow: theme('boxShadow.elev-1'), inset 0 0 0 1px rgb(44 232 165 / 0.25);
+  }
+
+  /* ---- badges / chips ---- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-semibold;
+    border-color: var(--edge);
+    background-color: var(--surface-3);
+    color: var(--text-secondary);
+  }
+  .badge-accent {
+    border-color: rgb(44 232 165 / 0.35);
+    background-color: rgb(44 232 165 / 0.1);
+    color: var(--accent);
+  }
+  .badge-info {
+    border-color: rgb(62 178 255 / 0.35);
+    background-color: rgb(62 178 255 / 0.1);
+    color: var(--info);
+  }
+  .badge-warning {
+    border-color: rgb(255 201 74 / 0.35);
+    background-color: rgb(255 201 74 / 0.1);
+    color: var(--warning);
+  }
+  .badge-danger {
+    border-color: rgb(255 100 127 / 0.35);
+    background-color: rgb(255 100 127 / 0.1);
+    color: var(--danger);
+  }
+
+  /* ---- stat readout ---- */
+  .stat-label {
+    @apply text-2xs font-medium uppercase tracking-wider;
+    color: var(--text-faint);
+  }
+  .stat-value {
+    @apply font-mono font-semibold tabular-nums;
+    color: var(--text-primary);
+  }
+
+  /* ---- modal shell: every modal reimplemented this by hand ---- */
+  .modal-backdrop {
+    @apply fixed inset-0 z-40;
+    background-color: rgb(3 5 9 / 0.72);
+    backdrop-filter: blur(6px) saturate(120%);
+    animation: fade-in var(--dur) var(--ease-snap) both;
+  }
+  .modal-shell {
+    @apply fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-full -translate-x-1/2
+           -translate-y-1/2 flex-col overflow-hidden rounded-2xl border;
+    background-color: var(--surface-1);
+    border-color: var(--edge-strong);
+    box-shadow: theme('boxShadow.elev-4');
+    animation: scale-in var(--dur) var(--ease-snap) both;
+  }
+  .modal-title-bar {
+    @apply flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3;
+    background-color: var(--surface-2);
+    border-color: var(--edge);
+  }
+
+  /* ---- labelled divider ---- */
+  .divider {
+    @apply my-3 h-px w-full;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--edge) 15%,
+      var(--edge) 85%,
+      transparent
+    );
+  }
+
+  /* ---- table ---- */
+  .data-table {
+    @apply w-full text-left text-xs;
+  }
+  .data-table th {
+    @apply sticky top-0 z-10 px-2 py-1.5 text-2xs font-semibold uppercase tracking-wider;
+    background-color: var(--surface-2);
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--edge);
+  }
+  .data-table td {
+    @apply px-2 py-1.5;
+    border-bottom: 1px solid var(--edge-subtle);
+  }
+  .data-table tbody tr:hover td {
+    background-color: rgb(255 255 255 / 0.03);
+  }
+
+  /* ---- skeleton loader ---- */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md;
+    background-color: var(--surface-3);
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+
+  /* ---- progress / meter ---- */
+  .meter {
+    @apply h-1.5 w-full overflow-hidden rounded-full;
+    background-color: var(--surface-4);
+  }
+  .meter-fill {
+    @apply h-full rounded-full;
+    background-color: var(--accent);
+    transition: width var(--dur-slow) var(--ease-snap);
+  }
+
+  /* ---- empty state ---- */
+  .empty-state {
+    @apply flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed
+           px-4 py-8 text-center text-xs;
+    border-color: var(--edge);
+    color: var(--text-faint);
   }
 }
 
-/* Animations for event notifications */
-@keyframes slide-in-right {
-  from {
-    transform: translateX(400px);
-    opacity: 0;
+/* ==========================================================================
+   UTILITIES
+   ========================================================================== */
+@layer utilities {
+  .text-numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
   }
-  to {
-    transform: translateX(0);
-    opacity: 1;
+
+  .glass {
+    background-color: rgb(20 24 33 / 0.72);
+    backdrop-filter: blur(12px) saturate(140%);
+  }
+
+  /* Fades scrolled content at the container edges instead of cutting it dead. */
+  .scroll-fade-y {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 12px,
+      black calc(100% - 12px),
+      transparent
+    );
+  }
+
+  .line-clamp-1,
+  .line-clamp-2,
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .line-clamp-1 {
+    -webkit-line-clamp: 1;
+  }
+  .line-clamp-2 {
+    -webkit-line-clamp: 2;
+  }
+  .line-clamp-3 {
+    -webkit-line-clamp: 3;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 
-@keyframes countdown {
-  from {
-    width: 100%;
-  }
-  to {
-    width: 0%;
-  }
+/* ==========================================================================
+   SCROLLBARS — applied globally, not only where .cyber-scrollbar was remembered
+   ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-600);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-500);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-.animate-slide-in-right {
-  animation: slide-in-right 0.3s ease-out;
+/* Legacy class kept as an alias so existing markup stays valid. */
+.cyber-scrollbar {
+  scrollbar-width: thin;
 }
 
-.animate-countdown {
-  animation: countdown 10s linear;
-}
-
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* Smooth fade-in animation */
+/* ==========================================================================
+   ANIMATIONS
+   Tailwind generates these too; the raw @keyframes are here for the places that
+   reference animation names directly in CSS.
+   ========================================================================== */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -82,207 +624,133 @@ body {
     opacity: 1;
   }
 }
-
-/* Slide up animation */
 @keyframes slide-up {
   from {
-    transform: translateY(20px);
     opacity: 0;
+    transform: translateY(8px);
   }
   to {
-    transform: translateY(0);
     opacity: 1;
+    transform: translateY(0);
   }
 }
-
-/* Pulse animation for important elements */
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 5px rgba(0, 255, 157, 0.3);
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
   }
-  50% {
-    box-shadow: 0 0 20px rgba(0, 255, 157, 0.6);
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
-
-/* Scale in animation */
 @keyframes scale-in {
   from {
-    transform: scale(0.9);
     opacity: 0;
+    transform: scale(0.96);
   }
   to {
-    transform: scale(1);
     opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes countdown {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgb(44 232 165 / 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgb(44 232 165 / 0.5), 0 0 20px -2px rgb(44 232 165 / 0.45);
   }
 }
 
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+.animate-slide-in-right {
+  animation: slide-in-right 0.26s var(--ease-snap) both;
+}
+.animate-countdown {
+  animation: countdown 10s linear forwards;
 }
 
-.animate-slide-up {
-  animation: slide-up 0.4s ease-out;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.animate-scale-in {
-  animation: scale-in 0.3s ease-out;
-}
-
-/* Mobile Adaptations */
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
 @media (max-width: 767px) {
-  /* Уменьшаем размеры шрифтов */
   body {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
-
-  /* Компактные кнопки */
-  .cyber-button {
-    @apply px-3 py-2 text-sm;
-  }
-
-  /* Уменьшаем padding в панелях */
-  .cyber-panel {
+  .cyber-panel,
+  .card {
     @apply p-2;
   }
-
-  /* Компактные карточки */
-  .resource-card, .building-card {
-    @apply text-xs p-2;
-  }
-
-  /* Скрываем некоторые элементы на мобильных */
   .hide-on-mobile {
     display: none !important;
   }
-
-  /* Увеличиваем размер touch-элементов */
-  button, .clickable {
-    min-height: 44px; /* Minimum touch target size */
-    min-width: 44px;
+  .modal-shell {
+    @apply inset-0 left-0 top-0 max-h-none w-full translate-x-0 translate-y-0 rounded-none;
   }
-
-  /* Полноширинные модальные окна */
-  .modal-content {
-    @apply w-full h-full max-w-none max-h-none rounded-none;
-  }
-
-  /* Компактные input элементы */
-  input, select, textarea {
-    @apply text-sm py-1 px-2;
-  }
-
-  /* Уменьшаем gaps */
-  .grid-compact {
-    @apply gap-2;
+  /* Touch targets, scoped to real buttons. The previous rule applied
+     min-height/min-width: 44px to EVERY `button`, which stretched icon-only
+     buttons inside dense rows and broke those layouts. */
+  button:not(.icon-btn):not(.tab):not(.btn-xs),
+  [role='button'] {
+    min-height: 40px;
   }
 }
 
-/* Tablet Adaptations */
 @media (min-width: 768px) and (max-width: 1023px) {
   body {
-    font-size: 15px;
+    font-size: 0.9375rem;
   }
-
-  .cyber-button {
-    @apply px-4 py-2;
-  }
-
-  .cyber-panel {
-    @apply p-3;
-  }
-
-  /* Частично скрываем элементы на планшетах */
   .hide-on-tablet {
     display: none !important;
   }
 }
 
-/* Touch device optimizations */
+/* Touch devices: only remove *hover* affordances. The previous rule here was
+   `* { animation-duration: 0s !important; transition-duration: 0s !important; }`,
+   which silently killed every animation and transition in the whole app on any
+   touch device — including tablets and touch-screen laptops. */
 @media (hover: none) and (pointer: coarse) {
-  /* Убираем hover эффекты для touch устройств */
-  .hover\\:bg-cyber-green:hover {
-    background-color: transparent;
-  }
-
-  /* Увеличиваем размер кликабельных элементов */
-  button, a, .clickable {
-    min-height: 48px;
-    min-width: 48px;
-  }
-
-  /* Убираем анимации для лучшей производительности */
-  * {
-    animation-duration: 0s !important;
-    transition-duration: 0s !important;
+  .card:hover,
+  .card-interactive:hover {
+    border-color: var(--edge);
+    background-color: var(--surface-3);
+    box-shadow: none;
   }
 }
 
-/* Landscape mode для мобильных */
-@media (max-width: 767px) and (orientation: landscape) {
-  /* Уменьшаем вертикальные размеры */
-  .cyber-panel {
-    @apply py-1;
-  }
-
-  /* Горизонтальная компоновка где возможно */
-  .stack-on-portrait {
-    @apply flex-row;
-  }
-}
-
-/* High DPI screens */
-@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
-  /* Оптимизируем для retina */
-  body {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-}
-
-/* Reduced motion preference */
+/* Honour the OS setting instead. */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01s !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01s !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  body::before {
+    display: none;
   }
 }
 
-/* Dark mode (already dark, but ensures it) */
-@media (prefers-color-scheme: dark) {
+@media (prefers-contrast: more) {
   :root {
-    --bg-color: #0a0a12;
-    --text-color: #e8e8f0;
+    --text-muted: var(--ink-100);
+    --text-faint: var(--ink-200);
+    --edge: var(--ink-500);
   }
-}
-
-/* Custom scrollbar styles */
-.cyber-scrollbar::-webkit-scrollbar {
-  width: 8px;
-}
-
-.cyber-scrollbar::-webkit-scrollbar-track {
-  background: rgba(10, 10, 18, 0.5);
-  border-radius: 4px;
-}
-
-.cyber-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 157, 0.3);
-  border-radius: 4px;
-  transition: background 0.2s;
-}
-
-.cyber-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 157, 0.5);
-}
-
-/* Firefox scrollbar */
-.cyber-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 255, 157, 0.3) rgba(10, 10, 18, 0.5);
 }

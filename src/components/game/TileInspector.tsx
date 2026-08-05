@@ -7,6 +7,7 @@ import {
   expandWarehouseProductionMultipliers,
 } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
+import type Decimal from 'break_eternity.js';
 import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
@@ -42,11 +43,6 @@ const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
 };
 
 export function TileInspector() {
-  // Get active platform to determine which grid to use
-  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
-  const platforms = useGameStore((s) => s.galaxies.platforms);
-  const activePlatform = activePlatformId ? platforms.find(p => p.id === activePlatformId) : null;
-  
   // Подписываемся на конкретные поля grid для правильного реактивного обновления
   // Use platform grid if active, otherwise main grid
   // ВАЖНО: Получаем activePlatform внутри selector для правильной реактивности
@@ -170,7 +166,10 @@ export function TileInspector() {
   const demons = useGameStore((s) => s.demons);
   const ascension = useGameStore((s) => s.ascension);
   const currency = useGameStore((s) => s.currency);
-  const quantumPoints = useGameStore((s) => s.quantumPoints);
+  // Quantum Points live in prestige.availableQuantumPoints (a number). `s.quantumPoints`
+  // does not exist on GameState, so this was always undefined and the .gte() call below
+  // threw whenever an evolution had a quantum_points cost.
+  const quantumPoints = useGameStore((s) => s.prestige.availableQuantumPoints);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
   const removeBuildingAt = useGameStore((s) => s.removeBuildingAt);
@@ -748,9 +747,11 @@ export function TileInspector() {
 
                         return (
                           <>
-                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {formatNumber(buildingLevel)}</div>
+                            {/* Здесь печатался сам номер уровня вместо разбивки по ресурсам:
+                                fmt() собран как раз для этого, но его забыли вызвать. */}
+                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {fmt(buildingLevel)}</div>
                             {buildingLevel < 500 && (
-                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {formatNumber(buildingLevel + 1)}</div>
+                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {fmt(buildingLevel + 1)}</div>
                             )}
                           </>
                         );
@@ -765,6 +766,8 @@ export function TileInspector() {
             {(() => {
               // Проверяем, разблокирована ли эволюция
               if (!ascension.unlocks.buildingEvolution) return null;
+              // На пустой клетке buildingId === null — эволюционировать нечего.
+              if (!buildingId) return null;
 
               const evolutionConfig = BUILDING_EVOLUTIONS[buildingId];
               if (!evolutionConfig || !evolutionConfig.tiers || evolutionConfig.tiers.length === 0) return null;
@@ -792,7 +795,9 @@ export function TileInspector() {
               
               // Проверяем стоимость
               const hasEnoughCredits = !nextEvolution.cost?.credits || currency.credits.gte(nextEvolution.cost.credits);
-              const hasEnoughQP = !nextEvolution.cost?.quantum_points || quantumPoints.gte(nextEvolution.cost.quantum_points);
+              // availableQuantumPoints — number, а цена эволюции — Decimal; сравниваем так же,
+              // как evolveBuildingAt в сторе, иначе кнопка расходилась бы с реальной проверкой.
+              const hasEnoughQP = !nextEvolution.cost?.quantum_points || quantumPoints >= Number(nextEvolution.cost.quantum_points);
               const canAfford = hasEnoughCredits && hasEnoughQP;
               const canEvolve = canEvolveLevel && canAfford;
               
@@ -1192,11 +1197,11 @@ export function TileInspector() {
         )}
       </div>
 
-      {/* ФАЗА 5: Модальное окно настроек здания */}
+      {/* ФАЗА 5: Модальное окно настроек здания.
+          buildingId панель выводит сама из grid.tiles[tileKey], проп ей не нужен. */}
       {showSettingsPanel && selectedKey && buildingId && (
         <BuildingSettingsPanel
           tileKey={selectedKey}
-          buildingId={buildingId}
           onClose={() => setShowSettingsPanel(false)}
         />
       )}

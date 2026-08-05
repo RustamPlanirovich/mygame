@@ -13,13 +13,12 @@ interface PriceListProps {
 }
 
 export function PriceList({ compact = false }: PriceListProps) {
-  const {
-    prices,
-    fetchPrices,
-    setSelectedResource,
-    setActiveTab,
-    isLoading,
-  } = useMarketStore();
+  // Узкие селекторы вместо подписки на весь стор.
+  const prices = useMarketStore((s) => s.prices);
+  const fetchPrices = useMarketStore((s) => s.fetchPrices);
+  const setSelectedResource = useMarketStore((s) => s.setSelectedResource);
+  const setActiveTab = useMarketStore((s) => s.setActiveTab);
+  const isLoading = useMarketStore((s) => s.isLoading);
 
   useEffect(() => {
     fetchPrices();

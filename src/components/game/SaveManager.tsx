@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useGameStore } from '../../features/gameStore';
-import { Save, Trash2, Download, X, Plus, RefreshCw } from 'lucide-react';
+import { Save, Trash2, Download, Plus, RefreshCw } from 'lucide-react';
+import { Alert, EmptyState, Modal, SkeletonRows } from '../ui';
 import { useConfirmDialog } from './ConfirmDialog';
 
 interface SaveInfo {
@@ -23,7 +24,11 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
   const [newSaveName, setNewSaveName] = useState('');
   const [error, setError] = useState('');
   
-  const { confirm: showConfirm, DialogComponent: ConfirmDialogComponent } = useConfirmDialog();
+  const {
+    confirm: showConfirm,
+    DialogComponent: ConfirmDialogComponent,
+    isConfirmOpen,
+  } = useConfirmDialog();
 
   const getSavesList = useGameStore(state => state.getSavesList);
   const loadGameFromSave = useGameStore(state => state.loadGameFromSave);
@@ -36,6 +41,25 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
       loadSaves();
     }
   }, [isOpen]);
+
+  // Escape внутри окна: сначала закрывается форма «Новое сохранение», и только
+  // потом — сам менеджер (этим уже занимается Modal). Перехват на window в фазе
+  // capture не даёт нажатию дойти до слушателя Modal на document; тот же приём,
+  // что в components/admin/AdminPlayerDetail.tsx. Пока открыт диалог
+  // подтверждения, Escape принадлежит ему — он перехватывает нажатие сам.
+  useEffect(() => {
+    if (!isOpen || isConfirmOpen || !showNewSaveDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      setShowNewSaveDialog(false);
+      setNewSaveName('');
+      setError('');
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isOpen, isConfirmOpen, showNewSaveDialog]);
 
   const loadSaves = async () => {
     setLoading(true);
@@ -153,30 +177,16 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
 
   return (
     <>
-    <ConfirmDialogComponent />
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg max-w-3xl w-full max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-cyan-500/30">
-          <h2 className="text-xl font-bold text-cyan-400 flex items-center gap-2">
-            <Save className="w-5 h-5" />
-            Управление сохранениями
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
+    <Modal
+      open
+      onClose={onClose}
+      title="Управление сохранениями"
+      icon={<Save className="w-5 h-5" />}
+      size="lg"
+    >
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {error && (
-            <div className="bg-red-900/50 border border-red-500 text-red-200 px-3 py-2 rounded">
-              {error}
-            </div>
-          )}
+        <div className="p-4 space-y-4">
+          {error && <Alert tone="danger">{error}</Alert>}
 
           {/* New Save Button */}
           <button
@@ -246,6 +256,7 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
                       disabled={loading}
                       className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                       title="Загрузить"
+                      aria-label={`Загрузить сохранение «${save.name}»`}
                     >
                       <Download className="w-4 h-4" />
                     </button>
@@ -254,6 +265,7 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
                       disabled={loading}
                       className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                       title="Перезаписать текущим прогрессом"
+                      aria-label={`Перезаписать сохранение «${save.name}» текущим прогрессом`}
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
@@ -262,6 +274,7 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
                       disabled={loading}
                       className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                       title="Удалить"
+                      aria-label={`Удалить сохранение «${save.name}»`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -292,6 +305,7 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
                       disabled={loading}
                       className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white p-2 rounded transition-colors"
                       title="Загрузить"
+                      aria-label={`Загрузить автосохранение «${save.name}»`}
                     >
                       <Download className="w-4 h-4" />
                     </button>
@@ -302,19 +316,16 @@ export const SaveManager = ({ isOpen, onClose }: SaveManagerProps) => {
           )}
 
           {!loading && saves.length === 0 && (
-            <div className="text-center text-gray-400 py-8">
-              У вас пока нет сохранений
-            </div>
+            <EmptyState title="У вас пока нет сохранений" icon={<Save className="w-6 h-6" />} />
           )}
 
-          {loading && (
-            <div className="text-center text-cyan-400 py-8">
-              Загрузка...
-            </div>
-          )}
+          {loading && <SkeletonRows rows={3} />}
         </div>
-      </div>
-    </div>
+    </Modal>
+    {/* После <Modal>: подтверждение — вложенное окно, и его слой в стеке Modal
+        назначается по порядку монтирования. Порядок в JSX держим тем же, чтобы слой
+        оставался верным даже если оба окна смонтируются в одном коммите. */}
+    <ConfirmDialogComponent />
     </>
   );
 };

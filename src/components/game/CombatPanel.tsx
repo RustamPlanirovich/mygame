@@ -258,9 +258,9 @@ export function CombatPanel() {
               }`}
               disabled={!canRepair}
               onClick={() => emergencyRepairBase()}
-              title={`Восстанавливает +50 HP базы. Стоимость: 500⚡ + 50 стали`}
+              title={`Восстанавливает +${formatNumber(REPAIR_HP)} HP базы. Стоимость: ${formatNumber(REPAIR_COST_ENERGY)}⚡ + ${formatNumber(REPAIR_COST_STEEL)} стали`}
             >
-              🔧 Экстренный ремонт (+50 HP) — 500⚡ + 50 🔩
+              🔧 Экстренный ремонт (+{formatNumber(REPAIR_HP)} HP) — {formatNumber(REPAIR_COST_ENERGY)}⚡ + {formatNumber(REPAIR_COST_STEEL)} 🔩
             </button>
           </div>
         )}
@@ -281,6 +281,11 @@ export function CombatPanel() {
           {combat.enemies.length > 0 ? (
             <div>
               Давление: <span className="text-cyber-text">{formatNumber(pressure)}/с</span>
+              {/* Потенциал — суммарный DPS всех живых врагов, т.е. сколько станет,
+                  когда они все дойдут до базы. Считался и сохранялся, но не показывался. */}
+              {pressurePotential.gt(pressure) ? (
+                <span className="text-cyber-gray-light"> (потенциал {formatNumber(pressurePotential)}/с)</span>
+              ) : null}
             </div>
           ) : null}
 

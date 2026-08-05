@@ -17,12 +17,11 @@ const BADGE_INFO: Record<TraderBadge, { emoji: string; title: string }> = {
 };
 
 export function TraderLeaderboard() {
-  const {
-    leaderboard,
-    leaderboardTotal,
-    fetchLeaderboard,
-    isLoading,
-  } = useMarketStore();
+  // Узкие селекторы вместо подписки на весь стор.
+  const leaderboard = useMarketStore((s) => s.leaderboard);
+  const leaderboardTotal = useMarketStore((s) => s.leaderboardTotal);
+  const fetchLeaderboard = useMarketStore((s) => s.fetchLeaderboard);
+  const isLoading = useMarketStore((s) => s.isLoading);
 
   const [sortBy, setSortBy] = useState<'volume' | 'trades'>('volume');
 

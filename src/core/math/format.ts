@@ -1,5 +1,4 @@
-import Decimal from 'break_eternity.js';
-import { 
+import {
   formatBigNumber as formatBigNumberUtil,
   formatExact,
   formatPercent,

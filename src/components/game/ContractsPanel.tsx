@@ -1,6 +1,7 @@
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
-import { Clock, Gift, Award, TrendingUp, AlertTriangle, CheckCircle, XCircle, Zap } from 'lucide-react';
+// Статусы контрактов рисуются эмодзи из getStatusIcon, отдельные иконки lucide не нужны.
+import { Clock, Gift, Award, Zap } from 'lucide-react';
 import type { ResourceType, Contract, GameState } from '../../core/gameTypes';
 import { 
   analyzeContract, 

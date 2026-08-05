@@ -11,12 +11,16 @@ import type {
   DepositType,
   Enemy,
   ExpeditionState,
+  GalaxiesState,
   GameState,
   GridCoord,
+  IntergalacticLogisticsState,
   MarketEvent,
+  MarketState,
   MetaState,
   NanoSwarmChannel,
   NanoSwarmState,
+  PoliticsState,
   ProductionMatrixState,
   ProductionMatrixUpgradeId,
   QuantumNetState,
@@ -34,6 +38,16 @@ import type {
   EndingId,
 } from '../core/gameTypes';
 import { D } from '../core/math/format.ts';
+// NOTE: ./gameSave imports the INITIAL_* constants back from this module, so these two form
+// an import cycle. It is safe because every cross-module reference happens inside a function
+// body (serializeGame/loadSavePayload are called from actions; the INITIAL_* are read inside
+// decoders), never at module-evaluation time — ESM live bindings are already initialised by
+// the time either side runs.
+import { serializeGame, loadSavePayload } from './gameSave';
+// Финансы — отдельный store, поэтому их снимок добавляется к payload здесь, а не внутри
+// serializeGame (который работает только с GameState).
+import { serializeFinance, hydrateFinance } from './financeStore';
+import { baseResearchPointsPerSecond, baseInfluencePerSecond } from '../core/production/currencyRates';
 import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
 import {
@@ -95,22 +109,16 @@ import { getProximityRulesForBuilding } from '../core/constants/proximityRules';
 import { TECHNOLOGIES, canResearchTechnology } from '../core/constants/technologies';
 import { getEvolutionMultiplier } from '../core/constants/buildingEvolutions';
 import { POLICIES, canActivatePolicy } from '../core/constants/policies';
+import { aggregatePolicyEffects } from '../core/production/policyEffects';
 import { GALAXIES } from '../core/constants/galaxies';
 import { SHIP_DEFINITIONS, calculateShipStats, calculateShipUpgradeCost, generateShipName } from '../core/constants/ships';
 import { type EnemyType, ENEMY_DEFINITIONS, getBossForLevel, createPlatformEnemy } from '../core/constants/enemies';
-import { isBuildingPowered } from '../utils/powerGridHelpers';
 import { calculateLogisticsEfficiency } from '../utils/logisticsHelpers';
 import { EVENT_CONFIGS, EVENT_EFFECTS, BASE_EVENT_INTERVAL_MIN, BASE_EVENT_INTERVAL_MAX } from '../core/constants/randomEvents';
 import { getAchievementById } from '../core/constants/achievements';
 import { MEGASTRUCTURES, GAME_ENDINGS, canBuildMegastructure, getMegastructureRewards, checkEndingRequirements } from '../core/constants/megastructures';
 import { PRESTIGE_UPGRADES, calculateQuantumPoints, canBuyPrestigeUpgrade, getTotalPrestigeBonuses } from '../core/constants/prestige';
-import { 
-  canAscend, 
-  calculateAscensionPoints, 
-  calculateAscensionMultipliers,
-  getAscensionUnlocks
-} from '../core/constants/ascension';
-import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, getUpgradeCost, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
+import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
 import { STARTER_QUESTS } from '../core/constants/quests';
 import { getTotalRepeatableBonuses, isExoticResource, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
 import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredBoosts, isSignalExpired, getSignalRewardDescription, createBoostFromReward } from '../utils/signalHelpers';
@@ -123,7 +131,8 @@ import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '.
 import { getCultureLevel, getCultureProgress } from '../core/constants/cultureLevels';
 import { calculateHappiness, calculateHappinessTrend, smoothHappinessTransition } from '../utils/happinessCalculator';
 import type { PrestigeUpgradeId } from '../core/gameTypes';
-import type { MapId } from '../core/gameTypes.maps';
+import type { GeneratedMapData, MapId } from '../core/gameTypes.maps';
+import type { Quest, QuestState } from '../core/gameTypes.tutorial';
 import type { 
   TileBuildingSettings, 
   BuildingMode,
@@ -132,16 +141,115 @@ import type {
   StorageLimit,
   BuildingCondition 
 } from '../core/gameTypes.buildings';
-import { 
+import {
   BUILDING_MODES,
   createDefaultTileSettings,
-  getEffectiveProductionMultiplier,
-  getEffectiveConsumptionMultiplier,
-  getEffectiveEnergyMultiplier,
-  calculateHealthChange
 } from '../core/gameTypes.buildings';
 
 const MARKET_UPDATE_SECONDS = 30;
+
+/*
+ * Контракты — один из немногих повторяемых источников очков исследований на раннем этапе
+ * (второй — квесты), поэтому они обязаны появляться сами. Интервал выбран по сроку жизни
+ * самих контрактов: они живут 3–7 минут, так что при выдаче раз в 90 секунд у игрока
+ * стабильно висит 2–4 штуки, но список не забивается мгновенно.
+ */
+const CONTRACT_SPAWN_INTERVAL_SECONDS = 90;
+/** Потолок одновременно висящих контрактов: панель на большее не рассчитана. */
+const MAX_ACTIVE_CONTRACTS = 5;
+
+/*
+ * Таймер выдачи живёт в модуле, а не в MarketState, по двум причинам: в срезе нет такого
+ * поля (тип общий с сервером), и таймер НЕ должен переживать перезагрузку — иначе после
+ * ночи офлайна накопился бы «долг» и контракты высыпались бы пачкой.
+ * Значение всегда выставляется как now + интервал (не += ), поэтому серия догоняющих
+ * шагов тика в одном кадре не может выдать больше одного контракта.
+ */
+let nextContractAt = 0;
+
+/**
+ * Единственная фабрика контрактов: и ручной generateContract, и автовыдача в тике идут
+ * через неё. Раньше существовали две разошедшиеся копии — у той, что в тике, не было ни
+ * speedBonus, ни acceptedAt, ни зависящего от сложности срока.
+ */
+function createContract(now: number): Contract {
+  const tiers = ['easy', 'medium', 'hard', 'epic'] as const;
+  const tier = tiers[Math.floor(Math.random() * tiers.length)];
+
+  // Требования по ресурсам зависят от сложности
+  const multipliers = { easy: 50, medium: 200, hard: 800, epic: 3000 };
+  const mult = multipliers[tier];
+
+  const resources: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
+  const reqCount = tier === 'easy' ? 1 : tier === 'medium' ? 2 : tier === 'hard' ? 3 : 4;
+  // sort() перемешивает копию, а не сам массив-константу: иначе порядок утекал бы между вызовами.
+  const selectedResources = [...resources].sort(() => Math.random() - 0.5).slice(0, reqCount);
+
+  const requirements: Partial<Record<ResourceType, Decimal>> = {};
+  selectedResources.forEach(res => {
+    requirements[res] = D(mult * (0.5 + Math.random()));
+  });
+
+  const creditRewards = { easy: 100, medium: 500, hard: 2500, epic: 15000 };
+  const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
+  const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
+
+  // Срок жизни в миллисекундах: 3, 4, 5 и 7 минут
+  const durations = { easy: 180000, medium: 240000, hard: 300000, epic: 420000 };
+
+  return {
+    id: `contract_${now}_${Math.random().toString(36).slice(2, 11)}`,
+    title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
+    description: `Доставьте необходимые ресурсы`,
+    requirements,
+    rewards: {
+      credits: D(creditRewards[tier]),
+      researchPoints: D(rpRewards[tier]),
+      influence: D(influenceRewards[tier]),
+    },
+    // Бонус за скорость: +50% наград, если уложиться в половину срока
+    speedBonus: {
+      credits: D(creditRewards[tier] * 0.5),
+      researchPoints: D(rpRewards[tier] * 0.5),
+      influence: D(influenceRewards[tier] * 0.5),
+    },
+    acceptedAt: now, // контракт считается принятым в момент выдачи
+    expiresAt: now + durations[tier],
+    tier,
+  };
+}
+
+/**
+ * Единственное место, где растёт прогресс квестов.
+ *
+ * Раньше эта пятистрочная выкладка была скопирована в каждый обработчик, и копий было
+ * ровно три — на постройку, на исследование и на продажу. Из-за этого четыре квеста
+ * (`explore`, `combat`, build+platform, build+ship) не имели обработчика вовсе: их некуда
+ * было дописать, не продублировав код ещё раз.
+ *
+ * Награду выдаёт claimQuestReward: он требует isCompleted и переносит квест в
+ * completedQuests, поэтому заплатить дважды за один квест нельзя, сколько бы раз сюда ни
+ * пришло событие.
+ *
+ * Возвращает ИСХОДНЫЙ объект, если ничего не изменилось: quests — срез Zustand, и новая
+ * ссылка на каждом тике перерисовывала бы список задач впустую.
+ */
+function advanceQuests(
+  quests: QuestState,
+  matches: (quest: Quest) => boolean,
+  step = 1,
+): QuestState {
+  let changed = false;
+  const activeQuests = quests.activeQuests.map((quest) => {
+    if (quest.isCompleted || !matches(quest)) return quest;
+    changed = true;
+    const newAmount = (quest.currentAmount || 0) + step;
+    // targetAmount не задан — квест одноразовый, засчитываем сразу.
+    const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
+    return { ...quest, currentAmount: newAmount, isCompleted };
+  });
+  return changed ? { ...quests, activeQuests } : quests;
+}
 
 const WAVE_INTERVAL_SECONDS = 60;
 const WAVE_DURATION_SECONDS = 18;
@@ -159,12 +267,6 @@ const EMERGENCY_REPAIR_HP = D(50); // Сколько HP восстанавлив
 
 // ОПТИМИЗАЦИЯ: Кэшированные Decimal константы (избегаем создания новых объектов каждый тик)
 const D_ZERO = D(0);
-const D_ONE = D(1);
-const D_TWO = D(2);
-const D_FIVE = D(5);
-const D_TEN = D(10);
-const D_TWELVE = D(12);
-const D_TWENTY = D(20);
 
 // LOGISTICS CACHE: Persists between ticks to avoid O(N^2) calculations
 // Stores pre-calculated sorted lists of sources for each consumer
@@ -176,6 +278,21 @@ let logisticsCache: {
   tilesCount: 0,
   tilesKeys: '',
   routes: {}
+};
+
+/*
+ * Множитель ёмкости энергохранилищ от политик (specials.energyStorage).
+ *
+ * Живёт модульной переменной, а не параметром recomputeCaps, потому что вызовов у неё 19
+ * (постройка, продажа, апгрейд, загрузка сейва, тик...), и любой пропущенный вызов не просто
+ * потерял бы бонус, а СРЕЗАЛ бы накопленную энергию: recomputeCaps в конце зажимает
+ * amount по свежему max. Единое значение исключает такое расхождение между вызовами.
+ */
+let policyEnergyStorageMult = 1;
+
+/** Обновляется из тика и из активации/деактивации политик, чтобы caps не отставали на тик. */
+const setPolicyEnergyStorageMult = (mult: number) => {
+  policyEnergyStorageMult = Number.isFinite(mult) && mult > 0 ? mult : 1;
 };
 
 // Вспомогательная функция для проверки изменений в tiles
@@ -196,6 +313,13 @@ let productionRatesCache: {
   tileEvolutionLevelsRef: any;
   tileSettingsRef: any; // ФАЗА 5
   tileDisabledRef: any; // ФАЗА 5
+  /*
+   * Ссылка на activePolicies. В кэшированные ставки теперь вмешаны множители политик,
+   * поэтому переключение политики обязано его сбрасывать — иначе игрок видел бы старые
+   * цифры до ближайшей постройки. Сравниваем по ссылке: activatePolicy/deactivatePolicy
+   * всегда создают новый массив, а мутации массива на месте в сторе нет.
+   */
+  activePoliciesRef: readonly string[] | null;
   buildingsCount: number;
   rates: Record<ResourceType, Decimal> | null;
   lastCalculatedAt: number;
@@ -205,6 +329,7 @@ let productionRatesCache: {
   tileEvolutionLevelsRef: null,
   tileSettingsRef: null, // ФАЗА 5
   tileDisabledRef: null, // ФАЗА 5
+  activePoliciesRef: null,
   buildingsCount: 0,
   rates: null,
   lastCalculatedAt: 0,
@@ -570,6 +695,7 @@ const INITIAL_RETENTION: import('../core/gameTypes').RetentionState = {
     lifetimeResourcesSpent: {},
     lifetimeCreditsEarned: D(0),
     lifetimeCreditsSpent: D(0),
+    contractsCompleted: 0,
   },
 };
 
@@ -1076,6 +1202,25 @@ const INITIAL_BUILDINGS: Building[] = [
     production: { enriched_uranium: D(0.04) },
     consumption: { uranium: D(0.15), chemicals: D(0.2) },
     energyConsumption: D(12.0),
+    count: 0
+  },
+  {
+    /*
+     * id БЕЗ суффикса `_mk1`, в отличие от остального каталога: и дерево технологий
+     * (nuclear_power.unlocks.buildings), и достижение `nuclear_engineer` ищут ровно
+     * `nuclear_power_plant`. Оба сравнивают строки точно, поэтому `_mk1` оставил бы
+     * станцию без техгейта (isBuildingUnlocked не нашёл бы технологию и разрешил
+     * постройку с нуля) и сделал бы достижение невыполнимым.
+     */
+    id: 'nuclear_power_plant',
+    name: 'Атомная Электростанция',
+    description: 'Реактор на обогащённом уране. Огромная выработка энергии ценой радиоактивных отходов. Радиус покрытия: 8 клеток.',
+    baseCost: { steel: D(400), chrome_alloy: D(150), titanium: D(120), glass: D(80) },
+    creditCost: D(25000),
+    costFactor: 1.28,
+    consumption: { enriched_uranium: D(0.03) },
+    production: { energy: D(180) },
+    powerGridRadius: 8,
     count: 0
   },
   // Фаза 2.7: Военные здания
@@ -2195,6 +2340,11 @@ const recomputeCaps = (
     }
   }
 
+  // Политики вида «удвоенные аккумуляторы» бьют только по энергии — остальные склады не их дело.
+  if (policyEnergyStorageMult !== 1 && caps.energy) {
+    caps.energy = caps.energy.mul(policyEnergyStorageMult);
+  }
+
   for (const rType of Object.keys(next) as ResourceType[]) {
     caps[rType] = caps[rType].mul(capsMultiplier);
     next[rType] = {
@@ -2818,10 +2968,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   repeatableResearch: INITIAL_REPEATABLE_RESEARCH,
   proceduralGalaxies: INITIAL_PROCEDURAL_GALAXIES,
   artifacts: INITIAL_ARTIFACTS,
-  // Функция для списания кредитов
-  spendCredits: (amount) => {
+  /*
+   * Функция для списания кредитов.
+   *
+   * Эти четыре хелпера не объявлены в GameState, поэтому контекстной типизации у них нет и
+   * параметр приходится аннотировать вручную — иначе он implicit any. Вызывают их
+   * CheatPanel и SidePanelTabs, всегда обычным числом.
+   */
+  spendCredits: (amount: Decimal | number | string) => {
     set((state) => {
-      const decAmount = typeof amount === 'number' ? D(amount) : D(amount);
+      const decAmount = D(amount);
       if (state.currency.credits.lt(decAmount)) return state;
       return {
         currency: {
@@ -2848,6 +3004,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     lifetimeResourcesSpent: {},
     lifetimeCreditsEarned: D(0),
     lifetimeCreditsSpent: D(0),
+    contractsCompleted: 0,
   },
   
   // Energy balance telemetry
@@ -2873,7 +3030,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  addCredits: (amount) => {
+  addCredits: (amount: Decimal | number | string) => {
     set((state) => ({
       currency: {
         ...state.currency,
@@ -2882,7 +3039,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     }));
   },
 
-  addResearchPoints: (amount) => {
+  addResearchPoints: (amount: Decimal | number | string) => {
     set((state) => ({
       currency: {
         ...state.currency,
@@ -2891,7 +3048,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     }));
   },
 
-  addInfluence: (amount) => {
+  addInfluence: (amount: Decimal | number | string) => {
     set((state) => ({
       currency: {
         ...state.currency,
@@ -3207,29 +3364,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
       const nextTileEvolutionLevels = { ...tileEvolutionLevels, [k]: 0 };
 
-      // Обновляем прогресс квестов
-      const updatedQuests = {
-        ...state.quests,
-        activeQuests: state.quests.activeQuests.map(quest => {
-          if (quest.isCompleted) return quest;
-          
-          // Квесты на постройку конкретного здания
-          if (quest.type === 'build' && quest.target === buildId) {
-            const newAmount = (quest.currentAmount || 0) + 1;
-            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
-            return { ...quest, currentAmount: newAmount, isCompleted };
-          }
-          
-          // Квесты на постройку любого здания
-          if (quest.type === 'build' && quest.target === 'any') {
-            const newAmount = (quest.currentAmount || 0) + 1;
-            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
-            return { ...quest, currentAmount: newAmount, isCompleted };
-          }
-          
-          return quest;
-        }),
-      };
+      // Прогресс квестов на постройку конкретного здания и на постройку любого здания.
+      const updatedQuests = advanceQuests(
+        state.quests,
+        (quest) => quest.type === 'build' && (quest.target === buildId || quest.target === 'any'),
+      );
 
       return {
         resources: capped,
@@ -3325,10 +3464,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       const actual = res.amount.min(sellAmount);
       if (actual.lte(0)) return state;
 
-      // Calculate sell price using market event
+      // Calculate sell price using market event and active policies.
+      // tradePriceMultiplier was declared on trade policies but never read anywhere.
       const price = state.market.prices[type];
       const eventMult = state.market.event?.multiplier ?? 1.0;
-      const earned = price.mul(actual).mul(D(eventMult));
+      const policyEffects = aggregatePolicyEffects(state.politics.activePolicies);
+      const tradeMult = policyEffects.tradePrice;
+      // sellCredits — отдельная ручка «экспортных» политик поверх цены рынка.
+      const earned = price
+        .mul(actual)
+        .mul(D(eventMult))
+        .mul(D(tradeMult))
+        .mul(policyEffects.specials.sellCredits);
 
       const nextResources = { ...state.resources };
       // Remove from base buffer
@@ -3344,21 +3491,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
 
       // Обновляем прогресс квестов на продажу ресурсов
-      const updatedQuests = {
-        ...state.quests,
-        activeQuests: state.quests.activeQuests.map(quest => {
-          if (quest.isCompleted) return quest;
-          
-          // Квесты на продажу на рынке
-          if (quest.type === 'produce' && quest.target === 'market_sale') {
-            const newAmount = (quest.currentAmount || 0) + 1;
-            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
-            return { ...quest, currentAmount: newAmount, isCompleted };
-          }
-          
-          return quest;
-        }),
-      };
+      const updatedQuests = advanceQuests(
+        state.quests,
+        (quest) => quest.type === 'produce' && quest.target === 'market_sale',
+      );
 
       return { 
         resources: nextResources, 
@@ -3377,10 +3513,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       const res = state.resources[type];
       if (!res) return state;
 
-      // Calculate buy price (30% markup)
+      // Calculate buy price (30% markup).
+      // The policy trade multiplier is applied as a DIVISOR here: a policy that improves trade
+      // terms must make buying cheaper, not more expensive, or "better prices" would be a
+      // downside on the purchase side.
       const price = state.market.prices[type];
       const eventMult = state.market.event?.multiplier ?? 1.0;
-      const unitCost = price.mul(D(eventMult)).mul(D(1.3)); // +30% markup for buying
+      const tradeMult = aggregatePolicyEffects(state.politics.activePolicies).tradePrice;
+      const unitCost = price.mul(D(eventMult)).mul(D(1.3)).div(D(tradeMult)); // +30% markup for buying
 
       const currentCredits = state.currency.credits;
       if (currentCredits.lte(0)) return state;
@@ -3423,66 +3563,23 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Generate a new random contract
   generateContract: () => {
     set((state) => {
-      const tiers = ['easy', 'medium', 'hard', 'epic'] as const;
-      const tier = tiers[Math.floor(Math.random() * tiers.length)];
-      
-      // Resource requirements based on tier
-      const multipliers = { easy: 50, medium: 200, hard: 800, epic: 3000 };
-      const mult = multipliers[tier];
-      
-      const resources: (TradeResourceType)[] = ['ore', 'ice', 'carbon', 'steel'];
-      const reqCount = tier === 'easy' ? 1 : tier === 'medium' ? 2 : tier === 'hard' ? 3 : 4;
-      const selectedResources = resources.sort(() => Math.random() - 0.5).slice(0, reqCount);
-      
-      const requirements: Partial<Record<ResourceType, Decimal>> = {};
-      selectedResources.forEach(res => {
-        requirements[res] = D(mult * (0.5 + Math.random()));
-      });
-      
-      // Rewards based on tier
-      const creditRewards = { easy: 100, medium: 500, hard: 2500, epic: 15000 };
-      const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
-      const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
-      
-      // Duration based on tier (in milliseconds)
-      const durations = { easy: 180000, medium: 240000, hard: 300000, epic: 420000 }; // 3, 4, 5, 7 minutes
-      const duration = durations[tier];
-      
-      const now = Date.now();
-      
-      const contract: Contract = {
-        id: `contract_${now}_${Math.random()}`,
-        title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
-        description: `Доставьте необходимые ресурсы`,
-        requirements,
-        rewards: {
-          credits: D(creditRewards[tier]),
-          researchPoints: D(rpRewards[tier]),
-          influence: D(influenceRewards[tier]),
-        },
-        // Speed bonus (50% extra rewards if completed in less than half the time)
-        speedBonus: {
-          credits: D(creditRewards[tier] * 0.5),
-          researchPoints: D(rpRewards[tier] * 0.5),
-          influence: D(influenceRewards[tier] * 0.5),
-        },
-        acceptedAt: now, // Contract is accepted when generated
-        expiresAt: now + duration,
-        tier,
-      };
-      
-      const contracts = [...(state.market.contracts ?? []), contract];
-      // Keep max 5 contracts
-      if (contracts.length > 5) contracts.shift();
-      
+      const current = state.market.contracts ?? [];
+      // Потолок соблюдаем отказом, а не вытеснением: shift() удалял самый старый контракт,
+      // над которым игрок мог уже работать, и вложенные в него ресурсы просто пропадали.
+      if (current.length >= MAX_ACTIVE_CONTRACTS) return state;
+
       return {
-        market: { ...state.market, contracts }
+        market: { ...state.market, contracts: [...current, createContract(Date.now())] },
       };
     });
   },
 
   // Complete a contract
   completeContract: (contractId: string) => {
+    // Set inside set() and dispatched after it: calling addNotification from within a
+    // Zustand updater is setState-during-setState.
+    let queuedNotification: { type: 'success'; title: string; message: string } | null = null;
+
     set((state) => {
       const contracts = state.market.contracts ?? [];
       const contract = contracts.find(c => c.id === contractId);
@@ -3517,27 +3614,29 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
       
       // Add speed bonus if earned
-      if (earnedSpeedBonus) {
+      if (earnedSpeedBonus && contract.speedBonus) {
+        const bonus = contract.speedBonus;
         nextCurrency = {
-          credits: nextCurrency.credits.add(contract.speedBonus.credits ?? D(0)),
-          researchPoints: nextCurrency.researchPoints.add(contract.speedBonus.researchPoints ?? D(0)),
-          influence: nextCurrency.influence.add(contract.speedBonus.influence ?? D(0)),
+          credits: nextCurrency.credits.add(bonus.credits ?? D(0)),
+          researchPoints: nextCurrency.researchPoints.add(bonus.researchPoints ?? D(0)),
+          influence: nextCurrency.influence.add(bonus.influence ?? D(0)),
         };
-        
-        // Add notification about speed bonus
-        const newLog = [...state.eventLog];
-        newLog.unshift({
-          time: now,
-          message: `🚀 Бонус за скорость! +${contract.speedBonus.credits?.toFixed(0)} кредитов`,
-        });
-        if (newLog.length > 100) newLog.pop();
-        
+
+        // `state.eventLog` is not a GameState field — this used to spread `undefined`, which
+        // threw and aborted the whole contract completion after the reward was computed but
+        // before it was committed. The notification system is the real channel for this.
+        queuedNotification = {
+          type: 'success' as const,
+          title: 'Бонус за скорость',
+          message: `🚀 +${bonus.credits?.toFixed(0) ?? 0} кредитов за досрочную сдачу`,
+        };
+
         return {
           resources: syncResourcesFromBase({ ...state.resources }, buffers),
           grid: { ...state.grid, buffers },
           currency: nextCurrency,
           market: { ...state.market, contracts: contracts.filter(c => c.id !== contractId) },
-          eventLog: newLog,
+          stats: { ...state.stats, contractsCompleted: state.stats.contractsCompleted + 1 },
         };
       }
       
@@ -3550,9 +3649,12 @@ export const useGameStore = create<GameState>((set, get) => ({
         resources: nextResources,
         grid: { ...state.grid, buffers },
         currency: nextCurrency,
-        market: { ...state.market, contracts: nextContracts }
+        market: { ...state.market, contracts: nextContracts },
+        stats: { ...state.stats, contractsCompleted: state.stats.contractsCompleted + 1 },
       };
     });
+
+    if (queuedNotification) get().addNotification(queuedNotification);
   },
 
   // Place a trading order (buy/sell at target price)
@@ -3685,29 +3787,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Unlock technology
       const technologies = { ...state.research.technologies, [id]: true };
       
-      // Обновляем прогресс квестов
-      const updatedQuests = {
-        ...state.quests,
-        activeQuests: state.quests.activeQuests.map(quest => {
-          if (quest.isCompleted) return quest;
-          
-          // Квесты на исследование конкретной технологии
-          if (quest.type === 'research' && quest.target === id) {
-            const newAmount = (quest.currentAmount || 0) + 1;
-            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
-            return { ...quest, currentAmount: newAmount, isCompleted };
-          }
-          
-          // Квесты на исследование любой технологии
-          if (quest.type === 'research' && quest.target === 'any') {
-            const newAmount = (quest.currentAmount || 0) + 1;
-            const isCompleted = quest.targetAmount ? newAmount >= quest.targetAmount : true;
-            return { ...quest, currentAmount: newAmount, isCompleted };
-          }
-          
-          return quest;
-        }),
-      };
+      // Прогресс квестов на исследование конкретной технологии и на исследование любой.
+      const updatedQuests = advanceQuests(
+        state.quests,
+        (quest) => quest.type === 'research' && (quest.target === id || quest.target === 'any'),
+      );
       
       return {
         currency: {
@@ -4001,16 +4085,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Deduct influence cost
       const newInfluence = state.currency.influence.sub(D(policy.influenceCost)).max(D(0));
-      
+
+      const nextActive = [...state.politics.activePolicies, policyId];
+
+      // Лимит энергии зависит от политик, поэтому его надо пересчитать сразу: иначе бонус
+      // «удвоенных аккумуляторов» проявился бы только после следующей постройки/продажи.
+      setPolicyEnergyStorageMult(aggregatePolicyEffects(nextActive).specials.energyStorage);
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const resources = recomputeCaps(
+        { ...state.resources },
+        state.buildings,
+        capsMult,
+        state.grid.tileLevels || {},
+        state.grid.tiles,
+      );
+
       return {
         ...state,
+        resources,
         currency: {
           ...state.currency,
           influence: newInfluence,
         },
         politics: {
           ...state.politics,
-          activePolicies: [...state.politics.activePolicies, policyId],
+          activePolicies: nextActive,
           lastActivated: {
             ...(state.politics.lastActivated || {}),
             [policyId]: Date.now(),
@@ -4023,11 +4122,26 @@ export const useGameStore = create<GameState>((set, get) => ({
   deactivatePolicy: (policyId: import('../core/gameTypes').PolicyId) => {
     set((state) => {
       if (!state.politics.activePolicies.includes(policyId)) return state;
-      
+
+      const nextActive = state.politics.activePolicies.filter(id => id !== policyId);
+
+      // Симметрично активации: снятие политики может УМЕНЬШИТЬ лимит энергии, и излишек
+      // должен быть срезан здесь же, а не «висеть» над кэпом до ближайшей перестройки.
+      setPolicyEnergyStorageMult(aggregatePolicyEffects(nextActive).specials.energyStorage);
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const resources = recomputeCaps(
+        { ...state.resources },
+        state.buildings,
+        capsMult,
+        state.grid.tileLevels || {},
+        state.grid.tiles,
+      );
+
       return {
+        resources,
         politics: {
           ...state.politics,
-          activePolicies: state.politics.activePolicies.filter(id => id !== policyId),
+          activePolicies: nextActive,
         },
       };
     });
@@ -4196,6 +4310,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Calculate repeatable research bonuses
       const repeatableBonuses = getTotalRepeatableBonuses(state.repeatableResearch.researches);
+
+      /*
+       * Policy effects. Until now `policy.effects` was never read anywhere: all 41 policies
+       * charged an activation cost and a per-second influence upkeep, and only `eco_friendly`
+       * (hardcoded by id) did anything. Every declared multiplier was dead data.
+       */
+      const policyEffects = aggregatePolicyEffects(state.politics.activePolicies);
+
+      // Страховка от рассинхрона: политика могла прийти из загрузки сейва, минуя activatePolicy.
+      setPolicyEnergyStorageMult(policyEffects.specials.energyStorage);
 
       const waveActiveEconomy = state.combat.waveEndsAt > now;
       const smartTargeting = computeAegisSmartTargetingEnabled(state.aegis.levels);
@@ -4408,9 +4532,85 @@ export const useGameStore = create<GameState>((set, get) => ({
       const repeatableProdMult = repeatableBonuses.productionMultiplier;
       const repeatableExoticMult = repeatableBonuses.exoticResourcesMultiplier;
       
+      /*
+       * Спецэффекты политик. Разворачиваются один раз на тик: всё, что ниже читает `specials`
+       * внутри цикла по тайлам, обязано брать уже готовые числа, а не пересобирать их.
+       */
+      const specials = policyEffects.specials;
+      // Булевы флаги снимаем здесь же — внутри цикла по тайлам Set.has() был бы лишним.
+      const gasPlantGasoline = policyEffects.specialEffects.has('gas_power_produces_gasoline');
+
+      /*
+       * «Роботы ускоряют производство»: каждый произведённый робот даёт +robotBonusPerUnit
+       * к глобальному выпуску. Роботы копятся без потолка, поэтому бонус жёстко ограничен
+       * +200% — иначе поздняя игра с фабриками роботов уходит в бесконечный самоусиливающийся
+       * цикл (больше производства -> больше роботов -> больше производства).
+       */
+      let robotProdMult = 1;
+      if (specials.robotBonusPerUnit > 0) {
+        const robotCount = Number(getBuf(buffers, baseKey, 'robot').toString());
+        if (Number.isFinite(robotCount) && robotCount > 0) {
+          robotProdMult = 1 + Math.min(2, specials.robotBonusPerUnit * robotCount);
+        }
+      }
+
       const dtFacilities = dt * speedMult * boostMult * interferenceMult * baseDamageMult *
-        artifactBonuses.globalProduction * artifactBonuses.buildingEfficiency * 
-        ascensionProdMult * repeatableProdMult;
+        artifactBonuses.globalProduction * artifactBonuses.buildingEfficiency *
+        ascensionProdMult * repeatableProdMult * policyEffects.production *
+        specials.productionSpeed * robotProdMult;
+
+      /*
+       * «Авто-стоп убыточных производств» (specialEffect auto_stop_unprofitable).
+       *
+       * Останов НЕ пишется в state.grid.tileDisabled и не трогает tileSettings.enabled: набор
+       * пересобирается каждый тик, поэтому здание само оживает, как только рынок или цепочка
+       * поставок меняются, а ручные переключатели игрока остаются его собственными.
+       *
+       * Считаем только по зданиям, которые (а) реально стоят на карте, (б) объявлены
+       * отключаемыми (энергетику, склады и оборону останавливать нельзя — это каскадом
+       * обесточило бы базу) и (в) вообще что-то потребляют. Такой фильтр оставляет единицы
+       * зданий из сотни, поэтому цикл дешевле, чем аналогичный расчёт ROI у демона-оракула.
+       */
+      let autoStoppedBuildingIds: Set<string> | null = null;
+      if (policyEffects.specialEffects.has('auto_stop_unprofitable')) {
+        // Стоимость в «энергетическом эквиваленте»: энергия по номиналу, торгуемое — по цене.
+        const valueOf = (res: string, perSec: Decimal | string | number): number => {
+          if (res === 'energy') return Number(D(perSec).toString());
+          const price = state.market.prices[res as TradeResourceType];
+          return price ? Number(price.mul(D(perSec)).toString()) : 0;
+        };
+
+        for (const b of buildingsWithProximity) {
+          if (b.count <= 0 || !b.consumption) continue;
+          if (!tilesByBuildingId.has(b.id)) continue;
+          if (!isBuildingDisableable(b.id)) continue;
+
+          /*
+           * Если хотя бы один выход не торгуется (тёмная материя, омега-материя, кристаллы
+           * времени...), оценить здание нечем: по ценам оно выглядело бы как чистый убыток,
+           * хотя производит самое ценное в игре. Такие не трогаем вообще.
+           */
+          let priceable = true;
+          let net = 0;
+          for (const [res, perSec] of Object.entries(b.production ?? {})) {
+            if (res !== 'energy' && !state.market.prices[res as TradeResourceType]) {
+              priceable = false;
+              break;
+            }
+            net += valueOf(res, perSec);
+          }
+          if (!priceable) continue;
+
+          for (const [res, perSec] of Object.entries(b.consumption)) net -= valueOf(res, perSec);
+          if (b.energyConsumption) net -= Number(D(b.energyConsumption).toString());
+
+          // Строго меньше нуля: здание в нуле не глушим — это не убыток, а ровный размен.
+          if (net < 0) {
+            if (!autoStoppedBuildingIds) autoStoppedBuildingIds = new Set<string>();
+            autoStoppedBuildingIds.add(b.id);
+          }
+        }
+      }
 
       const coldFusionMult = computeColdFusionEnergyMultiplier(state.productionMatrix.levels.cold_fusion ?? 0);
       const doubleChance = computeMolecularStabilityDoubleChance(state.productionMatrix.levels.molecular_stability ?? 0);
@@ -4604,11 +4804,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       for (const b of buildingsWithProximity) {
         if (b.count <= 0) continue;
-        
+
+        // Заглушенное политикой здание ничего не потребляет — не должно и висеть в итогах.
+        if (autoStoppedBuildingIds?.has(b.id)) continue;
+
         // ОПТИМИЗАЦИЯ: Используем pre-built map вместо filter каждый раз
         const placedKeys = tilesByBuildingId.get(b.id);
         if (!placedKeys || placedKeys.length === 0) continue;
-        
+
+        // Тот же множитель по id здания, что применяется к выпуску ниже: иначе энергобаланс
+        // считался бы по «непрокачанной» станции и резал бы производство мнимым дефицитом.
+        const policyBuildingMult = policyEffects.buildingTypeMultipliers[b.id] ?? 1;
+
         // Суммируем с учётом уровней каждого здания
         for (const key of placedKeys) {
           // Пропускаем отключенные здания
@@ -4623,7 +4830,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Energy production (с учётом уровня и эволюции)
           if (b.production?.energy) {
             totalEnergyProduction = totalEnergyProduction.add(
-              D(b.production.energy).mul(buildingLevel).mul(evolutionMult)
+              D(b.production.energy).mul(buildingLevel).mul(evolutionMult).mul(policyBuildingMult)
             );
           }
           
@@ -4672,7 +4879,26 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Apply Energy Optimization from repeatable research (reduces consumption)
       totalEnergyConsumption = totalEnergyConsumption.mul(repeatableBonuses.energyEfficiency);
-      
+
+      /*
+       * Policy energy effects. Scaled once here, on the totals, rather than at each of the four
+       * accumulation sites above — same insertion point the repeatable-research bonus uses, and
+       * the only place where both totals are final but nothing has consumed them yet.
+       * These were declared on policies like "Овертайм" (+30% production, +50% energy draw) but
+       * never applied, so such a policy was a pure upside with no stated downside.
+       */
+      totalEnergyConsumption = totalEnergyConsumption.mul(policyEffects.energyConsumption);
+      totalEnergyProduction = totalEnergyProduction.mul(policyEffects.energyProduction);
+
+      /*
+       * Тот же множитель расхода, что уходит в цикл по тайлам. Без него политика «-20% расхода»
+       * реально снижала бы списание, но energyEfficiency ниже считался бы по нетронутым итогам —
+       * то есть при дефиците игрок продолжал бы получать штраф, которого политика его лишает.
+       */
+      if (specials.consumption !== 1) {
+        totalEnergyConsumption = totalEnergyConsumption.mul(specials.consumption);
+      }
+
       // Calculate efficiency based on energy balance
       // НЕ вычитаем энергию здесь - это делается в цикле производства/потребления зданий
       let energyEfficiency = 1.0;
@@ -4711,6 +4937,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         energyEfficiency = 1.0;
       }
 
+      /*
+       * «Снижение потерь энергии» (specials.energyDeficitRelief). Единственная настоящая потеря
+       * энергии в игре — просадка всего производства при дефиците (сеть бинарная: здание либо
+       * запитано, либо нет). Прощаем указанную долю недостачи: relief=0.5 -> половина провала.
+       */
+      if (specials.energyDeficitRelief > 0 && energyEfficiency < 1) {
+        energyEfficiency = energyEfficiency + (1 - energyEfficiency) * specials.energyDeficitRelief;
+      }
+
 
 
       // Produce/consume into local tile buffers
@@ -4721,9 +4956,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       for (const b of buildingsWithProximity) {
         if (b.count <= 0) continue;
 
+        // Политика «авто-стоп убыточных»: здание не производит и не потребляет этот тик.
+        if (autoStoppedBuildingIds?.has(b.id)) continue;
+
         // Find all placed instances of this building
         const placedKeys = tilesByBuildingId.get(b.id);
         if (!placedKeys || placedKeys.length === 0) continue;
+
+        // Множитель производства по id здания из активных политик (ищем один раз на здание,
+        // а не на каждый тайл — при сотне копий это разница в порядок вызовов).
+        const policyBuildingMult = policyEffects.buildingTypeMultipliers[b.id] ?? 1;
 
         for (const tileKey of placedKeys) {
           if (!buffers[tileKey]) buffers[tileKey] = {};
@@ -4760,11 +5002,14 @@ export const useGameStore = create<GameState>((set, get) => ({
             continue;
           }
           
-          // Получаем множители из режима работы
+          // Получаем множители из режима работы.
+          // Множитель расхода от политик вмешан прямо сюда (обычным умножением чисел): так он
+          // попадает разом и в проверку доступности входов, и в само списание — если развести
+          // их по разным местам, проверка и дебет разойдутся и буферы уйдут в минус.
           const modeConfig = BUILDING_MODES[buildingMode];
           const productionMult = modeConfig?.productionMultiplier ?? 1;
-          const consumptionMult = modeConfig?.consumptionMultiplier ?? 1;
-          const energyMult = modeConfig?.energyMultiplier ?? 1;
+          const consumptionMult = (modeConfig?.consumptionMultiplier ?? 1) * specials.consumption;
+          const energyMult = (modeConfig?.energyMultiplier ?? 1) * specials.consumption;
 
           // Если здание производственное, но его выходы уже заблокированы (переполнение),
           // то оно не должно тратить энергию/ресурсы «вхолостую».
@@ -5022,8 +5267,15 @@ export const useGameStore = create<GameState>((set, get) => ({
                   energyConsumptionByBuilding[b.id] = (energyConsumptionByBuilding[b.id] ?? D(0)).add(consume);
                 }
               } else {
+                /*
+                 * Переработка (specials.recycleRate): часть сырья возвращается в тот же буфер.
+                 * Списываем сразу нетто вместо «списать и вернуть» — результат тот же, но без
+                 * второй записи в буфер на каждый вход каждого тайла. Энергию не возвращаем:
+                 * она глобальна, и рециклинг там означал бы вечный двигатель.
+                 */
+                const net = specials.recycleRate > 0 ? consume.mul(1 - specials.recycleRate) : consume;
                 const localCur = getBuf(buffers, tileKey, rType);
-                buffers = setBuf(buffers, tileKey, rType, localCur.sub(consume));
+                buffers = setBuf(buffers, tileKey, rType, localCur.sub(net));
               }
             }
           }
@@ -5071,7 +5323,12 @@ export const useGameStore = create<GameState>((set, get) => ({
               
               // ФАЗА 5: Применяем множитель режима к производству
               produced = produced.mul(productionMult);
-              
+
+              // Политики, усиливающие конкретный тип здания (АЭС, солнечные панели, военка...).
+              if (policyBuildingMult !== 1) {
+                produced = produced.mul(policyBuildingMult);
+              }
+
               // PHASE 4: Применяем множитель эволюции здания
               const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
               if (evolutionLevel > 0) {
@@ -5144,6 +5401,30 @@ export const useGameStore = create<GameState>((set, get) => ({
                 // Автоматическая логистика доставит их туда, где они нужны
                 const cur = getBuf(buffers, tileKey, rType);
                 buffers = setBuf(buffers, tileKey, rType, cur.add(produced));
+              }
+            }
+
+            /*
+             * Флаг gas_power_produces_gasoline: газовая станция дополнительно даёт побочный
+             * бензин. Выпуск привязан к её паспортному расходу газа (10%), а не к отдельной
+             * константе, чтобы бонус масштабировался вместе со зданием и его уровнем.
+             */
+            if (gasPlantGasoline && b.id === 'gas_power_plant_mk1' && b.consumption?.natural_gas) {
+              const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
+              const byproduct = D(b.consumption.natural_gas)
+                .mul(D('0.1'))
+                .mul(dtFacilities)
+                .mul(ratio)
+                .mul(buildingLevel)
+                .mul(productionMult);
+              // Кладём сразу на базу: вывоз излишков с тайла идёт только по объявленному
+              // production здания, а бензина там нет — в локальном буфере он бы залип навсегда.
+              if (byproduct.gt(0)) {
+                const cur = getBuf(buffers, baseKey, 'gasoline');
+                const cap = newResources.gasoline?.max;
+                if (!cap || cap.lte(0) || cur.lt(cap)) {
+                  buffers = setBuf(buffers, baseKey, 'gasoline', cur.add(byproduct));
+                }
               }
             }
           }
@@ -5233,9 +5514,9 @@ export const useGameStore = create<GameState>((set, get) => ({
               const sellAmt = sellable.min(D(12).mul(dt));
               if (sellAmt.lte(0)) continue;
               
-              // Продажа за КРЕДИТЫ
-              const earned = price.mul(sellAmt).mul(D(tradeMult));
-              
+              // Продажа за КРЕДИТЫ (экспортные политики повышают выручку)
+              const earned = price.mul(sellAmt).mul(D(tradeMult)).mul(specials.sellCredits);
+
               // Вычитаем ресурсы с базы
               buffers = setBuf(buffers, baseKey, r, have.sub(sellAmt).max(D(0)));
               
@@ -5296,12 +5577,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       const currentTilesCount = Object.keys(state.grid.tiles).length;
       const currentBuildingsCount = state.buildings.length;
       
-      const needsProductionRatesRecalc = 
+      const needsProductionRatesRecalc =
         productionRatesCache.tilesCount !== currentTilesCount ||
         productionRatesCache.tileLevelsRef !== state.grid.tileLevels ||
         productionRatesCache.tileEvolutionLevelsRef !== state.grid.tileEvolutionLevels ||
         productionRatesCache.tileSettingsRef !== state.grid.tileSettings || // ФАЗА 5: инвалидация при изменении настроек
         productionRatesCache.tileDisabledRef !== state.grid.tileDisabled || // ФАЗА 5: инвалидация при отключении
+        productionRatesCache.activePoliciesRef !== state.politics.activePolicies || // множители политик вмешаны в ставки
         productionRatesCache.buildingsCount !== currentBuildingsCount ||
         !productionRatesCache.rates;
 
@@ -5334,6 +5616,20 @@ export const useGameStore = create<GameState>((set, get) => ({
           singularity_core: D_ZERO, time_crystal: D_ZERO, dimensional_rift: D_ZERO, omega_matter: D_ZERO, ascension_essence: D_ZERO,
         };
         
+        /*
+         * Множители политик, которые тик реально применяет к выпуску и расходу. Раскрываем
+         * их здесь, ДО циклов по тайлам: агрегатор уже посчитан один раз на тик (policyEffects),
+         * а внутри обхода остаётся только чтение чисел и поиск по id здания.
+         *
+         * Без этого витрина расходилась с кассой: при активной политике «+30% производства»
+         * панель ресурсов показывала базовую ставку, а в буфер капало на 30% больше.
+         * Множители, не зависящие от политик (speedMult/boost/артефакты/вознесение), сюда
+         * намеренно не тянем — это отдельная правка и другой набор ключей инвалидации.
+         */
+        const policyProdMult = policyEffects.production * specials.productionSpeed;
+        const policyConsMult = specials.consumption;
+        const policyBuildingMults = policyEffects.buildingTypeMultipliers;
+
         // ОПТИМИЗАЦИЯ: Используем buildingsMap вместо find() каждый раз
         // Суммируем производство со всех зданий на карте
         for (const tileKey in state.grid.tiles) {
@@ -5354,14 +5650,17 @@ export const useGameStore = create<GameState>((set, get) => ({
           const modeKey = tileSett?.mode || 'normal';
           const modeConf = BUILDING_MODES[modeKey];
           const prodModeMult = modeConf?.productionMultiplier ?? 1;
-          
+
+          // Тот же множитель по id здания, что тик применяет к выпуску (см. цикл производства).
+          const policyMult = policyProdMult * (policyBuildingMults[buildingId] ?? 1);
+
           for (const resType in building.production) {
             const rType = resType as ResourceType;
             const baseRate = building.production[rType];
             if (!baseRate) continue;
-            
-            let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult).mul(prodModeMult);
-            
+
+            let rate = D(baseRate).mul(buildingLevel).mul(evolutionMult).mul(prodModeMult).mul(policyMult);
+
             // Применяем proximity множитель
             if (building.proximityMultiplier && building.proximityMultiplier !== 1) {
               rate = rate.mul(building.proximityMultiplier);
@@ -5395,7 +5694,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             const baseRate = building.consumption[rType];
             if (!baseRate) continue;
             
-            const modeMult = rType === 'energy' ? energyModeMult : consModeMult;
+            // specials.consumption тик домешивает и в проверку доступности входов, и в само
+            // списание — витрина обязана считать по той же ставке.
+            const modeMult = (rType === 'energy' ? energyModeMult : consModeMult) * policyConsMult;
             const rate = D(baseRate).mul(buildingLevel).mul(modeMult);
             productionRates[rType] = productionRates[rType].sub(rate);
           }
@@ -5408,6 +5709,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           tileEvolutionLevelsRef: state.grid.tileEvolutionLevels,
           tileSettingsRef: state.grid.tileSettings, // ФАЗА 5
           tileDisabledRef: state.grid.tileDisabled, // ФАЗА 5
+          activePoliciesRef: state.politics.activePolicies,
           buildingsCount: currentBuildingsCount,
           rates: productionRates,
           lastCalculatedAt: now,
@@ -5454,42 +5756,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         const prices = updateMarketPrices(state.market.prices);
         const history = pushMarketHistory(state.market.history, prices, now);
         
-        // Generate new contract periodically (20% chance)
-        let contracts = state.market.contracts ?? [];
-        if (Math.random() < 0.2 && contracts.length < 5) {
-          const tiers = ['easy', 'medium', 'hard', 'epic'] as const;
-          const tier = tiers[Math.floor(Math.random() * tiers.length)];
-          const multipliers = { easy: 50, medium: 200, hard: 800, epic: 3000 };
-          const mult = multipliers[tier];
-          const resources: (TradeResourceType)[] = ['ore', 'ice', 'carbon', 'steel'];
-          const reqCount = tier === 'easy' ? 1 : tier === 'medium' ? 2 : tier === 'hard' ? 3 : 4;
-          const selectedResources = resources.sort(() => Math.random() - 0.5).slice(0, reqCount);
-          const requirements: Partial<Record<ResourceType, Decimal>> = {};
-          selectedResources.forEach(res => {
-            requirements[res] = D(mult * (0.5 + Math.random()));
-          });
-          const creditRewards = { easy: 100, medium: 500, hard: 2500, epic: 15000 };
-          const rpRewards = { easy: 5, medium: 20, hard: 100, epic: 500 };
-          const influenceRewards = { easy: 1, medium: 5, hard: 25, epic: 150 };
-          const contract: Contract = {
-            id: `contract_${now}_${Math.random()}`,
-            title: `Контракт уровня ${tier === 'easy' ? 'Лёгкий' : tier === 'medium' ? 'Средний' : tier === 'hard' ? 'Сложный' : 'Эпический'}`,
-            description: `Доставьте необходимые ресурсы`,
-            requirements,
-            rewards: {
-              credits: D(creditRewards[tier]),
-              researchPoints: D(rpRewards[tier]),
-              influence: D(influenceRewards[tier]),
-            },
-            expiresAt: now + 120000,
-            tier,
-          };
-          contracts = [...contracts, contract];
-        }
-        
-        // Remove expired contracts
-        contracts = contracts.filter(c => c.expiresAt > now);
-        
+        // Выдача и протухание контрактов вынесены из обновления рынка в отдельный блок ниже:
+        // они живут по своему таймеру, а не по 30-секундному тику цен.
+
         // Process trading orders
         let orders = state.market.orders ?? [];
         const executedOrders: string[] = [];
@@ -5551,9 +5820,38 @@ export const useGameStore = create<GameState>((set, get) => ({
           event,
           nextUpdateAt: now + MARKET_UPDATE_SECONDS * 1000,
           history,
-          contracts,
           orders,
         };
+      }
+
+      /*
+       * Автовыдача контрактов.
+       *
+       * Раньше generateContract не вызывался ниоткуда, а в обновлении рынка жила его
+       * урезанная копия (без speedBonus и с фиксированным сроком в 2 минуты). Теперь
+       * источник один — createContract, — и он привязан к собственному таймеру.
+       *
+       * nextContractAt всегда переустанавливается в now + интервал (а не увеличивается на
+       * интервал), поэтому серия догоняющих шагов тика в одном кадре и возвращение из
+       * офлайна дадут ровно один контракт, а не пачку.
+       *
+       * Массив пересобираем только когда он реально меняется: market — срез Zustand, и
+       * новый contracts каждый тик заставлял бы перерисовываться всю торговую панель.
+       */
+      const currentContracts = nextMarket.contracts ?? [];
+      const hasExpired = currentContracts.some(c => c.expiresAt <= now);
+      const spawnDue = now >= nextContractAt;
+      if (hasExpired || spawnDue) {
+        let contracts = hasExpired ? currentContracts.filter(c => c.expiresAt > now) : currentContracts;
+        if (spawnDue) {
+          nextContractAt = now + CONTRACT_SPAWN_INTERVAL_SECONDS * 1000;
+          if (contracts.length < MAX_ACTIVE_CONTRACTS) {
+            contracts = [...contracts, createContract(now)];
+          }
+        }
+        if (contracts !== currentContracts) {
+          nextMarket = { ...nextMarket, contracts };
+        }
       }
 
       // Smart-Broker: auto-sell surplus (only if rent was paid)
@@ -5591,9 +5889,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
 
-          // Фаза 2: Если энергия полная и остались излишки - продаём за кредиты
+          // Фаза 2: Если энергия полная и остались излишки - продаём за кредиты.
+          // Фаза 1 выше меняет ресурс на энергию, а не на кредиты, поэтому там sellCredits не к месту.
           if (remainingSell.gt(0)) {
-            const earnedCredits = price.mul(remainingSell).mul(D(tradeMult));
+            const earnedCredits = price.mul(remainingSell).mul(D(tradeMult)).mul(specials.sellCredits);
             buffers = setBuf(buffers, baseKey, t, have.sub(remainingSell).max(D(0)));
             // Накапливаем кредиты, добавим к nextCurrency позже
             autoSellCreditsEarned = autoSellCreditsEarned.add(earnedCredits);
@@ -5667,6 +5966,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Combat update (Phase 3)
       let nextCombat: CombatState = state.combat;
+      /*
+       * Убитые за этот тик враги — и у базы, и на платформах. Считаем числом, а квесты
+       * трогаем один раз в конце: обход activeQuests на каждом попадании при 20 Гц был бы
+       * лишней работой на пустом месте (в большинстве тиков убийств просто нет).
+       */
+      let enemyKillsThisTick = 0;
       // Note: We now process combat even when baseHp <= 0 to handle regen
       {
         let baseHp = state.combat.baseHp;
@@ -5686,7 +5991,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         const shieldCount = shieldBuilding?.count ?? 0;
         const shieldDef = shieldBuilding?.defense;
 
-        const shieldMaxHp = shieldDef ? shieldDef.shieldMaxHp.mul(shieldCount) : D(0);
+        // Оборонные политики поднимают потолок щита; текущий HP ниже зажимается по нему,
+        // поэтому при снятии политики излишек щита срезается сам собой.
+        const shieldMaxHp = shieldDef ? shieldDef.shieldMaxHp.mul(shieldCount).mul(specials.defense) : D(0);
         let shieldHp = state.combat.shieldHp.min(shieldMaxHp).max(D(0));
         let shieldAbsorbed = D(0);
         let shieldEnergyNeedPerSecond = D(0);
@@ -5706,7 +6013,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (now >= nextWaveAt && enemies.length === 0) {
             waveEndsAt = now + WAVE_DURATION_SECONDS * 1000;
             nextSpawnAt = now;
-            nextWaveAt = now + WAVE_INTERVAL_SECONDS * 1000;
+            // waveInterval > 1 — нападения реже (пацифистские политики). Длительность самой
+            // волны не трогаем: политика обещает более редкие атаки, а не более короткие.
+            nextWaveAt = now + WAVE_INTERVAL_SECONDS * 1000 * specials.waveInterval;
           }
         }
 
@@ -5824,8 +6133,17 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
             newResources.energy.amount = getBuf(buffers, baseKey, 'energy').min(newResources.energy.max);
 
-            // Apply Turret Overdrive multiplier to damage
-            let damage = turretCombat.dps.mul(combatMult).mul(aegisTurretOverdriveMult).mul(turretCount).mul(dt).mul(ratio);
+            // Apply Turret Overdrive multiplier to damage.
+            // Турели получают обе политические ручки: damage — как любое оружие игрока,
+            // defense — как оборонительное сооружение.
+            let damage = turretCombat.dps
+              .mul(combatMult)
+              .mul(aegisTurretOverdriveMult)
+              .mul(turretCount)
+              .mul(dt)
+              .mul(ratio)
+              .mul(specials.damage)
+              .mul(specials.defense);
             const nextEnemies: Enemy[] = enemies.map((e) => ({ ...e }));
 
             while (damage.gt(0) && nextEnemies.length > 0) {
@@ -5842,6 +6160,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               damage = D(0);
             }
 
+            // splice выше удаляет добитых — разница длин и есть число убитых турелями.
+            enemyKillsThisTick += enemies.length - nextEnemies.length;
             enemies = nextEnemies;
           }
         }
@@ -5852,7 +6172,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             state.nanoSwarm.total,
             state.nanoSwarm.allocation.attack ?? 0,
             combatMult,
-          ).mul(dt);
+          ).mul(dt).mul(specials.damage); // Рой — тоже оружие игрока, попадает под damage.
           if (damage.gt(0)) {
             const nextEnemies: Enemy[] = enemies.map((e) => ({ ...e }));
             while (damage.gt(0) && nextEnemies.length > 0) {
@@ -5868,6 +6188,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               nextEnemies[idx] = { ...target, hp: remaining };
               damage = D(0);
             }
+            enemyKillsThisTick += enemies.length - nextEnemies.length;
             enemies = nextEnemies;
           }
         }
@@ -6026,25 +6347,17 @@ export const useGameStore = create<GameState>((set, get) => ({
         };
       }
       
-      // Research points generation
-      const researchCenterCount = Object.values(state.grid.tiles).filter(id => id === 'research_center_mk1').length;
-      const supercomputerLabCount = Object.values(state.grid.tiles).filter(id => id === 'supercomputer_lab_mk1').length;
-      const quantumLabCount = Object.values(state.grid.tiles).filter(id => id === 'quantum_lab_mk1').length;
-      
-      // RP per building per second (базовые значения)
-      const researchCenterRP = D(0.5); // 0.5 RP/sec
-      const supercomputerLabRP = D(2.0); // 2.0 RP/sec
-      const quantumLabRP = D(10.0); // 10.0 RP/sec
-      
-      const totalRPPerSec = researchCenterRP.mul(researchCenterCount)
-        .add(supercomputerLabRP.mul(supercomputerLabCount))
-        .add(quantumLabRP.mul(quantumLabCount));
-      
+      // Research points generation. Rates live in ../core/production/currencyRates so that
+      // CurrencyPanel shows the same number the tick actually produces (it used to read a
+      // non-existent Building.production.researchPoints field and always displayed +0/с).
+      const totalRPPerSec = baseResearchPointsPerSecond(state.grid.tiles);
+
       if (totalRPPerSec.gt(0)) {
         const rpGained = totalRPPerSec.mul(dt).mul(energyEfficiency)
           .mul(artifactBonuses.researchSpeed)
           .mul(ascensionResearchMult)
-          .mul(repeatableBonuses.researchSpeedMultiplier); // Apply repeatable research speed bonus
+          .mul(repeatableBonuses.researchSpeedMultiplier) // Apply repeatable research speed bonus
+          .mul(policyEffects.research); // Policy research multiplier (was declared but never applied)
         nextCurrency = {
           ...nextCurrency,
           researchPoints: nextCurrency.researchPoints.add(rpGained),
@@ -6062,11 +6375,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         };
       }
       
-      // Political Center: generates influence
-      const politicalCenterCount = Object.values(state.grid.tiles).filter(id => id === 'political_center_mk1').length;
-      if (politicalCenterCount > 0) {
-        const influencePerCenterPerSec = D(0.2); // 0.2 influence/sec per center
-        const influenceGained = influencePerCenterPerSec.mul(politicalCenterCount).mul(dt).mul(energyEfficiency);
+      // Flat credits/second granted by active policies (declared on several policies, never
+      // applied before).
+      if (policyEffects.creditsPerSecond.gt(0)) {
+        nextCurrency = {
+          ...nextCurrency,
+          credits: nextCurrency.credits.add(policyEffects.creditsPerSecond.mul(dt)),
+        };
+      }
+
+      // Political Center: generates influence (rates shared with the UI, see currencyRates).
+      const totalInfluencePerSec = baseInfluencePerSecond(state.grid.tiles);
+      if (totalInfluencePerSec.gt(0)) {
+        // specials.influence — прибавка «идеологических» политик к притоку влияния.
+        const influenceGained = totalInfluencePerSec.mul(dt).mul(energyEfficiency).mul(specials.influence);
         nextCurrency = {
           ...nextCurrency,
           influence: nextCurrency.influence.add(influenceGained),
@@ -6238,7 +6560,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               ...updatedPlatform.combat,
               enemies: newEnemies,
               underAttack: true,
-              nextWaveAt: now + 120000, // Next wave in 2 minutes
+              // Та же политика «реже нападают» действует и на орбитальные платформы.
+              nextWaveAt: now + 120000 * specials.waveInterval, // Next wave in 2 minutes
               shieldRegenPerSecond: updatedPlatform.combat.shieldRegenPerSecond || D(5),
               damagePerSecond: updatedPlatform.combat.damagePerSecond || D(0),
             },
@@ -6276,7 +6599,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Filter out dead enemies and grant loot
           const deadEnemies = updatedEnemies.filter(e => e.hp.lte(0));
           const aliveEnemies = updatedEnemies.filter(e => e.hp.gt(0));
-          
+          // Бой на платформе — такой же бой игрока: квест «уничтожьте врага» не должен
+          // требовать, чтобы враг дошёл именно до базы.
+          enemyKillsThisTick += deadEnemies.length;
+
           // Grant loot from dead enemies (will be added to currency below)
           deadEnemies.forEach(enemy => {
             if (enemy.loot) {
@@ -6451,19 +6777,50 @@ export const useGameStore = create<GameState>((set, get) => ({
         platforms: finalPlatforms,
       };
 
-      // Add new notifications
-      if (newNotifications.length > 0) {
-        const addedNotifications = newNotifications.map(notif => ({
-          ...notif,
-          id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: Date.now(),
-          read: false,
-        } as import('../core/gameTypes').Notification));
-        
-        nextGalaxies = {
-          ...nextGalaxies,
-          notifications: [...addedNotifications, ...nextGalaxies.notifications].slice(0, 50),
+      /*
+       * Случайные научные удачи от политик. Оба шанса заданы «в секунду», поэтому
+       * умножаются на dt — иначе при 20 Гц срабатывало бы в 20 раз чаще, чем обещано.
+       */
+      let nextResearchTechnologies: Record<string, boolean> | null = null;
+
+      if (specials.researchBonusChancePerSecond > 0 &&
+          Math.random() < specials.researchBonusChancePerSecond * dt) {
+        // Разовый куш соразмерен текущему притоку RP, а не фиксированному числу: иначе он
+        // либо ломает ранний баланс, либо к середине игры превращается в пыль.
+        const lump = baseResearchPointsPerSecond(state.grid.tiles).mul(60).max(D(50));
+        nextCurrency = {
+          ...nextCurrency,
+          researchPoints: nextCurrency.researchPoints.add(lump),
         };
+        newNotifications.push({
+          type: 'success',
+          title: '🔬 Научный прорыв',
+          message: `Исследователи наткнулись на неожиданный результат: +${lump.toFixed(0)} очков исследований.`,
+        });
+      }
+
+      if (specials.freeTechChancePerSecond > 0 &&
+          Math.random() < specials.freeTechChancePerSecond * dt) {
+        // Кандидаты — только технологии с выполненными пререквизитами. Проверку по стоимости
+        // обходим (в этом весь смысл «бесплатной» технологии), поэтому canResearchTechnology
+        // зовём с бесконечными очками, а не дублируем его правила здесь.
+        const candidates: string[] = [];
+        for (const techId of Object.keys(TECHNOLOGIES)) {
+          if (canResearchTechnology(techId as any, state.research.technologies, Number.POSITIVE_INFINITY)) {
+            candidates.push(techId);
+          }
+        }
+        if (candidates.length > 0) {
+          const granted = candidates[Math.floor(Math.random() * candidates.length)];
+          // Гранта в сторе нет: researchTechnology всегда списывает стоимость, поэтому
+          // открываем технологию здесь, не трогая researchPoints.
+          nextResearchTechnologies = { ...state.research.technologies, [granted]: true };
+          newNotifications.push({
+            type: 'success',
+            title: '💡 Прорыв в лаборатории',
+            message: `Технология «${TECHNOLOGIES[granted as keyof typeof TECHNOLOGIES]?.name ?? granted}» открыта бесплатно.`,
+          });
+        }
       }
 
       // Фаза 8.1: Pollution system
@@ -6477,19 +6834,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       let wasteGenerated = D(0);
       let radioactiveWasteGenerated = D(0);
       
+      /*
+       * Раньше здесь по id проверялась политика `eco_friendly` — единственный спецэффект,
+       * который вообще что-то делал, и делал это захардкоженной строкой внутри цикла по зданиям.
+       * Теперь смотрим на объявленный флаг: политика, которая его объявляет, всё та же, но
+       * gameStore больше не знает её имени, а проверка снята из тела цикла.
+       */
+      const autoRecycleWaste = policyEffects.specialEffects.has('auto_recycle_waste');
+
       buildingsWithProximity.forEach((b) => {
         if (b.count <= 0) return;
-        
+
         const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
         if (placedCount === 0) return;
-        
+
         // Different buildings generate different amounts of waste
         let wastePerBuilding = D(0);
         let radioactiveWastePerBuilding = D(0);
-        
-        // Check if eco_friendly policy is active
-        const ecoFriendly = state.politics.activePolicies.includes('eco_friendly');
-        
+
         // Production buildings generate waste (0.01 waste per production cycle)
         if (b.production && !b.id.includes('generator') && !b.id.includes('solar')) {
           const productionTotal = Object.values(b.production).reduce((sum, amount) => sum.add(amount), D(0));
@@ -6501,8 +6863,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           radioactiveWastePerBuilding = D(0.05).mul(dtFacilities).mul(placedCount);
         }
         
-        // Apply eco_friendly policy (50% waste reduction)
-        if (ecoFriendly) {
+        // Автопереработка отходов: -50% к образованию мусора и радиоактивных отходов
+        if (autoRecycleWaste) {
           wastePerBuilding = wastePerBuilding.mul(0.5);
           radioactiveWastePerBuilding = radioactiveWastePerBuilding.mul(0.5);
         }
@@ -6575,13 +6937,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             ];
             
             // Add notification
-            nextGalaxies.notifications.push({
-              id: `notif_caravan_attack_${now}_${Math.random()}`,
+            newNotifications.push({
               type: 'attack',
               title: '🚨 Караван атакован!',
               message: `Караван ${caravan.id.slice(0, 8)} подвергся нападению пиратов!`,
-              timestamp: now,
-              read: false,
             });
           }
           
@@ -6625,13 +6984,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
             
             // Add success notification
-            nextGalaxies.notifications.push({
-              id: `notif_caravan_delivered_${now}_${Math.random()}`,
+            newNotifications.push({
               type: 'success',
               title: '✅ Караван доставлен',
               message: `Караван ${caravan.id.slice(0, 8)} успешно прибыл в пункт назначения!`,
-              timestamp: now,
-              read: false,
             });
             
             // Mark for removal
@@ -6650,13 +7006,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             caravan.status = 'destroyed';
             
             // Add failure notification
-            nextGalaxies.notifications.push({
-              id: `notif_caravan_destroyed_${now}_${Math.random()}`,
+            newNotifications.push({
               type: 'warning',
               title: '💥 Караван уничтожен!',
               message: `Караван ${caravan.id.slice(0, 8)} был уничтожен пиратами. Груз потерян.`,
-              timestamp: now,
-              read: false,
             });
             
             // Mark for removal
@@ -6676,13 +7029,10 @@ export const useGameStore = create<GameState>((set, get) => ({
               delete caravan.underAttackBy;
               
               // Add notification
-              nextGalaxies.notifications.push({
-                id: `notif_caravan_survived_${now}_${Math.random()}`,
+              newNotifications.push({
                 type: 'success',
                 title: '⚔️ Атака отбита',
                 message: `Караван ${caravan.id.slice(0, 8)} успешно отбил атаку и продолжает путь!`,
-                timestamp: now,
-                read: false,
               });
             }
           }
@@ -6715,7 +7065,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         // Вычисляем следующее время события
         const baseInterval = BASE_EVENT_INTERVAL_MIN + Math.random() * (BASE_EVENT_INTERVAL_MAX - BASE_EVENT_INTERVAL_MIN);
-        const adjustedInterval = baseInterval / nextRandomEvents.eventFrequencyMultiplier;
+        /*
+         * eventFrequencyMultiplier — ДЕЛИТЕЛЬ интервала (больше множитель — чаще события),
+         * и specials.eventFrequency задан в тех же терминах частоты: 0.5 = «вдвое реже».
+         * Поэтому его домножаем к делителю, а не к интервалу, иначе знак эффекта перевернётся.
+         */
+        const frequencyMult = nextRandomEvents.eventFrequencyMultiplier * specials.eventFrequency;
+        const adjustedInterval = frequencyMult > 0
+          ? baseInterval / frequencyMult
+          : baseInterval;
         
         if (newEvent) {
           // Автоматически применяем эффекты события при его генерации
@@ -6816,13 +7174,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           };
           
           // Уведомление о завершении
-          nextGalaxies.notifications.push({
-            id: `megastructure_complete_${construction.megastructureId}_${now}`,
+          newNotifications.push({
             type: 'success',
             title: `🎉 Мегаструктура построена!`,
             message: `${megastructure.name} завершена и активна!`,
-            timestamp: now,
-            read: false,
           });
         }
       });
@@ -7050,6 +7405,46 @@ export const useGameStore = create<GameState>((set, get) => ({
       // END CULTURE SYSTEM
       // ========================================================================
 
+      /*
+       * Слияние уведомлений — ОДИН раз и в самом конце тика, после всех производителей.
+       *
+       * Раньше слияние стояло в середине: всё, что пушилось после него (уведомления
+       * случайных событий), молча терялось каждый тик. Караваны и мегаструктуры обходили
+       * проблему иначе и хуже — писали push() прямо в nextGalaxies.notifications, то есть
+       * в тиках без ранних уведомлений мутировали массив ПРЕДЫДУЩЕГО состояния (ссылка та
+       * же), дописывали в конец списка, который UI считает «от новых к старым», и обходили
+       * обрезку до 50, из-за чего список рос без предела.
+       *
+       * Теперь у уведомлений ровно один вход (newNotifications) и один выход (здесь), и
+       * порядок кода внутри тика больше не может ничего потерять.
+       */
+      /*
+       * Квесты типа 'combat'. Обработчика у них не было вовсе — quest_defeat_enemy (500 очков
+       * исследований) не мог сдвинуться. Срез quests возвращаем только когда он реально
+       * изменился: advanceQuests отдаёт исходную ссылку, если ничего не задето.
+       */
+      const nextQuests = enemyKillsThisTick > 0
+        ? advanceQuests(
+            state.quests,
+            (quest) => quest.type === 'combat' && (quest.target === 'enemy' || quest.target === 'any'),
+            enemyKillsThisTick,
+          )
+        : state.quests;
+
+      if (newNotifications.length > 0) {
+        const addedNotifications = newNotifications.map(notif => ({
+          ...notif,
+          id: `notif_${now}_${Math.random().toString(36).slice(2, 11)}`,
+          timestamp: now,
+          read: false,
+        } as import('../core/gameTypes').Notification));
+
+        nextGalaxies = {
+          ...nextGalaxies,
+          notifications: [...addedNotifications, ...nextGalaxies.notifications].slice(0, 50),
+        };
+      }
+
       return {
         resources: newResources,
         buildings: buildingsWithProximity,
@@ -7077,6 +7472,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         randomEvents: nextRandomEvents,
         megastructures: nextMegastructures,
         culture: nextCulture,
+        // research возвращаем только когда политика выдала бесплатную технологию: иначе
+        // каждый тик подменял бы объект и заставлял перерисовываться всё дерево технологий.
+        ...(nextResearchTechnologies
+          ? { research: { ...state.research, technologies: nextResearchTechnologies } }
+          : {}),
+        // Тот же приём для квестов — см. nextQuests выше.
+        ...(nextQuests !== state.quests ? { quests: nextQuests } : {}),
         lastTick: now,
         // Use theoretical capacity so UI shows consistent values with analytics
         // (totalEnergyProduction/Consumption already include building levels and evolution)
@@ -7098,162 +7500,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   saveGame: async () => {
     const state = get();
-    const save = {
-      resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
-      buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
-      currency: {
-        credits: state.currency.credits.toString(),
-        researchPoints: state.currency.researchPoints.toString(),
-        influence: state.currency.influence.toString(),
-      },
-      market: {
-        prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
-        event: state.market.event,
-        nextUpdateAt: state.market.nextUpdateAt,
-        history: state.market.history,
-      },
-      combat: {
-        baseHp: state.combat.baseHp.toString(),
-        baseMaxHp: state.combat.baseMaxHp.toString(),
-        shieldHp: state.combat.shieldHp.toString(),
-        shieldMaxHp: state.combat.shieldMaxHp.toString(),
-        nextWaveAt: state.combat.nextWaveAt,
-        waveEndsAt: state.combat.waveEndsAt,
-        nextSpawnAt: state.combat.nextSpawnAt,
-        lastDamageAt: state.combat.lastDamageAt,
-        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
-        enemies: state.combat.enemies.map((e) => ({
-          id: e.id,
-          type: e.type,
-          hp: e.hp.toString(),
-          maxHp: e.maxHp.toString(),
-          distance: e.distance,
-          speed: e.speed,
-        })),
-      },
-      research: state.research,
-      demons: {
-        active: state.demons.active,
-        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
-      },
-      meta: {
-        qubits: state.meta.qubits.toString(),
-        lifetimeEnergyProduced: state.meta.lifetimeEnergyProduced.toString(),
-        blueprints: state.meta.blueprints.toString(),
-      },
-      expedition: state.expedition,
-      nanoSwarm: state.nanoSwarm,
-      ship: state.ship,
-      starChart: state.starChart,
-      aegis: state.aegis,
-      productionMatrix: state.productionMatrix,
-      quantumNet: state.quantumNet,
-      politics: state.politics,
-      galaxies: {
-        currentGalaxyId: state.galaxies.currentGalaxyId,
-        unlockedGalaxies: state.galaxies.unlockedGalaxies,
-        platforms: state.galaxies.platforms,
-        autoTransportEnabled: state.galaxies.autoTransportEnabled,
-        fuelReserve: state.galaxies.fuelReserve.toString(),
-      },
-      pollution: {
-        wasteAmount: state.pollution.wasteAmount.toString(),
-        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
-        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
-        pollutionZones: state.pollution.pollutionZones,
-      },
-      intergalacticLogistics: {
-        caravans: state.intergalacticLogistics.caravans.map(c => ({
-          ...c,
-          cargo: Object.fromEntries(
-            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
-          ),
-          fuelCost: c.fuelCost.toString(),
-          fuelPaid: c.fuelPaid.toString(),
-          defense: c.defense.toString(),
-          underAttackBy: c.underAttackBy?.map(e => ({
-            ...e,
-            maxHp: e.maxHp.toString(),
-            hp: e.hp.toString(),
-            dps: e.dps.toString(),
-            armor: e.armor.toString(),
-          })),
-        })),
-        upgrades: state.intergalacticLogistics.upgrades,
-        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
-        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
-          ...r,
-          triggerAmount: r.triggerAmount.toString(),
-          sendAmount: r.sendAmount.toString(),
-        })),
-      },
-      randomEvents: {
-        activeEvents: state.randomEvents.activeEvents.map(e => ({
-          ...e,
-          effects: e.effects
-            ? {
-                ...e.effects,
-                resourceGain: e.effects.resourceGain
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                resourceLoss: e.effects.resourceLoss
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
-                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
-              }
-            : undefined,
-        })),
-        eventHistory: state.randomEvents.eventHistory,
-        nextEventAt: state.randomEvents.nextEventAt,
-        eventsEnabled: state.randomEvents.eventsEnabled,
-        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
-      },
-      achievements: {
-        unlocked: state.achievements.unlocked,
-        recentlyUnlocked: state.achievements.recentlyUnlocked,
-      },
-      culture: {
-        science: state.culture.science.toString(),
-        culture: state.culture.culture.toString(),
-        currentLevel: state.culture.currentLevel,
-        cultureProgress: state.culture.cultureProgress.toString(),
-        totalScienceProduced: state.culture.totalScienceProduced.toString(),
-        totalCultureProduced: state.culture.totalCultureProduced.toString(),
-        happiness: state.culture.happiness,
-        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
-        aggregatedEffects: state.culture.aggregatedEffects,
-      },
-      maps: {
-        currentMapId: state.maps.currentMapId,
-        unlockedMaps: state.maps.unlockedMaps,
-        mapProgress: state.maps.mapProgress,
-        activeMapData: state.maps.activeMapData,
-        mapSeed: state.maps.mapSeed,
-        currentEvent: state.maps.currentEvent,
-        eventHistory: state.maps.eventHistory,
-      },
-      quests: {
-        activeQuests: state.quests.activeQuests,
-        completedQuests: state.quests.completedQuests,
-      },
-      grid: state.grid,
-      lastTick: state.lastTick,
-      stats: {
-        // Обновляем totalPlayTime при сохранении (добавляем время текущей сессии)
-        totalPlayTime: state.stats.totalPlayTime + 
-          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
-        sessionsCount: state.stats.sessionsCount,
-        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
-        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
-        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
-        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
-      },
-    };
+    // Serialization lives in ./gameSave.ts. It used to be three byte-identical 155-line
+    // object literals (saveGame / saveGameManual / overwriteSave), which is why ten
+    // GameState slices — prestige, ascension, artifacts, repeatableResearch,
+    // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
+    // were never persisted: adding a feature meant editing four places and nobody did.
+    const save = { ...serializeGame(state), finance: serializeFinance() };
 
     try {
       if (!isAuthenticated()) {
@@ -7262,15 +7514,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       const currentSaveId = await loadCurrentSaveIdFromServer();
-      
-      // Логируем автосохранение
-      console.log('💾 Auto-saving game:', {
-        hasMaps: !!save.maps,
-        currentMapId: save.maps?.currentMapId,
-        currentSaveId,
-      });
-      
-      await fetch('/api/saves', {
+
+      const response = await fetch('/api/saves', {
         method: 'PUT',
         headers: {
           ...getAuthHeaders(),
@@ -7282,169 +7527,53 @@ export const useGameStore = create<GameState>((set, get) => ({
           saveId: currentSaveId,
         }),
       });
+
+      /*
+       * The response used to be discarded entirely. That made autosave failure completely
+       * invisible: a 413 (payload over the old 1mb express limit), a 401 (expired session),
+       * or a 404 (save row deleted from another device) all looked exactly like success, and
+       * the player kept playing for hours against a server that had stored nothing.
+       */
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          if (body?.error) detail = String(body.error);
+        } catch {
+          /* non-JSON error body — the status code is all we have */
+        }
+
+        console.error('[save] autosave rejected by server:', detail);
+
+        const message =
+          detail === 'PAYLOAD_TOO_LARGE'
+            ? 'Сохранение слишком большое — прогресс не записан. Сообщите администратору.'
+            : response.status === 401 || detail === 'INVALID_TOKEN'
+              ? 'Сессия истекла — прогресс не сохраняется. Войдите заново.'
+              : `Не удалось сохранить прогресс (${detail}).`;
+
+        get().addNotification({ type: 'warning', title: 'Ошибка сохранения', message });
+        return { ok: false as const, error: detail };
+      }
+
+      return { ok: true as const };
     } catch (e) {
-      console.warn('Save failed', e);
+      // Network-level failure (offline, server restarting). Worth surfacing too, but quietly:
+      // a transient blip should not spam the player on every 30s tick.
+      console.warn('[save] autosave failed', e);
+      return { ok: false as const, error: String(e) };
     }
   },
 
   // Создать ручное сохранение с именем
   saveGameManual: async (saveName: string) => {
     const state = get();
-    const save = {
-      resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
-      buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
-      currency: {
-        credits: state.currency.credits.toString(),
-        researchPoints: state.currency.researchPoints.toString(),
-        influence: state.currency.influence.toString(),
-      },
-      market: {
-        prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
-        event: state.market.event,
-        nextUpdateAt: state.market.nextUpdateAt,
-        history: state.market.history,
-      },
-      combat: {
-        baseHp: state.combat.baseHp.toString(),
-        baseMaxHp: state.combat.baseMaxHp.toString(),
-        shieldHp: state.combat.shieldHp.toString(),
-        shieldMaxHp: state.combat.shieldMaxHp.toString(),
-        nextWaveAt: state.combat.nextWaveAt,
-        waveEndsAt: state.combat.waveEndsAt,
-        nextSpawnAt: state.combat.nextSpawnAt,
-        lastDamageAt: state.combat.lastDamageAt,
-        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
-        enemies: state.combat.enemies.map((e) => ({
-          id: e.id,
-          type: e.type,
-          hp: e.hp.toString(),
-          maxHp: e.maxHp.toString(),
-          distance: e.distance,
-          speed: e.speed,
-        })),
-      },
-      research: state.research,
-      demons: {
-        active: state.demons.active,
-        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
-      },
-      meta: {
-        qubits: state.meta.qubits.toString(),
-        lifetimeEnergyProduced: state.meta.lifetimeEnergyProduced.toString(),
-        blueprints: state.meta.blueprints.toString(),
-      },
-      expedition: state.expedition,
-      nanoSwarm: state.nanoSwarm,
-      ship: state.ship,
-      starChart: state.starChart,
-      aegis: state.aegis,
-      productionMatrix: state.productionMatrix,
-      quantumNet: state.quantumNet,
-      politics: state.politics,
-      galaxies: {
-        currentGalaxyId: state.galaxies.currentGalaxyId,
-        unlockedGalaxies: state.galaxies.unlockedGalaxies,
-        platforms: state.galaxies.platforms,
-        autoTransportEnabled: state.galaxies.autoTransportEnabled,
-        fuelReserve: state.galaxies.fuelReserve.toString(),
-      },
-      pollution: {
-        wasteAmount: state.pollution.wasteAmount.toString(),
-        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
-        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
-        pollutionZones: state.pollution.pollutionZones,
-      },
-      intergalacticLogistics: {
-        caravans: state.intergalacticLogistics.caravans.map(c => ({
-          ...c,
-          cargo: Object.fromEntries(
-            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
-          ),
-          fuelCost: c.fuelCost.toString(),
-          fuelPaid: c.fuelPaid.toString(),
-          defense: c.defense.toString(),
-          underAttackBy: c.underAttackBy?.map(e => ({
-            ...e,
-            maxHp: e.maxHp.toString(),
-            hp: e.hp.toString(),
-            dps: e.dps.toString(),
-            armor: e.armor.toString(),
-          })),
-        })),
-        upgrades: state.intergalacticLogistics.upgrades,
-        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
-        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
-          ...r,
-          triggerAmount: r.triggerAmount.toString(),
-          sendAmount: r.sendAmount.toString(),
-        })),
-      },
-      randomEvents: {
-        activeEvents: state.randomEvents.activeEvents.map(e => ({
-          ...e,
-          effects: e.effects
-            ? {
-                ...e.effects,
-                resourceGain: e.effects.resourceGain
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                resourceLoss: e.effects.resourceLoss
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
-                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
-              }
-            : undefined,
-        })),
-        eventHistory: state.randomEvents.eventHistory,
-        nextEventAt: state.randomEvents.nextEventAt,
-        eventsEnabled: state.randomEvents.eventsEnabled,
-        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
-      },
-      achievements: {
-        unlocked: state.achievements.unlocked,
-        recentlyUnlocked: state.achievements.recentlyUnlocked,
-      },
-      culture: {
-        science: state.culture.science.toString(),
-        culture: state.culture.culture.toString(),
-        currentLevel: state.culture.currentLevel,
-        cultureProgress: state.culture.cultureProgress.toString(),
-        totalScienceProduced: state.culture.totalScienceProduced.toString(),
-        totalCultureProduced: state.culture.totalCultureProduced.toString(),
-        happiness: state.culture.happiness,
-        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
-        aggregatedEffects: state.culture.aggregatedEffects,
-      },
-      maps: {
-        currentMapId: state.maps.currentMapId,
-        unlockedMaps: state.maps.unlockedMaps,
-        mapProgress: state.maps.mapProgress,
-        activeMapData: state.maps.activeMapData,
-        mapSeed: state.maps.mapSeed,
-        currentEvent: state.maps.currentEvent,
-        eventHistory: state.maps.eventHistory,
-      },
-      quests: {
-        activeQuests: state.quests.activeQuests,
-        completedQuests: state.quests.completedQuests,
-      },
-      grid: state.grid,
-      lastTick: state.lastTick,
-      stats: {
-        totalPlayTime: state.stats.totalPlayTime + 
-          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
-        sessionsCount: state.stats.sessionsCount,
-        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
-        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
-        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
-        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
-      },
-    };
+    // Serialization lives in ./gameSave.ts. It used to be three byte-identical 155-line
+    // object literals (saveGame / saveGameManual / overwriteSave), which is why ten
+    // GameState slices — prestige, ascension, artifacts, repeatableResearch,
+    // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
+    // were never persisted: adding a feature meant editing four places and nobody did.
+    const save = { ...serializeGame(state), finance: serializeFinance() };
 
     // Логируем что сохраняем
     console.log('💾 Saving game manually:', {
@@ -7531,6 +7660,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Применяем загруженное состояние (используем ту же логику что в loadGame)
       console.log('🔧 Начинаем set() для применения состояния...');
       set((state) => {
+        /*
+         * The ten slices below were never written by the old serializers and are
+         * therefore also absent from the hand-written rehydration above: prestige
+         * (Quantum Points + 18 upgrades), ascension, artifacts, repeatableResearch,
+         * proceduralGalaxies, retention (daily rewards), signalInterception,
+         * megastructures, endgame and fleet — i.e. the whole "infinite game" layer.
+         *
+         * They are restored through ./gameSave.ts, which is total: every slice falls
+         * back to its INITIAL_* value, so an old save that predates them still loads.
+         * The 26 slices above keep their existing, battle-tested code path untouched —
+         * this merge is deliberately additive so restoring the lost progression cannot
+         * regress what already worked.
+         */
+        const restored = loadSavePayload(save);
+        // Финансы живут в отдельном store; без этого портфель, вклады и кредиты
+        // терялись при каждом входе (clearAllUserData стирает finance-storage).
+        hydrateFinance((save as { finance?: unknown }).finance);
+
         console.log('📝 Внутри set(), обрабатываем состояние...');
         const loadedResearch: ResearchState = save.research && save.research.levels
           ? {
@@ -7732,7 +7879,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         let newResources = state.resources;
         if (save.resources) {
-          for (const key of Object.keys(save.resources) as (keyof ResourcesState)[]) {
+          for (const key of Object.keys(save.resources) as ResourceType[]) {
             const val = save.resources[key];
             if (val && typeof val === 'object' && 'amount' in val && 'max' in val) {
               newResources[key].amount = D(val.amount);
@@ -7831,14 +7978,21 @@ export const useGameStore = create<GameState>((set, get) => ({
           : generateDeposits(grid.width, grid.height);
 
         const desired = desiredGridSizeForResearch(loadedResearch.levels);
+        /*
+         * `deposits` обязан попасть в возвращаемый grid. Второй путь загрузки (loadSavePayload
+         * ниже) так и делает, а здесь результат generateDeposits просто выбрасывался: сейв без
+         * поля deposits — старый или созданный до его появления — грузился с пустой картой
+         * месторождений, и добывающие здания было некуда ставить.
+         */
         const expandedGrid =
           grid.width < desired.width || grid.height < desired.height
             ? {
                 ...grid,
+                deposits,
                 width: Math.max(grid.width, desired.width),
                 height: Math.max(grid.height, desired.height),
               }
-            : grid;
+            : { ...grid, deposits };
 
         console.log('✅ Состояние подготовлено, возвращаем новое состояние');
         return {
@@ -7902,6 +8056,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
             lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
             lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
+            contractsCompleted: typeof save.stats.contractsCompleted === 'number' ? save.stats.contractsCompleted : 0,
           } : {
             totalPlayTime: 0,
             sessionsCount: 1,
@@ -7910,7 +8065,20 @@ export const useGameStore = create<GameState>((set, get) => ({
             lifetimeResourcesSpent: {},
             lifetimeCreditsEarned: D(0),
             lifetimeCreditsSpent: D(0),
+            contractsCompleted: 0,
           },
+
+          // --- slices recovered via ./gameSave.ts (see note above) ---
+          fleet: restored.fleet ?? state.fleet,
+          megastructures: restored.megastructures ?? state.megastructures,
+          endgame: restored.endgame ?? state.endgame,
+          prestige: restored.prestige ?? state.prestige,
+          ascension: restored.ascension ?? state.ascension,
+          repeatableResearch: restored.repeatableResearch ?? state.repeatableResearch,
+          proceduralGalaxies: restored.proceduralGalaxies ?? state.proceduralGalaxies,
+          artifacts: restored.artifacts ?? state.artifacts,
+          retention: restored.retention ?? state.retention,
+          signalInterception: restored.signalInterception ?? state.signalInterception,
         };
       });
       
@@ -7972,161 +8140,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Перезаписать существующее сохранение
   overwriteSave: async (saveId: number, saveName: string) => {
     const state = get();
-    const save = {
-      resources: Object.fromEntries(Object.entries(state.resources).map(([k, v]) => [k, { amount: v.amount.toString(), max: v.max.toString() }])),
-      buildings: state.buildings.map(b => ({ id: b.id, count: b.count })),
-      currency: {
-        credits: state.currency.credits.toString(),
-        researchPoints: state.currency.researchPoints.toString(),
-        influence: state.currency.influence.toString(),
-      },
-      market: {
-        prices: Object.fromEntries(Object.entries(state.market.prices).map(([k, v]) => [k, v.toString()])),
-        event: state.market.event,
-        nextUpdateAt: state.market.nextUpdateAt,
-        history: state.market.history,
-      },
-      combat: {
-        baseHp: state.combat.baseHp.toString(),
-        baseMaxHp: state.combat.baseMaxHp.toString(),
-        shieldHp: state.combat.shieldHp.toString(),
-        shieldMaxHp: state.combat.shieldMaxHp.toString(),
-        nextWaveAt: state.combat.nextWaveAt,
-        waveEndsAt: state.combat.waveEndsAt,
-        nextSpawnAt: state.combat.nextSpawnAt,
-        lastDamageAt: state.combat.lastDamageAt,
-        baseRegenPerSecond: state.combat.baseRegenPerSecond.toString(),
-        enemies: state.combat.enemies.map((e) => ({
-          id: e.id,
-          type: e.type,
-          hp: e.hp.toString(),
-          maxHp: e.maxHp.toString(),
-          distance: e.distance,
-          speed: e.speed,
-        })),
-      },
-      research: state.research,
-      demons: {
-        active: state.demons.active,
-        brokerExcludeFromAutoSell: state.demons.brokerExcludeFromAutoSell,
-      },
-      meta: {
-        qubits: state.meta.qubits.toString(),
-        lifetimeEnergyProduced: state.meta.lifetimeEnergyProduced.toString(),
-        blueprints: state.meta.blueprints.toString(),
-      },
-      expedition: state.expedition,
-      nanoSwarm: state.nanoSwarm,
-      ship: state.ship,
-      starChart: state.starChart,
-      aegis: state.aegis,
-      productionMatrix: state.productionMatrix,
-      quantumNet: state.quantumNet,
-      politics: state.politics,
-      galaxies: {
-        currentGalaxyId: state.galaxies.currentGalaxyId,
-        unlockedGalaxies: state.galaxies.unlockedGalaxies,
-        platforms: state.galaxies.platforms,
-        autoTransportEnabled: state.galaxies.autoTransportEnabled,
-        fuelReserve: state.galaxies.fuelReserve.toString(),
-      },
-      pollution: {
-        wasteAmount: state.pollution.wasteAmount.toString(),
-        radioactiveWasteAmount: state.pollution.radioactiveWasteAmount.toString(),
-        efficiencyMultiplier: state.pollution.efficiencyMultiplier,
-        pollutionZones: state.pollution.pollutionZones,
-      },
-      intergalacticLogistics: {
-        caravans: state.intergalacticLogistics.caravans.map(c => ({
-          ...c,
-          cargo: Object.fromEntries(
-            Object.entries(c.cargo).map(([k, v]) => [k, v ? v.toString() : '0'])
-          ),
-          fuelCost: c.fuelCost.toString(),
-          fuelPaid: c.fuelPaid.toString(),
-          defense: c.defense.toString(),
-          underAttackBy: c.underAttackBy?.map(e => ({
-            ...e,
-            maxHp: e.maxHp.toString(),
-            hp: e.hp.toString(),
-            dps: e.dps.toString(),
-            armor: e.armor.toString(),
-          })),
-        })),
-        upgrades: state.intergalacticLogistics.upgrades,
-        autoSendToMainBase: state.intergalacticLogistics.autoSendToMainBase,
-        autoRoutes: state.intergalacticLogistics.autoRoutes.map(r => ({
-          ...r,
-          triggerAmount: r.triggerAmount.toString(),
-          sendAmount: r.sendAmount.toString(),
-        })),
-      },
-      randomEvents: {
-        activeEvents: state.randomEvents.activeEvents.map(e => ({
-          ...e,
-          effects: e.effects
-            ? {
-                ...e.effects,
-                resourceGain: e.effects.resourceGain
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceGain).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                resourceLoss: e.effects.resourceLoss
-                  ? Object.fromEntries(
-                      Object.entries(e.effects.resourceLoss).map(([k, v]) => [k, v ? v.toString() : '0'])
-                    )
-                  : undefined,
-                researchPointsGain: e.effects.researchPointsGain ? e.effects.researchPointsGain.toString() : undefined,
-                energyLoss: e.effects.energyLoss ? e.effects.energyLoss.toString() : undefined,
-              }
-            : undefined,
-        })),
-        eventHistory: state.randomEvents.eventHistory,
-        nextEventAt: state.randomEvents.nextEventAt,
-        eventsEnabled: state.randomEvents.eventsEnabled,
-        eventFrequencyMultiplier: state.randomEvents.eventFrequencyMultiplier,
-      },
-      achievements: {
-        unlocked: state.achievements.unlocked,
-        recentlyUnlocked: state.achievements.recentlyUnlocked,
-      },
-      culture: {
-        science: state.culture.science.toString(),
-        culture: state.culture.culture.toString(),
-        currentLevel: state.culture.currentLevel,
-        cultureProgress: state.culture.cultureProgress.toString(),
-        totalScienceProduced: state.culture.totalScienceProduced.toString(),
-        totalCultureProduced: state.culture.totalCultureProduced.toString(),
-        happiness: state.culture.happiness,
-        unlockedCultureBuildings: state.culture.unlockedCultureBuildings,
-        aggregatedEffects: state.culture.aggregatedEffects,
-      },
-      maps: {
-        currentMapId: state.maps.currentMapId,
-        unlockedMaps: state.maps.unlockedMaps,
-        mapProgress: state.maps.mapProgress,
-        activeMapData: state.maps.activeMapData,
-        mapSeed: state.maps.mapSeed,
-        currentEvent: state.maps.currentEvent,
-        eventHistory: state.maps.eventHistory,
-      },
-      quests: {
-        activeQuests: state.quests.activeQuests,
-        completedQuests: state.quests.completedQuests,
-      },
-      grid: state.grid,
-      lastTick: state.lastTick,
-      stats: {
-        totalPlayTime: state.stats.totalPlayTime + 
-          Math.floor((Date.now() - state.stats.currentSessionStart) / 1000),
-        sessionsCount: state.stats.sessionsCount,
-        lifetimeResourcesProduced: state.stats.lifetimeResourcesProduced,
-        lifetimeResourcesSpent: state.stats.lifetimeResourcesSpent,
-        lifetimeCreditsEarned: state.stats.lifetimeCreditsEarned.toString(),
-        lifetimeCreditsSpent: state.stats.lifetimeCreditsSpent.toString(),
-      },
-    };
+    // Serialization lives in ./gameSave.ts. It used to be three byte-identical 155-line
+    // object literals (saveGame / saveGameManual / overwriteSave), which is why ten
+    // GameState slices — prestige, ascension, artifacts, repeatableResearch,
+    // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
+    // were never persisted: adding a feature meant editing four places and nobody did.
+    const save = { ...serializeGame(state), finance: serializeFinance() };
 
     // Логируем перезапись сохранения
     console.log('💾 Overwriting save:', {
@@ -8227,6 +8246,24 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     try {
       set((state) => {
+        /*
+         * The ten slices below were never written by the old serializers and are
+         * therefore also absent from the hand-written rehydration above: prestige
+         * (Quantum Points + 18 upgrades), ascension, artifacts, repeatableResearch,
+         * proceduralGalaxies, retention (daily rewards), signalInterception,
+         * megastructures, endgame and fleet — i.e. the whole "infinite game" layer.
+         *
+         * They are restored through ./gameSave.ts, which is total: every slice falls
+         * back to its INITIAL_* value, so an old save that predates them still loads.
+         * The 26 slices above keep their existing, battle-tested code path untouched —
+         * this merge is deliberately additive so restoring the lost progression cannot
+         * regress what already worked.
+         */
+        const restored = loadSavePayload(save);
+        // Финансы живут в отдельном store; без этого портфель, вклады и кредиты
+        // терялись при каждом входе (clearAllUserData стирает finance-storage).
+        hydrateFinance((save as { finance?: unknown }).finance);
+
         const loadedResearch: ResearchState = save.research && save.research.levels
           ? {
               levels: {
@@ -9010,6 +9047,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
             lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
             lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
+            contractsCompleted: typeof save.stats.contractsCompleted === 'number' ? save.stats.contractsCompleted : 0,
           } : {
             totalPlayTime: 0,
             sessionsCount: 1,
@@ -9018,8 +9056,21 @@ export const useGameStore = create<GameState>((set, get) => ({
             lifetimeResourcesSpent: {},
             lifetimeCreditsEarned: D(0),
             lifetimeCreditsSpent: D(0),
+            contractsCompleted: 0,
           },
           lastTick: Date.now(),
+
+          // --- slices recovered via ./gameSave.ts (see note above) ---
+          fleet: restored.fleet ?? state.fleet,
+          megastructures: restored.megastructures ?? state.megastructures,
+          endgame: restored.endgame ?? state.endgame,
+          prestige: restored.prestige ?? state.prestige,
+          ascension: restored.ascension ?? state.ascension,
+          repeatableResearch: restored.repeatableResearch ?? state.repeatableResearch,
+          proceduralGalaxies: restored.proceduralGalaxies ?? state.proceduralGalaxies,
+          artifacts: restored.artifacts ?? state.artifacts,
+          retention: restored.retention ?? state.retention,
+          signalInterception: restored.signalInterception ?? state.signalInterception,
         };
       });
       
@@ -9078,12 +9129,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       // TODO: Add cost requirements (e.g., influence, credits)
-      
+
+      /*
+       * Единственное место, где галактика действительно открывается, — значит и единственная
+       * точка для квестов типа 'explore'. Обработчика у них не было вовсе, и quest_unlock_galaxy
+       * (1000 очков исследований) был недостижим. Ранний выход выше гарантирует, что повторный
+       * вызов с той же галактикой сюда не дойдёт и прогресс не накрутится дважды.
+       */
       return {
         galaxies: {
           ...state.galaxies,
           unlockedGalaxies: [...state.galaxies.unlockedGalaxies, galaxyId],
         },
+        quests: advanceQuests(
+          state.quests,
+          (quest) => quest.type === 'explore' && (quest.target === galaxyId || quest.target === 'any'),
+        ),
       };
     });
   },
@@ -9121,6 +9182,16 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
+      /*
+       * Флаг planet_bonus_resources: новая платформа приезжает не пустой, а со стартовым
+       * запасом базового сырья. Даём долю от лимита самой платформы, а не абсолютные числа —
+       * тогда бонус автоматически растёт вместе с апгрейдами склада и не переполняет буфер.
+       */
+      const bonusStock = aggregatePolicyEffects(state.politics.activePolicies)
+        .specialEffects.has('planet_bonus_resources');
+      const STARTER_RESOURCES: ResourceType[] = ['ore', 'ice', 'carbon', 'steel', 'sand'];
+      const starterFill = new Set<ResourceType>(bonusStock ? STARTER_RESOURCES : []);
+
       const newPlatform: import('../core/gameTypes').SpacePlatform = {
         id: `platform_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         galaxyId,
@@ -9139,7 +9210,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         resources: Object.fromEntries(
           Object.entries(INITIAL_RESOURCES).map(([key, res]) => [
             key,
-            { amount: D(0), max: res.max, production: D(0) }
+            {
+              amount: starterFill.has(key as ResourceType) ? res.max.mul(D('0.25')) : D(0),
+              max: res.max,
+              production: D(0),
+            }
           ])
         ) as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
         maxHp: D(1000),
@@ -9177,6 +9252,16 @@ export const useGameStore = create<GameState>((set, get) => ({
           ...state.galaxies,
           platforms: [...state.galaxies.platforms, newPlatform],
         },
+        /*
+         * quest_build_platform объявлен как type: 'build', target: 'platform', но обработчик
+         * постройки сравнивает target с id ЗДАНИЯ на сетке — платформа туда не попадает
+         * никогда. Засчитываем её здесь, где платформа реально создаётся (и уже после списания
+         * стоимости, чтобы неудачная попытка не двигала прогресс).
+         */
+        quests: advanceQuests(
+          state.quests,
+          (quest) => quest.type === 'build' && quest.target === 'platform',
+        ),
       };
     });
   },
@@ -9375,6 +9460,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           ...state.fleet,
           ships: [...state.fleet.ships, newShip],
         },
+        // Как и с платформой: quest_first_ship объявлен как build/'ship', но корабль не
+        // ставится на сетку, поэтому обработчик постройки зданий его не видел.
+        quests: advanceQuests(
+          state.quests,
+          (quest) => quest.type === 'build' && quest.target === 'ship',
+        ),
       };
     });
   },
@@ -9968,7 +10059,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       Object.values(resources).forEach(amount => {
         if (amount) totalCargo = totalCargo.plus(amount);
       });
-      const fuelCost = totalCargo.mul(0.01).mul(fromGalaxyId === toGalaxyId ? 1 : 3); // Higher cost for intergalactic
+      // «Межгалактическая торговля дешевле на 25%» (trade_routes) удешевляет только
+      // межгалактические рейсы: внутри одной галактики скидке нечего удешевлять.
+      const isIntergalactic = fromGalaxyId !== toGalaxyId;
+      const tradeRouteDiscount = isIntergalactic
+        ? aggregatePolicyEffects(state.politics.activePolicies).specials.interTradeCost
+        : 1;
+      const fuelCost = totalCargo
+        .mul(0.01)
+        .mul(isIntergalactic ? 3 : 1)
+        .mul(D(tradeRouteDiscount));
       
       // Check if we have enough fuel (liquid_fuel preferred, gasoline as backup)
       const liquidFuel = state.resources.liquid_fuel?.amount || D(0);
@@ -10783,13 +10883,25 @@ export const useGameStore = create<GameState>((set, get) => ({
       const megastructure = MEGASTRUCTURES[megastructureId];
       if (!megastructure) return state;
 
+      /*
+       * Политика с флагом unlock_megastructures заменяет собой ТОЛЬКО техгейт: подсовываем
+       * canBuildMegastructure карту технологий с закрытым требованием, а кредиты, RP, влияние
+       * и ресурсы он по-прежнему проверяет по-настоящему. Сам state.research не трогаем —
+       * технология остаётся неисследованной, доступ пропадает вместе с политикой.
+       */
+      const megaUnlockedByPolicy = aggregatePolicyEffects(state.politics.activePolicies)
+        .specialEffects.has('unlock_megastructures');
+      const technologies = megaUnlockedByPolicy
+        ? { ...state.research.technologies, [megastructure.requiredTechnology]: true }
+        : state.research.technologies;
+
       // Проверка возможности строительства
       const check = canBuildMegastructure(megastructureId, {
         credits: state.currency.credits,
         researchPoints: state.currency.researchPoints,
         influence: state.currency.influence,
         resources: state.resources,
-        technologies: state.research.technologies,
+        technologies,
         megastructures: state.megastructures,
       });
 
@@ -10883,11 +10995,18 @@ export const useGameStore = create<GameState>((set, get) => ({
   checkEndingRequirements: (endingId: EndingId) => {
     set((state) => {
       const result = checkEndingRequirements(endingId, {
-        galaxies: [], // Simplified: use platforms count
+        /*
+         * These two were hardcoded `[]` and `0` with a TODO, which made two of the four endings
+         * mathematically unreachable: `galaxiesControlled` counts `galaxies.filter(g => g.explored)`
+         * (always 0 on an empty array) and `civilizationsHelped` is `floor(contracts / 5)`
+         * (always 0). Unlocking a galaxy is what "controlling" it means in this game, and
+         * completed contracts are now tracked in stats.
+         */
+        galaxies: state.galaxies.unlockedGalaxies.map((id) => ({ id, explored: true })),
         platforms: state.galaxies.platforms,
         ships: state.fleet.ships,
         megastructures: state.megastructures,
-        contracts: 0, // TODO: track completed contracts count
+        contracts: state.stats.contractsCompleted,
         technologies: state.research.technologies,
         activePolicies: state.politics.activePolicies,
       });
@@ -10915,11 +11034,18 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Проверить, выполнены ли требования
       const result = checkEndingRequirements(endingId, {
-        galaxies: [], // Simplified: use platforms count
+        /*
+         * These two were hardcoded `[]` and `0` with a TODO, which made two of the four endings
+         * mathematically unreachable: `galaxiesControlled` counts `galaxies.filter(g => g.explored)`
+         * (always 0 on an empty array) and `civilizationsHelped` is `floor(contracts / 5)`
+         * (always 0). Unlocking a galaxy is what "controlling" it means in this game, and
+         * completed contracts are now tracked in stats.
+         */
+        galaxies: state.galaxies.unlockedGalaxies.map((id) => ({ id, explored: true })),
         platforms: state.galaxies.platforms,
         ships: state.fleet.ships,
         megastructures: state.megastructures,
-        contracts: 0, // TODO: track completed contracts count
+        contracts: state.stats.contractsCompleted,
         technologies: state.research.technologies,
         activePolicies: state.politics.activePolicies,
       });
@@ -11170,11 +11296,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       const currentLevel = state.prestige.upgrades[upgradeId] || 0;
       const cost = upgrade.cost * (currentLevel + 1);
 
-      // Проверка для улучшений за концовки
+      // Проверка для улучшений за концовки.
+      // Соответствия «улучшение -> конкретная концовка» в данных нет, поэтому условие такое,
+      // каким было по факту: достаточно любой открытой концовки. Прежняя строка выводила из
+      // upgradeId «нужную» концовку и никуда её не передавала — проверка была декорацией.
       if (upgrade.category === 'ending') {
-        // Проверяем, достигнута ли нужная концовка
-        const requiredEnding = upgradeId.replace('_', '') as any; // Упрощенная проверка
-        // В реальности нужна более точная проверка
         const hasEnding = Object.values(state.endgame.endings).some(e => e.unlocked);
         if (!hasEnding) {
           return state;
@@ -11453,49 +11579,79 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
     
-    // 7. Списание ресурсов
-    set((draft) => {
+    /*
+     * 7-9. Списание ресурсов, повышение уровня и статистика.
+     *
+     * Раньше это был `set((draft) => { ...мутации...; })` без return. Без immer-мидлвари draft —
+     * сам объект состояния, стрелка возвращала undefined, Zustand делал
+     * Object.assign({}, state, undefined) — значения менялись «на месте», но идентичности
+     * срезов оставались прежними, поэтому подписчики на state.repeatableResearch /
+     * state.currency / state.resources не перерисовывались: игрок покупал уровень и не видел
+     * его до следующего тика. Плюс addNotification вызывался как метод draft внутри set,
+     * то есть setState во время setState.
+     */
+    const newLevel = currentLevel + 1;
+
+    set((state) => {
+      let nextCurrency = state.currency;
+      let nextPrestige = state.prestige;
+      let nextBuffers = state.grid.buffers;
+      const nextResources = { ...state.resources };
+      let resourcesTouched = false;
+
       for (const [resourceId, amount] of Object.entries(cost)) {
         if (resourceId === 'credits') {
-          draft.currency.credits = draft.currency.credits.sub(amount);
+          nextCurrency = { ...nextCurrency, credits: nextCurrency.credits.sub(amount) };
         } else if (resourceId === 'quantumPoints') {
-          draft.prestige.availableQuantumPoints -= amount;
+          nextPrestige = {
+            ...nextPrestige,
+            availableQuantumPoints: nextPrestige.availableQuantumPoints - amount,
+          };
         } else {
           const resType = resourceId as import('../core/gameTypes').ResourceType;
-          const cur = getBuf(draft.grid.buffers, 'base', resType);
-          const next = cur.sub(amount).max(D(0));
-          draft.grid.buffers = setBuf(draft.grid.buffers, 'base', resType, next);
-          draft.resources[resType] = { ...draft.resources[resType], amount: next };
+          const next = getBuf(nextBuffers, 'base', resType).sub(amount).max(D(0));
+          nextBuffers = setBuf(nextBuffers, 'base', resType, next);
+          nextResources[resType] = { ...nextResources[resType], amount: next };
+          resourcesTouched = true;
         }
       }
-      
-      // 8. Увеличение уровня
-      const newLevel = currentLevel + 1;
-      draft.repeatableResearch.researches[researchId] = newLevel;
-      draft.repeatableResearch.totalLevelsThisAscension += 1;
-      
-      // 9. Обновление статистики
-      const stats = draft.repeatableResearch.stats[researchId] || {
+
+      const prevStats = state.repeatableResearch.stats[researchId] ?? {
         totalLevels: 0,
         highestLevel: 0,
         totalSpent: {},
       };
-      
-      stats.totalLevels += 1;
-      stats.highestLevel = Math.max(stats.highestLevel, newLevel);
-      
+      const totalSpent: Record<string, number> = { ...prevStats.totalSpent };
       for (const [resourceId, amount] of Object.entries(cost)) {
-        stats.totalSpent[resourceId] = (stats.totalSpent[resourceId] || 0) + amount;
+        totalSpent[resourceId] = (totalSpent[resourceId] ?? 0) + amount;
       }
-      
-      draft.repeatableResearch.stats[researchId] = stats;
-      
-      // 10. Уведомление
-      draft.addNotification({
-        type: 'success',
-        title: '🔬 Исследование завершено',
-        message: `${research.name} улучшено до уровня ${newLevel}!`,
-      });
+
+      return {
+        currency: nextCurrency,
+        prestige: nextPrestige,
+        grid: nextBuffers === state.grid.buffers ? state.grid : { ...state.grid, buffers: nextBuffers },
+        resources: resourcesTouched ? nextResources : state.resources,
+        repeatableResearch: {
+          ...state.repeatableResearch,
+          researches: { ...state.repeatableResearch.researches, [researchId]: newLevel },
+          totalLevelsThisAscension: state.repeatableResearch.totalLevelsThisAscension + 1,
+          stats: {
+            ...state.repeatableResearch.stats,
+            [researchId]: {
+              totalLevels: prevStats.totalLevels + 1,
+              highestLevel: Math.max(prevStats.highestLevel, newLevel),
+              totalSpent,
+            },
+          },
+        },
+      };
+    });
+
+    // 10. Уведомление — после set(), а не внутри него.
+    get().addNotification({
+      type: 'success',
+      title: '🔬 Исследование завершено',
+      message: `${research.name} улучшено до уровня ${newLevel}!`,
     });
   },
 
@@ -11513,20 +11669,21 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     const k = keyOf(coord);
-    const tile = state.grid.tiles[k];
-    
-    if (!tile || tile.type !== 'building') {
+
+    /*
+     * grid.tiles — это Record<string, string>: значение и есть id здания. Прежний код читал
+     * его как объект тайла (`tile.type !== 'building'`, затем `tile.buildingId`): у строки
+     * нет свойства `type`, поэтому условие срабатывало всегда и эволюция обрывалась здесь
+     * же — функция не работала ни разу. Никакого «типа тайла» в модели нет; пустая клетка
+     * просто отсутствует в словаре.
+     */
+    const buildingId = state.grid.tiles[k];
+
+    if (!buildingId) {
       console.error('No building at this coordinate');
       return;
     }
-    
-    // 2. Найти здание
-    const buildingId = tile.buildingId;
-    if (!buildingId) {
-      console.error('Building ID not found');
-      return;
-    }
-    
+
     // 3. Получить определения эволюции
     const evolution = BUILDING_EVOLUTIONS[buildingId];
     
@@ -11562,56 +11719,58 @@ export const useGameStore = create<GameState>((set, get) => ({
         return;
       }
       
-      if (quantum_points && state.quantumPoints.lt(quantum_points)) {
+      // Quantum Points живут в state.prestige.availableQuantumPoints (число), а не в
+      // несуществующем state.quantumPoints (Decimal). Прежний код читал undefined.lt(...)
+      // и падал с TypeError до списания — эволюция за QP была недоступна вообще.
+      if (quantum_points && state.prestige.availableQuantumPoints < Number(quantum_points)) {
         console.log(`Not enough quantum points for evolution (need ${quantum_points.toString()})`);
         return;
       }
     }
-    
-    // 8. Применить эволюцию
-    set((draft) => {
-      // Списать стоимость, если она есть
-      if (nextEvolution.cost) {
-        if (nextEvolution.cost.credits) {
-          draft.currency.credits = draft.currency.credits.sub(nextEvolution.cost.credits);
-        }
-        if (nextEvolution.cost.quantum_points) {
-          draft.quantumPoints = draft.quantumPoints.sub(nextEvolution.cost.quantum_points);
-        }
-      }
-      
-      // Инициализируем tileEvolutionLevels если его нет
-      if (!draft.grid.tileEvolutionLevels) {
-        draft.grid.tileEvolutionLevels = {};
-      }
-      
-      // Увеличить уровень эволюции
-      draft.grid.tileEvolutionLevels[k] = (draft.grid.tileEvolutionLevels[k] || 0) + 1;
-      
-      // Обновить статистику
-      if (!draft.buildingEvolutionStats) {
-        draft.buildingEvolutionStats = {
-          totalEvolutions: 0,
-          evolutionsByBuilding: {},
-        };
-      }
-      
-      draft.buildingEvolutionStats.totalEvolutions += 1;
-      
-      if (!draft.buildingEvolutionStats.evolutionsByBuilding[buildingId]) {
-        draft.buildingEvolutionStats.evolutionsByBuilding[buildingId] = 0;
-      }
-      draft.buildingEvolutionStats.evolutionsByBuilding[buildingId] += 1;
-      
-      // Добавить уведомление в лог событий
-      draft.eventLog.unshift({
-        id: `evolution_${buildingId}_${Date.now()}`,
-        type: 'building',
-        message: `🌟 ${nextEvolution.nameRu || nextEvolution.name}! Множитель ×${nextEvolution.multiplier}`,
-        timestamp: Date.now(),
-      });
+
+    /*
+     * 8. Применить эволюцию.
+     *
+     * Раньше здесь был `set((draft) => { ...мутации draft...; })` без return. В этом сторе нет
+     * immer-мидлвари, поэтому draft — это сам живой объект состояния: стрелка возвращала
+     * undefined, Zustand делал Object.assign({}, state, undefined), и идентичности вложенных
+     * срезов не менялись — подписчики на state.grid / state.currency не перерисовывались.
+     * Плюс draft.eventLog и draft.buildingEvolutionStats не существуют в GameState, так что
+     * eventLog.unshift(...) бросал TypeError уже ПОСЛЕ списания кредитов.
+     * Теперь это нормальное иммутабельное обновление, а событие уходит в существующую
+     * систему уведомлений.
+     */
+    set((state) => {
+      const cost = nextEvolution.cost;
+
+      const nextCurrency = cost?.credits
+        ? { ...state.currency, credits: state.currency.credits.sub(cost.credits) }
+        : state.currency;
+
+      const nextPrestige = cost?.quantum_points
+        ? {
+            ...state.prestige,
+            availableQuantumPoints:
+              state.prestige.availableQuantumPoints - Number(cost.quantum_points),
+          }
+        : state.prestige;
+
+      const levels = { ...(state.grid.tileEvolutionLevels ?? {}) };
+      levels[k] = (levels[k] ?? 0) + 1;
+
+      return {
+        currency: nextCurrency,
+        prestige: nextPrestige,
+        grid: { ...state.grid, tileEvolutionLevels: levels },
+      };
     });
-    
+
+    get().addNotification({
+      type: 'success',
+      title: 'Эволюция здания',
+      message: `🌟 ${nextEvolution.nameRu || nextEvolution.name}! Множитель ×${nextEvolution.multiplier}`,
+    });
+
     console.log(`✨ Building evolved to: ${nextEvolution.name} (×${nextEvolution.multiplier})`);
   },
 
@@ -11694,6 +11853,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   exploreProceduralGalaxy: (galaxyNumber: number) => {
+    // Collected inside set() and dispatched after it — addNotification inside a Zustand
+    // updater would be setState-during-setState.
+    const queued: Array<{ type: 'success' | 'info'; title: string; message: string }> = [];
+
     set((state) => {
       // Находим галактику
       const galaxyIndex = state.proceduralGalaxies.galaxies.findIndex(
@@ -11723,21 +11886,20 @@ export const useGameStore = create<GameState>((set, get) => ({
           totalFound: state.artifacts.totalFound + 1,
         };
         
-        // Добавляем уведомление в event log
-        state.eventLog.unshift({
-          id: `artifact_galaxy_${galaxyNumber}_${Date.now()}`,
-          type: 'achievement',
-          message: `🎁 Артефакт найден в Галактике ${galaxyNumber}: ${artifact.name}!`,
-          timestamp: Date.now(),
+        // `state.eventLog` does not exist on GameState, so this threw a TypeError and the
+        // whole galaxy-exploration update was abandoned mid-flight: the artifact was rolled
+        // but neither it nor the galaxy discovery was ever committed.
+        queued.push({
+          type: 'success' as const,
+          title: 'Артефакт найден',
+          message: `🎁 Галактика ${galaxyNumber}: ${artifact.name}!`,
         });
       }
       
-      // Добавляем уведомление об открытии галактики
-      state.eventLog.unshift({
-        id: `galaxy_discovered_${galaxyNumber}_${Date.now()}`,
-        type: 'galaxy',
-        message: `🌌 Галактика ${updatedGalaxies[galaxyIndex].generated.name} исследована!`,
-        timestamp: Date.now(),
+      queued.push({
+        type: 'info' as const,
+        title: 'Галактика исследована',
+        message: `🌌 ${updatedGalaxies[galaxyIndex].generated.name}`,
       });
       
       return {
@@ -11750,6 +11912,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         artifacts: newArtifacts,
       };
     });
+
+    for (const n of queued) get().addNotification(n);
   },
 
   // ============================================================================
@@ -11769,7 +11933,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         const currentUsed = calculateUsedSlots(state.artifacts.discovered, state.artifacts.equipped);
         if (currentUsed + artifact.slotsRequired > state.artifacts.maxSlots) {
           state.addNotification({
-            type: 'error',
+            // Здесь и ниже: 'error' в union'е Notification нет (attack/warning/success/info),
+            // ближайший по смыслу уровень — 'warning'. Красный тост с 'error' живёт в другой
+            // системе (utils/notifications), у неё свой набор типов.
+            type: 'warning',
             title: 'Недостаточно слотов',
             message: `Артефакт требует ${artifact.slotsRequired} слотов, доступно ${state.artifacts.maxSlots - currentUsed}`,
           });
@@ -11821,7 +11988,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Проверяем макс уровень
       if (artifact.level >= artifact.maxLevel) {
         state.addNotification({
-          type: 'error',
+          type: 'warning',
           title: 'Максимальный уровень',
           message: 'Артефакт достиг максимального уровня',
         });
@@ -11834,7 +12001,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Проверяем стоимость
         if (state.currency.credits.lt(cost.credits)) {
           state.addNotification({
-            type: 'error',
+            type: 'warning',
             title: 'Недостаточно кредитов',
             message: `Требуется ${cost.credits.toFixed(0)} кредитов`,
           });
@@ -11843,7 +12010,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         if (cost.qp && state.prestige.availableQuantumPoints < cost.qp.toNumber()) {
           state.addNotification({
-            type: 'error',
+            type: 'warning',
             title: 'Недостаточно QP',
             message: `Требуется ${cost.qp.toFixed(0)} квантовых очков`,
           });
@@ -11852,7 +12019,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         if (cost.ap && state.ascension.ascensionPoints < cost.ap.toNumber()) {
           state.addNotification({
-            type: 'error',
+            type: 'warning',
             title: 'Недостаточно AP',
             message: `Требуется ${cost.ap.toFixed(0)} очков вознесения`,
           });
@@ -11958,7 +12125,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }) => {
         if (!canClaimDailyReward(state.retention.dailyLogin, day)) {
           state.addNotification({
-            type: 'error',
+            type: 'warning',
             title: 'Недоступно',
             message: 'Эта награда уже собрана или ещё недоступна',
           });
@@ -12091,7 +12258,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Получаем текущее производство для расчёта наград
       const currentProduction: Partial<Record<ResourceType, Decimal>> = {};
       for (const [type, resState] of Object.entries(state.resources)) {
-        currentProduction[type as ResourceType] = resState.perSecond;
+        // Поля perSecond у ResourceState нет — выработка за секунду лежит в `production`.
+        // Прежний код клал сюда undefined, и награда за сигнал считалась от нулевого дохода.
+        currentProduction[type as ResourceType] = resState.production;
       }
       
       const newSignal = spawnSignal(currentProduction);
@@ -12132,7 +12301,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         });
         
         state.addNotification({
-          type: 'error',
+          type: 'warning',
           title: 'Сигнал потерян!',
           message: 'Вы не успели перехватить сигнал 😢',
         });
@@ -12155,7 +12324,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           newCurrency.researchPoints = newCurrency.researchPoints.add(reward.researchPoints);
         }
         if (reward.darkMatter) {
-          newCurrency.darkMatter = newCurrency.darkMatter.add(reward.darkMatter);
+          // Тёмная материя — ресурс (dark_matter в буфере базы), а не валюта: в CurrencyState
+          // есть только credits/researchPoints/influence. Прежняя строка читала undefined и
+          // роняла выдачу награды на .add() ещё до того, как сигнал закрывался.
+          const cur = getBuf(newGrid.buffers, 'base', 'dark_matter');
+          newGrid = {
+            ...newGrid,
+            buffers: setBuf(newGrid.buffers, 'base', 'dark_matter', cur.add(reward.darkMatter)),
+          };
         }
         if (reward.resources) {
           for (const [resType, amount] of Object.entries(reward.resources)) {
@@ -12464,11 +12640,34 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextWaveAt: isPeaceful ? Date.now() + 999999999 : Date.now() + WAVE_INTERVAL_SECONDS * 1000,
       };
 
+      /*
+       * generateMap отдаёт «сырую» карту (GeneratedMap: тайлы, депозиты, позиция базы) — это
+       * материал для сетки, а не запись о партии. В state.maps.activeMapData лежит
+       * GeneratedMapData: чем игрок сейчас занят и с какими модификаторами. Раньше сюда клали
+       * сырую карту целиком, и всё, что читает activeMapData (модификаторы, статистика,
+       * события карты), получало undefined.
+       */
+      const activeMapData: GeneratedMapData = {
+        mapId,
+        startedAt: Date.now(),
+        gridType: mapData.gridType,
+        gridDimensions: { width, height },
+        modifiers: mapDef.modifiers,
+        activeEvents: [],
+        discoveredArtifacts: [],
+        stats: {
+          buildingsPlaced: 0,
+          resourcesProduced: 0,
+          enemiesDefeated: 0,
+          eventsTriggered: 0,
+        },
+      };
+
       return {
         maps: {
           ...state.maps,
           currentMapId: mapId,
-          activeMapData: mapData,
+          activeMapData,
           mapSeed: newSeed,
           currentEvent: null,
         },
@@ -12565,12 +12764,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const state = get();
     const buildingId = state.grid.tiles[tileKey];
     if (!buildingId) return null;
-    
-    // Если настройки уже есть - возвращаем
-    if (state.grid.tileSettings[tileKey]) {
-      return state.grid.tileSettings[tileKey];
-    }
-    
+
+    // grid.tileSettings опционален (появился в «Фазе 5»), у сейвов до неё его просто нет —
+    // отсюда и здесь, и во всех сеттерах ниже обращение через ?. с откатом на дефолт.
+    const existing = state.grid.tileSettings?.[tileKey];
+    if (existing) return existing;
+
     // Создаём дефолтные настройки
     return createDefaultTileSettings(tileKey, buildingId);
   },
@@ -12583,7 +12782,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey] 
         ?? createDefaultTileSettings(tileKey, buildingId);
 
       return {
@@ -12636,7 +12835,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey] 
         ?? createDefaultTileSettings(tileKey, buildingId);
 
       return {
@@ -12673,7 +12872,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey] 
         ?? createDefaultTileSettings(tileKey, buildingId);
 
       // Ищем существующий конфиг для этого ресурса
@@ -12706,7 +12905,7 @@ export const useGameStore = create<GameState>((set, get) => ({
    */
   removeAutoSell: (tileKey: string, resource: ResourceType) => {
     set((state) => {
-      const existing = state.grid.tileSettings[tileKey];
+      const existing = state.grid.tileSettings?.[tileKey];
       if (!existing) return state;
 
       return {
@@ -12732,7 +12931,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey] 
         ?? createDefaultTileSettings(tileKey, buildingId);
 
       const storageLimits = [...existing.storageLimits];
@@ -12764,7 +12963,7 @@ export const useGameStore = create<GameState>((set, get) => ({
    */
   removeStorageLimit: (tileKey: string, resource: ResourceType) => {
     set((state) => {
-      const existing = state.grid.tileSettings[tileKey];
+      const existing = state.grid.tileSettings?.[tileKey];
       if (!existing) return state;
 
       return {
@@ -12790,7 +12989,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey] 
         ?? createDefaultTileSettings(tileKey, buildingId);
 
       return {
@@ -12813,7 +13012,7 @@ export const useGameStore = create<GameState>((set, get) => ({
    */
   removeBuildingCondition: (tileKey: string, conditionId: string) => {
     set((state) => {
-      const existing = state.grid.tileSettings[tileKey];
+      const existing = state.grid.tileSettings?.[tileKey];
       if (!existing) return state;
 
       return {
@@ -12860,7 +13059,7 @@ export const useGameStore = create<GameState>((set, get) => ({
    */
   repairBuilding: (tileKey: string) => {
     set((state) => {
-      const existing = state.grid.tileSettings[tileKey];
+      const existing = state.grid.tileSettings?.[tileKey];
       if (!existing) return state;
 
       // Стоимость ремонта = (100 - health) * 10 кредитов
@@ -12897,7 +13096,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       let totalCost = D(0);
       const newSettings = { ...state.grid.tileSettings };
       
-      for (const [tileKey, settings] of Object.entries(state.grid.tileSettings)) {
+      for (const settings of Object.values(state.grid.tileSettings ?? {})) {
         if (settings.health < 100) {
           const cost = D((100 - settings.health) * 10);
           totalCost = totalCost.add(cost);
@@ -13086,7 +13285,7 @@ function generateRandomEvent(state: GameState): RandomEvent | null {
   const effects = generateEventEffects(selectedConfig.type, state);
   
   // Генерируем описание
-  const description = formatEventDescription(selectedConfig, effects, state);
+  const description = formatEventDescription(selectedConfig, effects);
   
   return {
     id: eventId,
@@ -13128,7 +13327,13 @@ function generateEventEffects(eventType: import('../core/gameTypes').RandomEvent
       if (state.galaxies.platforms.length === 0) {
         return {};
       }
-      const randomPlatform = state.galaxies.platforms[Math.floor(Math.random() * state.galaxies.platforms.length)];
+      /*
+       * ВНИМАНИЕ: событие заявлено как «налёт на случайную платформу», но потери снимаются
+       * с буфера БАЗЫ — resourceLoss применяется только к нему, адресации по платформе в
+       * applyEventEffects нет. Выбор случайной платформы здесь раньше вычислялся и тут же
+       * выбрасывался. Оставляю поведение как есть (это баланс, а не тип), но условие
+       * «есть хотя бы одна платформа» сохраняю: без платформ налёта быть не должно.
+       */
       // Пираты крадут 5-15% руды и меди
       const lossPercent = (Math.random() * 10 + 5) / 100;
       const oreCurrent = getBuf(state.grid.buffers, 'base', 'ore');
@@ -13283,7 +13488,7 @@ const RESOURCE_NAMES_RU: Record<string, string> = {
 };
 
 // Форматирование описания события
-function formatEventDescription(config: import('../core/constants/randomEvents').EventConfig, effects: RandomEvent['effects'], state: GameState): string {
+function formatEventDescription(config: import('../core/constants/randomEvents').EventConfig, effects: RandomEvent['effects']): string {
   let description = config.descriptionTemplate;
   
   // Заменяем плейсхолдеры на реальные значения
@@ -13321,10 +13526,75 @@ function formatEventDescription(config: import('../core/constants/randomEvents')
   return description;
 }
 
-export const calculateCost = (building: Building): Partial<Record<ResourceType, Decimal>> => {
+/**
+ * Cost of the next copy of a building.
+ *
+ * `buildingCostMultiplier` is declared on several policies but was never read anywhere, so
+ * policies advertising cheaper construction did nothing.
+ *
+ * The multiplier is read from the store by DEFAULT rather than passed in by each of the eight
+ * call sites (five here, three in BuildingList). That is deliberate: if the displayed price and
+ * the charged price could diverge, the bug would be worse than the missing feature — the player
+ * would see one number and be billed another. Pass `costMultiplier` explicitly only in tests.
+ */
+export const calculateCost = (
+  building: Building,
+  costMultiplier?: number,
+): Partial<Record<ResourceType, Decimal>> => {
+  const policyMult =
+    costMultiplier ??
+    aggregatePolicyEffects(useGameStore.getState().politics.activePolicies).buildingCost;
+
   const cost: Record<string, Decimal> = {};
   for (const [res, amount] of Object.entries(building.baseCost)) {
-    cost[res] = D(amount).mul(Math.pow(building.costFactor, building.count));
+    cost[res] = D(amount).mul(Math.pow(building.costFactor, building.count)).mul(D(policyMult));
   }
   return cost as Partial<Record<ResourceType, Decimal>>;
+};
+
+/**
+ * Initial-state constants, re-exported for `./gameSave.ts`.
+ *
+ * The save deserializer has to be TOTAL: any slice that is missing or corrupt in a save
+ * file must fall back to its initial value rather than writing `undefined` into the store
+ * (which the tick loop would then dereference and crash on). That means gameSave needs
+ * every INITIAL_* here, so they are exported in one block rather than by prefixing 35
+ * separate declarations scattered over 2000 lines.
+ */
+export {
+  BUILDINGS_WITH_PROXIMITY,
+  DEFAULT_GRID,
+  INITIAL_ACHIEVEMENTS,
+  INITIAL_AEGIS,
+  INITIAL_ARTIFACTS,
+  INITIAL_ASCENSION,
+  INITIAL_COMBAT,
+  INITIAL_CULTURE,
+  INITIAL_CURRENCY,
+  INITIAL_DEMONS,
+  INITIAL_ENDGAME,
+  INITIAL_EXPEDITION,
+  INITIAL_FLEET,
+  INITIAL_GALAXIES,
+  INITIAL_INTERGALACTIC_LOGISTICS,
+  INITIAL_MAPS,
+  INITIAL_MARKET,
+  INITIAL_MEGASTRUCTURES,
+  INITIAL_META,
+  INITIAL_POLITICS,
+  INITIAL_POLLUTION,
+  INITIAL_PRESTIGE,
+  INITIAL_PROCEDURAL_GALAXIES,
+  INITIAL_PRODUCTION_MATRIX,
+  INITIAL_QUANTUM_NET,
+  INITIAL_QUESTS,
+  INITIAL_RANDOM_EVENTS,
+  INITIAL_REPEATABLE_RESEARCH,
+  INITIAL_RESEARCH,
+  INITIAL_RESOURCES,
+  INITIAL_RETENTION,
+  INITIAL_SHIP,
+  INITIAL_SIGNAL_INTERCEPTION,
+  INITIAL_STAR_CHART,
+  TRADEABLE,
 };

@@ -1,7 +1,7 @@
 import { useGameStore } from '../../features/gameStore';
 import { GALAXIES } from '../../core/constants/galaxies';
 import { formatNumber, D } from '../../core/math/format';
-import type { SpacePlatform, ResourceType } from '../../core/gameTypes';
+import type { SpacePlatform } from '../../core/gameTypes';
 import { Shield, Zap, Package, TrendingUp, Trash2, Wrench, Settings } from 'lucide-react';
 import { notify } from '../../utils/notifications';
 

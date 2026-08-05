@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Book, Search, ChevronRight, X, Scroll, Cog, Building2 } from 'lucide-react';
+import { Book, Search, ChevronRight, Scroll, Cog, Building2 } from 'lucide-react';
+import { Modal, EmptyState } from '../ui';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -798,22 +799,6 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
   const [selectedTopic, setSelectedTopic] = useState<HelpTopic | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Закрытие по Escape
-  React.useEffect(() => {
-    if (!isOpen) return;
-    
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   const categories = Array.from(new Set(HELP_TOPICS.map(t => t.category)));
 
   const filteredTopics = HELP_TOPICS.filter(topic =>
@@ -822,30 +807,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
   );
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/70 z-50 animate-fade-in"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="fixed inset-4 md:inset-8 lg:inset-16 z-50 bg-cyber-darker border-2 border-cyber-green rounded-lg shadow-2xl flex flex-col animate-scale-in">
-        {/* Header */}
-        <div className="shrink-0 p-4 border-b border-cyber-gray bg-cyber-dark flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-cyber-green flex items-center gap-3">
-            <Book size={28} />
-            <span>Справка и История</span>
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-cyber-gray/30 rounded transition-colors"
-            aria-label="Закрыть"
-          >
-            <X size={24} className="text-cyber-text" />
-          </button>
-        </div>
-
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Справка и История"
+      icon={<Book size={18} />}
+      size="full"
+    >
+      <div className="flex h-full min-h-0 flex-col">
         {/* Tabs */}
         <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark/50">
           <div className="flex gap-1 p-2">
@@ -895,7 +864,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden flex">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {activeTab === 'lore' ? (
             <div className="flex-1 overflow-y-auto p-6">
               <div className="max-w-4xl mx-auto prose prose-invert">
@@ -990,14 +959,12 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                    <Book size={64} className="text-cyber-text-dim mb-4" />
-                    <p className="text-cyber-text-dim text-lg">
-                      Выберите тему из списка слева
-                    </p>
-                    <p className="text-cyber-text-dim text-sm mt-2">
-                      или используйте поиск
-                    </p>
+                  <div className="flex h-full items-center justify-center p-6">
+                    <EmptyState
+                      icon={<Book size={22} />}
+                      title="Выберите тему из списка слева"
+                      hint="или используйте поиск"
+                    />
                   </div>
                 )}
               </div>
@@ -1005,7 +972,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
           )}
         </div>
       </div>
-    </>
+    </Modal>
   );
 };
 

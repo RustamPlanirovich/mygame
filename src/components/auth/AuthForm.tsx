@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { setAuthToken, loadSettingsFromServer, loadPinnedResourcesFromServer, clearAllUserData } from '../../utils/settingsApi';
 
-interface AuthFormProps {
-  onSuccess: (user: { id: number; email: string }) => void;
-}
-
-export const AuthForm = ({ onSuccess }: AuthFormProps) => {
+// Пропа onSuccess здесь нет намеренно: после успешного входа форма делает
+// window.location.reload() ради чистой инициализации сторов, так что колбэк в
+// родителя всё равно не успел бы ничего изменить.
+export const AuthForm = () => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

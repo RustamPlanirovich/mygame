@@ -9,12 +9,12 @@ import { RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
 
 export function MyOrders() {
-  const {
-    myOrders,
-    fetchMyOrders,
-    cancelOrder,
-    isLoading,
-  } = useMarketStore();
+  // Узкие селекторы вместо подписки на весь стор: список ордеров не должен
+  // перерисовываться от загрузки цен, гильдии или журнала сейфа.
+  const myOrders = useMarketStore((s) => s.myOrders);
+  const fetchMyOrders = useMarketStore((s) => s.fetchMyOrders);
+  const cancelOrder = useMarketStore((s) => s.cancelOrder);
+  const isLoading = useMarketStore((s) => s.isLoading);
 
   useEffect(() => {
     fetchMyOrders();

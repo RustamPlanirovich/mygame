@@ -3,16 +3,20 @@
  * Глобальный рынок кредитов между игроками
  */
 
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { useAdvisorStore } from '../../../features/advisorStore';
 import { useFinanceStore } from '../../../features/financeStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { P2P_LENDING_CONFIG } from '../../../core/gameTypes.ai';
 import type { P2PLoanOffer, P2PLoan } from '../../../core/gameTypes.ai';
+import { EmptyState, Field, Panel, Stat, Tabs, type TabItem } from '../../ui';
 
 type P2PTab = 'market' | 'my-offers' | 'as-lender' | 'as-borrower' | 'create';
 
-export function P2PLending() {
+// memo: родительская FinancePanel рендерится на каждый тик, пропсов у компонента нет.
+export const P2PLending = memo(P2PLendingImpl);
+
+function P2PLendingImpl() {
   const [activeTab, setActiveTab] = useState<P2PTab>('market');
   const [createForm, setCreateForm] = useState({
     amount: '10000',
@@ -36,7 +40,12 @@ export function P2PLending() {
     payP2PLoan,
   } = useAdvisorStore();
 
-  const { creditScore, bank, withdrawFromBank, depositToBank } = useFinanceStore();
+  // Точечные подписки: раньше `useFinanceStore()` будил всю панель P2P на каждый
+  // set() финансового стора (тик цен акций, начисление процентов и т.д.).
+  const creditScore = useFinanceStore((s) => s.creditScore);
+  const bankBalance = useFinanceStore((s) => s.bank.balance);
+  const withdrawFromBank = useFinanceStore((s) => s.withdrawFromBank);
+  const depositToBank = useFinanceStore((s) => s.depositToBank);
 
   // Загрузка данных
   useEffect(() => {
@@ -48,7 +57,7 @@ export function P2PLending() {
   const handleCreateOffer = async () => {
     // Проверяем баланс
     const amount = D(createForm.amount);
-    if (amount.gt(D(bank.balance))) {
+    if (amount.gt(D(bankBalance))) {
       alert('❌ Недостаточно средств на банковском счёте');
       return;
     }
@@ -108,7 +117,7 @@ export function P2PLending() {
 
   const handlePayLoan = async (loan: P2PLoan, amount: string) => {
     const payAmount = D(amount);
-    if (payAmount.gt(D(bank.balance))) {
+    if (payAmount.gt(D(bankBalance))) {
       alert('❌ Недостаточно средств на банковском счёте');
       return;
     }
@@ -129,12 +138,31 @@ export function P2PLending() {
     }
   };
 
-  const tabs: { id: P2PTab; label: string; icon: string; badge?: number }[] = [
-    { id: 'market', label: 'Рынок', icon: '🏪' },
-    { id: 'create', label: 'Создать', icon: '➕' },
-    { id: 'my-offers', label: 'Мои офферы', icon: '📋', badge: myP2POffers.filter((o) => o.status === 'open').length },
-    { id: 'as-lender', label: 'Я кредитор', icon: '💰', badge: myLoansAsLender.filter((l) => l.status === 'active').length },
-    { id: 'as-borrower', label: 'Я заёмщик', icon: '📝', badge: myLoansAsBorrower.filter((l) => l.status === 'active').length },
+  const openOffersCount = myP2POffers.filter((o) => o.status === 'open').length;
+  const activeAsLenderCount = myLoansAsLender.filter((l) => l.status === 'active').length;
+  const activeAsBorrowerCount = myLoansAsBorrower.filter((l) => l.status === 'active').length;
+
+  const tabs: TabItem<P2PTab>[] = [
+    { id: 'market', label: 'Рынок', icon: <span aria-hidden="true">🏪</span> },
+    { id: 'create', label: 'Создать', icon: <span aria-hidden="true">➕</span> },
+    {
+      id: 'my-offers',
+      label: 'Мои офферы',
+      icon: <span aria-hidden="true">📋</span>,
+      badge: openOffersCount > 0 ? openOffersCount : undefined,
+    },
+    {
+      id: 'as-lender',
+      label: 'Я кредитор',
+      icon: <span aria-hidden="true">💰</span>,
+      badge: activeAsLenderCount > 0 ? activeAsLenderCount : undefined,
+    },
+    {
+      id: 'as-borrower',
+      label: 'Я заёмщик',
+      icon: <span aria-hidden="true">📝</span>,
+      badge: activeAsBorrowerCount > 0 ? activeAsBorrowerCount : undefined,
+    },
   ];
 
   const formatDate = (timestamp: number) => {
@@ -186,88 +214,74 @@ export function P2PLending() {
     <div className="space-y-4">
       {/* Статистика рынка */}
       {p2pStats && (
-        <div className="bg-slate-800 rounded-lg p-4">
-          <h3 className="font-bold mb-3 flex items-center gap-2">💱 P2P Кредитный рынок</h3>
-          <div className="grid grid-cols-4 gap-3 text-sm">
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400">Офферов</div>
-              <div className="font-bold text-blue-400">{p2pStats.openOffers}</div>
+        <Panel title="💱 P2P Кредитный рынок">
+          <div className="grid grid-cols-4 gap-3">
+            <div className="card">
+              <Stat label="Офферов" value={p2pStats.openOffers} tone="info" align="center" />
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400">Доступно</div>
-              <div className="font-bold text-green-400">{formatNumber(D(p2pStats.availableAmount))} ₡</div>
+            <div className="card">
+              <Stat
+                label="Доступно"
+                value={`${formatNumber(D(p2pStats.availableAmount))} ₡`}
+                tone="accent"
+                align="center"
+              />
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400">Ср. ставка</div>
-              <div className="font-bold text-yellow-400">{(p2pStats.averageRate * 100).toFixed(1)}%</div>
+            <div className="card">
+              <Stat
+                label="Ср. ставка"
+                value={`${(p2pStats.averageRate * 100).toFixed(1)}%`}
+                tone="warning"
+                align="center"
+              />
             </div>
-            <div className="bg-slate-700 rounded p-2 text-center">
-              <div className="text-slate-400">Всего сделок</div>
-              <div className="font-bold">{p2pStats.totalLoans}</div>
+            <div className="card">
+              <Stat label="Всего сделок" value={p2pStats.totalLoans} align="center" />
             </div>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Табы */}
-      <div className="flex gap-1 bg-slate-800 rounded-lg p-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'
-            }`}
-          >
-            <span className="mr-1">{tab.icon}</span>
-            {tab.label}
-            {tab.badge && tab.badge > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-red-500 rounded-full text-xs">{tab.badge}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" />
 
       {/* Контент */}
-      <div className="bg-slate-800 rounded-lg p-4">
+      <Panel>
         {/* Рынок офферов */}
         {activeTab === 'market' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-bold">Доступные кредиты</h4>
-              <div className="text-sm text-slate-400">Ваш рейтинг: {creditScore}</div>
+              <div className="text-sm text-slate-400">
+                Ваш рейтинг: <span className="font-mono tabular-nums">{creditScore}</span>
+              </div>
             </div>
 
             {p2pOffers.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">Нет доступных офферов</div>
+              <EmptyState title="Нет доступных офферов" />
             ) : (
               <div className="space-y-2">
                 {p2pOffers.map((offer) => (
-                  <div key={offer.id} className="bg-slate-700 rounded p-3">
+                  <div key={offer.id} className="card">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="font-bold text-lg">{formatNumber(D(offer.amount))} ₡</div>
-                        <div className="text-green-400">{(offer.interestRate * 100).toFixed(1)}% годовых</div>
-                        <div className="text-slate-400">{offer.termDays} дней</div>
+                        <div className="font-mono font-bold text-lg tabular-nums">{formatNumber(D(offer.amount))} ₡</div>
+                        <div className="font-mono tabular-nums text-green-400">{(offer.interestRate * 100).toFixed(1)}% годовых</div>
+                        <div className="text-slate-400"><span className="font-mono tabular-nums">{offer.termDays}</span> дней</div>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleBorrow(offer)}
                         disabled={creditScore < offer.minCreditScore}
-                        className={`px-4 py-2 rounded font-medium transition-colors cursor-pointer ${
-                          creditScore >= offer.minCreditScore
-                            ? 'bg-green-600 hover:bg-green-700'
-                            : 'bg-slate-600 cursor-not-allowed opacity-50'
-                        }`}
+                        className="btn-primary"
                       >
                         Взять
                       </button>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-slate-400">
                       <span>Кредитор: {offer.lenderName}</span>
-                      <span>Мин. рейтинг: {offer.minCreditScore}</span>
-                      <span>До: {formatDate(offer.expiresAt)}</span>
+                      <span>Мин. рейтинг: <span className="font-mono tabular-nums">{offer.minCreditScore}</span></span>
+                      <span>До: <span className="font-mono tabular-nums">{formatDate(offer.expiresAt)}</span></span>
                     </div>
                   </div>
                 ))}
@@ -285,20 +299,18 @@ export function P2PLending() {
             </p>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Сумма (₡)</label>
+              <Field label="Сумма (₡)">
                 <input
                   type="number"
                   value={createForm.amount}
                   onChange={(e) => setCreateForm({ ...createForm, amount: e.target.value })}
                   min={P2P_LENDING_CONFIG.MIN_LOAN_AMOUNT}
                   max={P2P_LENDING_CONFIG.MAX_LOAN_AMOUNT}
-                  className="w-full px-3 py-2 bg-slate-700 rounded border border-slate-600 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Ставка (% годовых)</label>
+              <Field label="Ставка (% годовых)">
                 <input
                   type="number"
                   value={createForm.interestRate}
@@ -306,41 +318,39 @@ export function P2PLending() {
                   min={P2P_LENDING_CONFIG.MIN_INTEREST_RATE * 100}
                   max={P2P_LENDING_CONFIG.MAX_INTEREST_RATE * 100}
                   step={0.5}
-                  className="w-full px-3 py-2 bg-slate-700 rounded border border-slate-600 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Срок (дней)</label>
+              <Field label="Срок (дней)">
                 <input
                   type="number"
                   value={createForm.termDays}
                   onChange={(e) => setCreateForm({ ...createForm, termDays: parseInt(e.target.value) })}
                   min={P2P_LENDING_CONFIG.MIN_TERM_DAYS}
                   max={P2P_LENDING_CONFIG.MAX_TERM_DAYS}
-                  className="w-full px-3 py-2 bg-slate-700 rounded border border-slate-600 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Мин. рейтинг заёмщика</label>
+              <Field label="Мин. рейтинг заёмщика">
                 <input
                   type="number"
                   value={createForm.minCreditScore}
                   onChange={(e) => setCreateForm({ ...createForm, minCreditScore: parseInt(e.target.value) })}
                   min={300}
                   max={850}
-                  className="w-full px-3 py-2 bg-slate-700 rounded border border-slate-600 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2"
                 />
-              </div>
+              </Field>
             </div>
 
             {/* Предварительный расчёт */}
-            <div className="bg-slate-700 rounded p-3">
-              <div className="text-sm text-slate-400 mb-2">Ожидаемый доход:</div>
+            <div className="card">
+              <div className="stat-label mb-2">Ожидаемый доход:</div>
               <div className="flex items-center justify-between">
                 <span>Сумма к возврату:</span>
-                <span className="font-bold text-green-400">
+                <span className="font-mono font-bold tabular-nums text-green-400">
                   {formatNumber(
                     D(createForm.amount).mul(1 + (createForm.interestRate / 100) * (createForm.termDays / 365))
                   )}{' '}
@@ -349,7 +359,7 @@ export function P2PLending() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span>Прибыль (до комиссии):</span>
-                <span className="text-green-400">
+                <span className="font-mono tabular-nums text-green-400">
                   +
                   {formatNumber(
                     D(createForm.amount).mul((createForm.interestRate / 100) * (createForm.termDays / 365))
@@ -360,16 +370,14 @@ export function P2PLending() {
             </div>
 
             <div className="flex items-center justify-between">
-              <div className="text-sm text-slate-400">Баланс: {formatNumber(D(bank.balance))} ₡</div>
+              <div className="text-sm text-slate-400">
+                Баланс: <span className="font-mono tabular-nums">{formatNumber(D(bankBalance))}</span> ₡
+              </div>
               <button
                 type="button"
                 onClick={handleCreateOffer}
-                disabled={D(createForm.amount).gt(D(bank.balance))}
-                className={`px-6 py-2 rounded font-medium transition-colors cursor-pointer ${
-                  D(createForm.amount).lte(D(bank.balance))
-                    ? 'bg-blue-600 hover:bg-blue-700'
-                    : 'bg-slate-600 cursor-not-allowed'
-                }`}
+                disabled={D(createForm.amount).gt(D(bankBalance))}
+                className="btn-info"
               >
                 Создать оффер
               </button>
@@ -383,16 +391,16 @@ export function P2PLending() {
             <h4 className="font-bold">Мои офферы</h4>
 
             {myP2POffers.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">Вы ещё не создавали офферов</div>
+              <EmptyState title="Вы ещё не создавали офферов" />
             ) : (
               <div className="space-y-2">
                 {myP2POffers.map((offer) => (
-                  <div key={offer.id} className="bg-slate-700 rounded p-3">
+                  <div key={offer.id} className="card">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="font-bold">{formatNumber(D(offer.amount))} ₡</div>
-                        <div className="text-green-400">{(offer.interestRate * 100).toFixed(1)}%</div>
-                        <div className="text-slate-400">{offer.termDays} дн.</div>
+                        <div className="font-mono font-bold tabular-nums">{formatNumber(D(offer.amount))} ₡</div>
+                        <div className="font-mono tabular-nums text-green-400">{(offer.interestRate * 100).toFixed(1)}%</div>
+                        <div className="text-slate-400"><span className="font-mono tabular-nums">{offer.termDays}</span> дн.</div>
                         <span className={`text-sm ${getStatusColor(offer.status)}`}>
                           {getStatusText(offer.status)}
                         </span>
@@ -401,13 +409,15 @@ export function P2PLending() {
                         <button
                           type="button"
                           onClick={() => handleCancelOffer(offer)}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm cursor-pointer transition-colors"
+                          className="btn-danger btn-xs"
                         >
                           Отменить
                         </button>
                       )}
                     </div>
-                    <div className="text-sm text-slate-400">Создан: {formatDate(offer.createdAt)}</div>
+                    <div className="text-sm text-slate-400">
+                      Создан: <span className="font-mono tabular-nums">{formatDate(offer.createdAt)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -421,32 +431,32 @@ export function P2PLending() {
             <h4 className="font-bold">Выданные кредиты</h4>
 
             {myLoansAsLender.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">Вы ещё не выдавали кредитов</div>
+              <EmptyState title="Вы ещё не выдавали кредитов" />
             ) : (
               <div className="space-y-2">
                 {myLoansAsLender.map((loan) => (
-                  <div key={loan.id} className="bg-slate-700 rounded p-3">
+                  <div key={loan.id} className="card">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="font-bold">{formatNumber(D(loan.principal))} ₡</div>
+                        <div className="font-mono font-bold tabular-nums">{formatNumber(D(loan.principal))} ₡</div>
                         <span className={`text-sm ${getStatusColor(loan.status)}`}>
                           {getStatusText(loan.status)}
                         </span>
                       </div>
                       <div className="text-sm">
-                        Остаток: <span className="text-yellow-400">{formatNumber(D(loan.remainingBalance))} ₡</span>
+                        Остаток: <span className="font-mono tabular-nums text-yellow-400">{formatNumber(D(loan.remainingBalance))} ₡</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-slate-400">
                       <span>Заёмщик: {loan.borrowerName}</span>
-                      <span>Ставка: {(loan.interestRate * 100).toFixed(1)}%</span>
-                      <span>До: {formatDate(loan.dueDate)}</span>
+                      <span>Ставка: <span className="font-mono tabular-nums">{(loan.interestRate * 100).toFixed(1)}%</span></span>
+                      <span>До: <span className="font-mono tabular-nums">{formatDate(loan.dueDate)}</span></span>
                       {loan.daysOverdue > 0 && (
-                        <span className="text-red-400">Просрочка: {loan.daysOverdue} дн.</span>
+                        <span className="text-red-400">Просрочка: <span className="font-mono tabular-nums">{loan.daysOverdue}</span> дн.</span>
                       )}
                     </div>
                     <div className="mt-2 text-sm">
-                      Получено процентов: <span className="text-green-400">+{formatNumber(D(loan.interestPaid))} ₡</span>
+                      Получено процентов: <span className="font-mono tabular-nums text-green-400">+{formatNumber(D(loan.interestPaid))} ₡</span>
                     </div>
                   </div>
                 ))}
@@ -461,17 +471,17 @@ export function P2PLending() {
             <h4 className="font-bold">Взятые кредиты</h4>
 
             {myLoansAsBorrower.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">Вы не брали кредитов</div>
+              <EmptyState title="Вы не брали кредитов" />
             ) : (
               <div className="space-y-2">
                 {myLoansAsBorrower.map((loan) => (
-                  <LoanPaymentCard key={loan.id} loan={loan} onPay={handlePayLoan} bankBalance={bank.balance} />
+                  <LoanPaymentCard key={loan.id} loan={loan} onPay={handlePayLoan} bankBalance={bankBalance} />
                 ))}
               </div>
             )}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }
@@ -523,22 +533,22 @@ function LoanPaymentCard({
   };
 
   return (
-    <div className="bg-slate-700 rounded p-3">
+    <div className="card">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <div className="font-bold">{formatNumber(D(loan.principal))} ₡</div>
+          <div className="font-mono font-bold tabular-nums">{formatNumber(D(loan.principal))} ₡</div>
           <span className={`text-sm ${getStatusColor(loan.status)}`}>{getStatusText(loan.status)}</span>
         </div>
         <div className="text-sm">
-          Остаток: <span className="text-orange-400">{formatNumber(D(loan.remainingBalance))} ₡</span>
+          Остаток: <span className="font-mono tabular-nums text-orange-400">{formatNumber(D(loan.remainingBalance))} ₡</span>
         </div>
       </div>
 
       <div className="flex items-center gap-4 text-sm text-slate-400 mb-2">
         <span>Кредитор: {loan.lenderName}</span>
-        <span>Ставка: {(loan.interestRate * 100).toFixed(1)}%</span>
-        <span>До: {formatDate(loan.dueDate)}</span>
-        {loan.daysOverdue > 0 && <span className="text-red-400">Просрочка: {loan.daysOverdue} дн.</span>}
+        <span>Ставка: <span className="font-mono tabular-nums">{(loan.interestRate * 100).toFixed(1)}%</span></span>
+        <span>До: <span className="font-mono tabular-nums">{formatDate(loan.dueDate)}</span></span>
+        {loan.daysOverdue > 0 && <span className="text-red-400">Просрочка: <span className="font-mono tabular-nums">{loan.daysOverdue}</span> дн.</span>}
       </div>
 
       {loan.status === 'active' && (
@@ -548,12 +558,12 @@ function LoanPaymentCard({
             value={payAmount}
             onChange={(e) => setPayAmount(e.target.value)}
             placeholder="Сумма платежа"
-            className="flex-1 px-3 py-1 bg-slate-600 rounded border border-slate-500 focus:border-blue-500 outline-none text-sm"
+            className="flex-1 px-3 py-1 text-sm"
           />
           <button
             type="button"
             onClick={() => setPayAmount(loan.remainingBalance)}
-            className="px-2 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs cursor-pointer transition-colors"
+            className="btn btn-xs"
           >
             Всё
           </button>
@@ -561,7 +571,7 @@ function LoanPaymentCard({
             type="button"
             onClick={() => onPay(loan, payAmount)}
             disabled={!payAmount || D(payAmount).lte(0) || D(payAmount).gt(D(bankBalance))}
-            className="px-4 py-1 bg-green-600 hover:bg-green-700 rounded text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             Погасить
           </button>

@@ -2,7 +2,6 @@
  * Типы для продвинутых настроек зданий (Фаза 5)
  */
 
-import type { Decimal } from 'break_eternity.js';
 import type { ResourceType } from './gameTypes';
 
 // ═══════════════════════════════════════════════════════════════

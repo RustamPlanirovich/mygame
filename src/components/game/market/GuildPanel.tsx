@@ -31,20 +31,20 @@ const BONUS_INFO: Record<GuildBonus, { emoji: string; title: string; description
 };
 
 export function GuildPanel() {
-  const {
-    myGuild,
-    guilds,
-    guildChat,
-    fetchMyGuild,
-    fetchGuilds,
-    fetchGuildChat,
-    createGuild,
-    joinGuild,
-    leaveGuild,
-    depositToTreasury,
-    sendGuildMessage,
-    isLoading,
-  } = useMarketStore();
+  // Узкие селекторы вместо подписки на весь стор: панель гильдии не должна
+  // перерисовываться от каждой загрузки книги ордеров или сейфа.
+  const myGuild = useMarketStore((s) => s.myGuild);
+  const guilds = useMarketStore((s) => s.guilds);
+  const guildChat = useMarketStore((s) => s.guildChat);
+  const fetchMyGuild = useMarketStore((s) => s.fetchMyGuild);
+  const fetchGuilds = useMarketStore((s) => s.fetchGuilds);
+  const fetchGuildChat = useMarketStore((s) => s.fetchGuildChat);
+  const createGuild = useMarketStore((s) => s.createGuild);
+  const joinGuild = useMarketStore((s) => s.joinGuild);
+  const leaveGuild = useMarketStore((s) => s.leaveGuild);
+  const depositToTreasury = useMarketStore((s) => s.depositToTreasury);
+  const sendGuildMessage = useMarketStore((s) => s.sendGuildMessage);
+  const isLoading = useMarketStore((s) => s.isLoading);
 
   const [view, setView] = useState<'my' | 'search' | 'create'>('my');
   const [searchQuery, setSearchQuery] = useState('');

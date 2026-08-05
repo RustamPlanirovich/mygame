@@ -1,47 +1,37 @@
+import { useMemo } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format.ts';
 import { DollarSign, Beaker, Crown } from 'lucide-react';
-import Decimal from 'break_eternity.js';
+import {
+  baseInfluencePerSecond,
+  baseResearchPointsPerSecond,
+} from '../../core/production/currencyRates';
 
 export function CurrencyPanel() {
   const currency = useGameStore(state => state.currency);
-  const buildings = useGameStore(state => state.buildings);
-  const technologies = useGameStore(state => state.technologies);
-  const activePolicies = useGameStore(state => state.politics.activePolicies);
-  
-  // Calculate RP production
-  const rpProduction = buildings
-    .filter(b => b.count > 0 && b.production?.researchPoints)
-    .reduce((sum, b) => {
-      const base = b.production!.researchPoints!.mul(b.count);
-      
-      // Apply policy bonuses
-      let multiplier = 1;
-      if (activePolicies.includes('scientific_breakthrough')) multiplier += 0.5;
-      if (activePolicies.includes('quantum_computing')) {
-        const quantumLabs = buildings.find(b2 => b2.id === 'quantum_lab')?.count || 0;
-        if (quantumLabs > 0) multiplier += 1.0;
-      }
-      if (activePolicies.includes('experimental_science')) multiplier += 1.0;
-      
-      return sum.add(base.mul(multiplier));
-    }, new Decimal(0));
-  
-  // Calculate Influence production
-  const influenceProduction = buildings
-    .filter(b => b.count > 0 && b.production?.influence)
-    .reduce((sum, b) => {
-      const base = b.production!.influence!.mul(b.count);
-      
-      // Apply policy bonuses
-      let multiplier = 1;
-      if (activePolicies.includes('colonial_expansion')) {
-        const colonies = buildings.find(b2 => b2.id === 'space_colony')?.count || 0;
-        if (colonies > 0) multiplier += 0.5;
-      }
-      
-      return sum.add(base.mul(multiplier));
-    }, new Decimal(0));
+  // Placed tiles are what actually produce; `state.buildings` is the shop catalogue and its
+  // `.count` says nothing about output. Subscribing to `tiles` also means this only recomputes
+  // when the player builds something, not 20 times a second like `currency` does.
+  const tiles = useGameStore(state => state.grid.tiles);
+  const energyEfficiency = useGameStore(state => state.energyEfficiency);
+
+  /*
+   * These used to be derived from `b.production?.researchPoints` / `.influence` — fields that do
+   * not exist on Building, so the filters matched nothing and both tooltips permanently showed
+   * "+0/с". They also applied policy multipliers by hand and looked for a building id
+   * `quantum_lab` that does not exist (the real id is `quantum_lab_mk1`).
+   *
+   * Now both come from the same module the tick uses, including the energy-efficiency factor the
+   * tick multiplies in, so the displayed rate is the rate the player actually receives.
+   */
+  const rpProduction = useMemo(
+    () => baseResearchPointsPerSecond(tiles).mul(energyEfficiency),
+    [tiles, energyEfficiency],
+  );
+  const influenceProduction = useMemo(
+    () => baseInfluencePerSecond(tiles).mul(energyEfficiency),
+    [tiles, energyEfficiency],
+  );
 
   return (
     <div className="px-3 py-2">

@@ -1,10 +1,10 @@
 /**
  * MultiLineChart Component
- * 
+ *
  * График с несколькими линиями для сравнения ресурсов
  */
 
-import React from 'react';
+import { memo, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -15,7 +15,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { EmptyState } from '../../../ui';
 import { D, formatNumber } from '../../../../core/math/format';
+import {
+  AXIS_STROKE,
+  CHART_MARGIN,
+  GRID_STROKE,
+  TOOLTIP_CONTENT_STYLE,
+  TOOLTIP_LABEL_STYLE,
+} from './chartTheme';
 
 interface MultiLineChartProps {
   data: Array<Record<string, number | string>>;
@@ -31,7 +39,8 @@ interface MultiLineChartProps {
   formatValue?: (value: number) => string;
 }
 
-export function MultiLineChart({
+/** Мемоизирован по той же причине, что и AreaChart. */
+export const MultiLineChart = memo(function MultiLineChart({
   data,
   lines,
   title,
@@ -40,71 +49,57 @@ export function MultiLineChart({
   height = 300,
   formatValue,
 }: MultiLineChartProps) {
+  const tickFormatter = useMemo(
+    () => (value: number) => (formatValue ? formatValue(value) : formatNumber(D(value))),
+    [formatValue],
+  );
+
+  const tooltipFormatter = useMemo(
+    () => (value: number | undefined, name: string | undefined) =>
+      [
+        formatValue ? formatValue(value ?? 0) : formatNumber(D(value ?? 0)),
+        lines.find(l => l.key === name)?.name || String(name ?? ''),
+      ] as [string, string],
+    [formatValue, lines],
+  );
+
+  const legendFormatter = useMemo(
+    () => (value: string) => {
+      const line = lines.find(l => l.key === value);
+      return (
+        <span style={{ color: '#e5e7eb', fontSize: '12px' }}>{line?.name || value}</span>
+      );
+    },
+    [lines],
+  );
+
   if (data.length === 0) {
     return (
-      <div 
-        className="flex items-center justify-center bg-cyber-gray-800/50 rounded-lg border border-cyber-gray-700"
-        style={{ height }}
-      >
-        <p className="text-cyber-gray-500">Нет данных для отображения</p>
+      <div className="flex items-center justify-center" style={{ height }}>
+        <EmptyState title="Нет данных для отображения" />
       </div>
     );
   }
 
   return (
     <div className="w-full" style={{ height }}>
-      {title && (
-        <h3 className="text-sm font-medium text-cyber-gray-300 mb-2">{title}</h3>
-      )}
+      {title && <h3 className="mb-2 text-sm font-medium text-cyber-gray-300">{title}</h3>}
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={data}
-          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-        >
-          {showGrid && (
-            <CartesianGrid 
-              strokeDasharray="3 3" 
-              stroke="#374151" 
-              opacity={0.5}
-            />
-          )}
-          <XAxis 
-            dataKey="timeLabel" 
-            stroke="#9ca3af"
+        <LineChart data={data} margin={CHART_MARGIN}>
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} opacity={0.5} />}
+          <XAxis dataKey="timeLabel" stroke={AXIS_STROKE} fontSize={12} tickLine={false} />
+          <YAxis
+            stroke={AXIS_STROKE}
             fontSize={12}
             tickLine={false}
-          />
-          <YAxis 
-            stroke="#9ca3af"
-            fontSize={12}
-            tickLine={false}
-            tickFormatter={(value) => formatValue ? formatValue(value) : formatNumber(D(value))}
+            tickFormatter={tickFormatter}
           />
           <Tooltip
-            contentStyle={{
-              backgroundColor: '#1f2937',
-              border: '1px solid #374151',
-              borderRadius: '8px',
-              color: '#e5e7eb',
-            }}
-            labelStyle={{ color: '#9ca3af' }}
-            formatter={(value: number, name: string) => [
-              formatValue ? formatValue(value) : formatNumber(D(value)),
-              lines.find(l => l.key === name)?.name || name
-            ]}
+            contentStyle={TOOLTIP_CONTENT_STYLE}
+            labelStyle={TOOLTIP_LABEL_STYLE}
+            formatter={tooltipFormatter}
           />
-          {showLegend && (
-            <Legend
-              formatter={(value) => {
-                const line = lines.find(l => l.key === value);
-                return (
-                  <span style={{ color: '#e5e7eb', fontSize: '12px' }}>
-                    {line?.name || value}
-                  </span>
-                );
-              }}
-            />
-          )}
+          {showLegend && <Legend formatter={legendFormatter} />}
           {lines.map((line) => (
             <Line
               key={line.key}
@@ -121,4 +116,4 @@ export function MultiLineChart({
       </ResponsiveContainer>
     </div>
   );
-}
+});
