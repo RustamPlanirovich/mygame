@@ -397,6 +397,11 @@ export interface GrantResponse extends OkResponse {
   applied: Record<string, GrantAppliedEntry>;
   skipped: Array<{ field: string; reason: string }>;
   clamped: string[];
+  /**
+   * Дослана ли выдача подключённому игроку по realtime-каналу (bigplan.md, пункт 9).
+   * false означает, что она лежит только в БД и применится при следующей загрузке.
+   */
+  pushedToClient?: boolean;
   warning: string | null;
 }
 

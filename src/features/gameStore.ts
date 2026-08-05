@@ -140,6 +140,14 @@ import {
   upgradeDurationSeconds,
 } from '../core/systems/construction';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
+import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
+
+/*
+ * Уже применённые админские выдачи (bigplan.md, пункт 9). Живёт вне стора: это защита от
+ * повторной доставки события, а не игровое состояние — в сейв ей попадать незачем, и при
+ * перезагрузке страницы дедупликация не нужна (патч уже в сохранении).
+ */
+const appliedGrantIds = new Set<string>();
 import { generateMap } from '../utils/mapGenerator';
 import { getMapDefinition } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
@@ -10369,6 +10377,63 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
       };
     });
+  },
+
+  /**
+   * Применить админскую выдачу, присланную по realtime-каналу (bigplan.md, пункты 9 и 24).
+   *
+   * Сервер уже записал патч в сохранение; здесь мы прибавляем ту же дельту к состоянию
+   * в памяти, чтобы автосохранение не перезаписало её нулями. Возвращает `false`, если
+   * применять нечего или выдача с этим id уже применена.
+   */
+  applyAdminGrant: (grantId: string, deltas: Record<string, string>) => {
+    // Дедупликация: одно и то же событие может прийти в две вкладки одного игрока,
+    // и каждая начислила бы себе по разу.
+    if (appliedGrantIds.has(grantId)) return false;
+
+    const parsed = parseGrantDeltas(deltas);
+    if (isEmptyGrant(parsed)) return false;
+
+    appliedGrantIds.add(grantId);
+
+    set((state) => {
+      const nextCurrency = { ...state.currency };
+      for (const [key, value] of Object.entries(parsed.currency)) {
+        const field = key as 'credits' | 'researchPoints' | 'influence';
+        // .max(0): дельта может быть отрицательной (админ отнимает), но в минус не уходим.
+        nextCurrency[field] = nextCurrency[field].add(D(value)).max(D(0));
+      }
+
+      /*
+       * Ресурсы прибавляем в базовый буфер: при загрузке syncResourcesFromBase перетирает
+       * resources[*].amount значением из буфера, поэтому патчить только resources бессмысленно —
+       * ровно та же причина, по которой это делает и сервер.
+       */
+      let buffers = state.grid.buffers;
+      const nextResources = { ...state.resources };
+      for (const [key, value] of Object.entries(parsed.resources)) {
+        const rType = key as ResourceType;
+        const res = nextResources[rType];
+        if (!res) continue;
+        const cur = getBuf(buffers, 'base', rType);
+        const next = cur.add(D(value)).max(D(0)).min(res.max);
+        buffers = setBuf(buffers, 'base', rType, next);
+        nextResources[rType] = { ...res, amount: next };
+      }
+
+      return {
+        currency: nextCurrency,
+        resources: nextResources,
+        grid: { ...state.grid, buffers },
+      };
+    });
+
+    if (parsed.unknown.length > 0) {
+      // Не молчим: расхождение формата с сервером означает, что часть выдачи не применена.
+      console.warn('[grant] неизвестные поля в выдаче:', parsed.unknown.join(', '));
+    }
+
+    return true;
   },
 
   addNotification: (notification: Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>) => {

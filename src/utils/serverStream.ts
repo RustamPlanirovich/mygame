@@ -25,7 +25,8 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 export type ServerStreamEvent =
   | { type: 'stream.ready'; payload: { at: number } }
   | { type: 'chat.message'; payload: ChatMessagePayload }
-  | { type: 'market.order.created'; payload: MarketOrderPayload };
+  | { type: 'market.order.created'; payload: MarketOrderPayload }
+  | { type: 'admin.grant.applied'; payload: AdminGrantPayload };
 
 export interface ChatMessagePayload {
   id: string;
@@ -35,6 +36,18 @@ export interface ChatMessagePayload {
   playerName: string;
   message: string;
   createdAt: number;
+}
+
+/**
+ * Админская выдача, применённая на сервере (bigplan.md, пункт 9).
+ * Дельты приходят плоским словарём: `{'currency.credits': '500', 'resources.ore': '100'}`.
+ */
+export interface AdminGrantPayload {
+  grantId: string;
+  saveId: number;
+  slotId: number | null;
+  deltas: Record<string, string>;
+  clamped: string[];
 }
 
 export interface MarketOrderPayload {

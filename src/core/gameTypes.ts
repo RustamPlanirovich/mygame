@@ -1256,6 +1256,11 @@ export interface GameState {
   repairPlatform: (platformId: string, repairType: 'hull' | 'armor' | 'shield' | 'all') => void;
   // Notifications
   addNotification: (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => void;
+  /**
+   * Применить админскую выдачу, присланную по realtime-каналу (bigplan.md, пункты 9 и 24).
+   * Возвращает false, если применять нечего или эта выдача уже применена.
+   */
+  applyAdminGrant: (grantId: string, deltas: Record<string, string>) => boolean;
   markNotificationRead: (notificationId: string) => void;
   clearNotifications: () => void;
   // Intergalactic logistics

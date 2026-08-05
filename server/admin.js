@@ -14,6 +14,7 @@
 import Decimal from 'break_eternity.js';
 import { encodePasswordForStorage } from './auth-password.js';
 import { runOracleUpdate } from './ai-oracle.js';
+import { realtimeHub } from './realtime.js';
 
 // ============================================================================
 // Константы
@@ -1173,7 +1174,20 @@ export function createAdminRoutes(app, pool, authMiddleware) {
       return;
     }
 
-    // 2. Если клиент игрока запущен, его автосохранение перезапишет выдачу.
+    /*
+     * 2. Клиент запущенного игрока перезапишет выдачу следующим автосохранением — патч в БД
+     *    сам по себе до него не доходит. Это и есть пункт 9 в bigplan.md: «при выдаче ресурсы
+     *    не сохраняются».
+     *
+     *    Теперь есть realtime-канал (пункт 24), поэтому различаем два случая:
+     *
+     *    а) игрок ПОДКЛЮЧЁН к потоку — патчим БД и досылаем ему дельту событием
+     *       `admin.grant.applied`. Клиент применяет её к состоянию в памяти, и следующее
+     *       автосохранение уже содержит выдачу. force не нужен;
+     *
+     *    б) активная сессия есть, но потока нет (старая вкладка, клиент без поддержки канала,
+     *       протухшая сессия) — досылать некуда, поведение прежнее: 409 и явный force.
+     */
     const sessionInfo = await pool.query(
       `SELECT COUNT(*)::int AS active_sessions, MAX(last_activity_at) AS last_activity_at
        FROM sessions WHERE user_id = $1 AND expires_at > NOW()`,
@@ -1182,12 +1196,14 @@ export function createAdminRoutes(app, pool, authMiddleware) {
     const activeSessions = sessionInfo.rows[0].active_sessions;
     const lastActivityAt = sessionInfo.rows[0].last_activity_at;
     const onlineNow = !!lastActivityAt && Date.now() - new Date(lastActivityAt).getTime() < 5 * 60 * 1000;
+    const streamConnected = realtimeHub.hasUser(target.id);
 
-    if (activeSessions > 0 && force !== true) {
+    if (activeSessions > 0 && !streamConnected && force !== true) {
       bad(res, 409, 'PLAYER_HAS_ACTIVE_SESSION',
-        'У игрока есть активная сессия — его клиент перезапишет выдачу следующим автосохранением. ' +
-        'Передайте force: true, чтобы выдать всё равно (лучше сначала вызвать logout-all).',
-        { activeSessions, onlineNow, lastActivityAt });
+        'У игрока есть активная сессия, но он не подключён к realtime-каналу — его клиент ' +
+        'перезапишет выдачу следующим автосохранением. Передайте force: true, чтобы выдать ' +
+        'всё равно (лучше сначала вызвать logout-all).',
+        { activeSessions, onlineNow, lastActivityAt, streamConnected });
       return;
     }
 
@@ -1258,6 +1274,44 @@ export function createAdminRoutes(app, pool, authMiddleware) {
       );
       await client.query('COMMIT');
 
+      /*
+       * Досылаем выдачу подключённому игроку (bigplan.md, пункты 9 и 24).
+       *
+       * Строго ПОСЛЕ COMMIT: до него патча в БД ещё нет, и при откате клиент начислил бы себе
+       * то, чего сервер не сохранил.
+       *
+       * Отправляем ДЕЛЬТЫ, а не «перезагрузи сейв»: перезагрузка стоила бы игроку всего
+       * прогресса с последнего автосохранения (до 30 секунд), а дельту клиент прибавляет
+       * к состоянию в памяти, ничего не теряя. grantId — для защиты от повторного применения,
+       * если событие придёт дважды (например, в двух вкладках одного игрока).
+       *
+       * Только если игрок подключён: иначе событие уходит в пустоту, а патч в БД он подхватит
+       * при следующей загрузке.
+       */
+      let pushedToClient = false;
+      if (streamConnected) {
+        /*
+         * Считаем ФАКТИЧЕСКОЕ изменение как after - before, а не берём info.delta.
+         * Разница есть: для ресурса, обрезанного по вместимости склада, delta — это запрошенная
+         * величина, а сохранилось меньше. Отправив delta, мы бы начислили клиенту больше, чем
+         * лежит в БД, и расхождение уехало бы в следующее автосохранение.
+         */
+        const appliedDeltas = {};
+        for (const [field, info] of Object.entries(patch.applied)) {
+          const effective = new Decimal(info.after).sub(new Decimal(info.before));
+          if (effective.eq(0)) continue;
+          appliedDeltas[field] = effective.toString();
+        }
+        realtimeHub.sendToUser(target.id, 'admin.grant.applied', {
+          grantId: `${saveRow.id}:${Date.now()}`,
+          saveId: saveRow.id,
+          slotId: saveRow.slot_id,
+          deltas: appliedDeltas,
+          clamped: patch.clamped,
+        });
+        pushedToClient = true;
+      }
+
       await audit(req, 'player.grant', target.id, {
         email: target.email,
         saveId: saveRow.id,
@@ -1265,6 +1319,8 @@ export function createAdminRoutes(app, pool, authMiddleware) {
         slotId: saveRow.slot_id,
         forced: force === true,
         activeSessions,
+        streamConnected,
+        pushedToClient,
         requested: {
           credits: deltas.credits?.toString() ?? null,
           researchPoints: deltas.researchPoints?.toString() ?? null,
@@ -1283,8 +1339,13 @@ export function createAdminRoutes(app, pool, authMiddleware) {
         applied: patch.applied,
         skipped: patch.skipped,
         clamped: patch.clamped,
-        warning: activeSessions > 0
-          ? 'У игрока есть активная сессия: его клиент может перезаписать выдачу автосохранением. Рекомендуется logout-all.'
+        pushedToClient,
+        /*
+         * Предупреждение теперь появляется только когда оно правда актуально: подключённому
+         * игроку дельта дослана, и его автосохранение уже содержит выдачу.
+         */
+        warning: activeSessions > 0 && !pushedToClient
+          ? 'У игрока есть активная сессия, но он не подключён к realtime-каналу: его клиент может перезаписать выдачу автосохранением. Рекомендуется logout-all.'
           : null,
       });
     } catch (e) {

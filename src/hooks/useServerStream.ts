@@ -12,6 +12,7 @@ import { useChatStore } from '../features/chatStore';
 import { useUiStore } from '../features/uiStore';
 import { useGameStore } from '../features/gameStore';
 import { resourceLabel } from '../core/i18n/label';
+import { describeGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { notify } from '../utils/notifications';
 import type { ResourceType } from '../core/gameTypes';
 
@@ -64,6 +65,34 @@ export function useServerStream(): StreamStatus {
             // Панель чата открыта? Тогда не растим счётчик непрочитанных.
             const isChatOpen = useUiStore.getState().section === 'chat';
             useChatStore.getState().receive(event.payload, isChatOpen);
+            break;
+          }
+
+          case 'admin.grant.applied': {
+            /*
+             * Администратор выдал ресурсы (bigplan.md, пункт 9). Сервер уже записал патч
+             * в сохранение; прибавляем ту же дельту к состоянию в памяти, иначе автосохранение
+             * перезапишет патч — ровно это и означало «при выдаче ресурсы не сохраняются».
+             */
+            const parsed = parseGrantDeltas(event.payload.deltas);
+            const applied = useGameStore
+              .getState()
+              .applyAdminGrant(event.payload.grantId, event.payload.deltas);
+            if (!applied) break;
+
+            const summary = describeGrant(parsed, resourceLabel);
+            notify.success(
+              summary ? `Администратор начислил: ${summary}` : 'Администратор изменил ваши ресурсы',
+              8000,
+            );
+            if (event.payload.clamped?.length > 0) {
+              notify.warning(
+                `Часть не поместилась на склад: ${event.payload.clamped
+                  .map((r) => resourceLabel(r))
+                  .join(', ')}`,
+                8000,
+              );
+            }
             break;
           }
 
