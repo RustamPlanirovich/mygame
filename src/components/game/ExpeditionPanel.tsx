@@ -17,6 +17,7 @@ import {
   starChartUpgradeCost,
 } from '../../core/constants/starChart';
 import { GameIcon, IconText } from '../ui/icons';
+import { resourceLabel } from '../../core/i18n/label';
 
 export function ExpeditionPanel() {
   const expedition = useGameStore((s) => s.expedition);
@@ -165,7 +166,7 @@ export function ExpeditionPanel() {
               const atMax = level >= def.maxLevel;
 
               const costText = Object.entries(cost)
-                .map(([res, amt]) => `${formatNumber(amt)}${res === 'energy' ? '⚡' : ` ${res}`}`)
+                .map(([res, amt]) => `${formatNumber(amt)}${res === 'energy' ? '⚡' : ` ${resourceLabel(res)}`}`)
                 .join(', ');
 
               const hint = id === 'subspace'

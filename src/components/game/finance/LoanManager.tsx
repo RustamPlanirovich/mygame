@@ -6,6 +6,7 @@
 import { memo, useState, useEffect } from 'react';
 import { useFinanceStore } from '../../../features/financeStore';
 import { useAdvisorStore } from '../../../features/advisorStore';
+import { useGameStore } from '../../../features/gameStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { LOAN_PRODUCTS, calculateInterestRate, calculateMaxLoanAmount } from '../../../core/constants/funds';
 import { formatLoanSummary, generatePaymentSchedule } from '../../../utils/loanCalculator';
@@ -35,9 +36,12 @@ function LoanManagerImpl() {
   const fetchMyP2PData = useAdvisorStore((s) => s.fetchMyP2PData);
   const payP2PLoan = useAdvisorStore((s) => s.payP2PLoan);
 
-  const bankBalance = useFinanceStore((s) => s.bank.balance);
-  const withdrawFromBank = useFinanceStore((s) => s.withdrawFromBank);
-  const depositToBank = useFinanceStore((s) => s.depositToBank);
+  /*
+   * Кредиты — банковские и P2P — работают с игровыми кредитами (см. registerGameCreditsAdapter
+   * в gameStore). Раньше платежи списывались с расчётного счёта биржи, куда игрок деньги
+   * не кладёт.
+   */
+  const gameCredits = useGameStore((s) => s.currency.credits);
 
   // Загружаем P2P данные при монтировании
   useEffect(() => {
@@ -96,13 +100,19 @@ function LoanManagerImpl() {
     const amount = D(paymentAmount[loanId] || '0');
     if (amount.lte(0)) return;
 
-    if (amount.gt(D(bankBalance))) {
-      alert('❌ Недостаточно средств на банковском счёте');
+    if (amount.gt(gameCredits)) {
+      alert('❌ Недостаточно кредитов колонии');
       return;
     }
 
-    // Списываем со счёта
-    if (!withdrawFromBank(amount)) {
+    // Списываем кредиты колонии одним set: тик тоже меняет баланс.
+    let debited = false;
+    useGameStore.setState((s) => {
+      if (s.currency.credits.lt(amount)) return s;
+      debited = true;
+      return { currency: { ...s.currency, credits: s.currency.credits.sub(amount) } };
+    });
+    if (!debited) {
       alert('❌ Не удалось списать средства');
       return;
     }
@@ -113,7 +123,9 @@ function LoanManagerImpl() {
       alert(`✅ Платёж ${formatNumber(amount)} ₡ проведён успешно!`);
     } else {
       // Возвращаем деньги
-      depositToBank(amount);
+      useGameStore.setState((s) => ({
+        currency: { ...s.currency, credits: s.currency.credits.add(amount) },
+      }));
       alert(`❌ Ошибка: ${result.error}`);
     }
   };
@@ -207,22 +219,30 @@ function LoanManagerImpl() {
             </div>
 
             {selectedProduct && (
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={loanAmount}
-                  onChange={(e) => setLoanAmount(e.target.value)}
-                  placeholder="Сумма кредита"
-                  className="flex-1 px-3 py-2"
-                />
-                <button
-                  type="button"
-                  onClick={handleTakeLoan}
-                  disabled={!loanAmount || D(loanAmount).lte(0)}
-                  className="btn-primary"
-                >
-                  Оформить
-                </button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={loanAmount}
+                    onChange={(e) => setLoanAmount(e.target.value)}
+                    placeholder="Сумма кредита"
+                    className="flex-1 px-3 py-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTakeLoan}
+                    disabled={!loanAmount || D(loanAmount).lte(0)}
+                    className="btn-primary"
+                  >
+                    Оформить
+                  </button>
+                </div>
+                {/* Явно говорим, куда придут деньги: раньше сумма молча уходила на
+                    расчётный счёт, и это читалось как «кредит не зачислился». */}
+                <div className="text-xs text-slate-400">
+                  Сумма придёт сразу в кредиты колонии (баланс в верхней панели). Платежи
+                  списываются оттуда же.
+                </div>
               </div>
             )}
           </>

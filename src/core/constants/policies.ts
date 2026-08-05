@@ -1,5 +1,6 @@
 import type { Policy, PolicyCategory, PolicyId } from '../gameTypes';
 import { D } from '../math/format';
+import { technologyLabel } from '../i18n/label';
 
 // All available policies in the game
 export const POLICIES: Record<PolicyId, Policy> = {
@@ -527,7 +528,7 @@ export function canActivatePolicy(
   if (policy.prerequisites) {
     for (const techId of policy.prerequisites) {
       if (!unlockedTechnologies[techId]) {
-        return { can: false, reason: `Требуется технология: ${techId}` };
+        return { can: false, reason: `Требуется технология: ${technologyLabel(techId)}` };
       }
     }
   }

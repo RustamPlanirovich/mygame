@@ -823,6 +823,13 @@ export interface GridState {
   tileEvolutionLevels?: Record<string, number>;
   // key = "x,y"; value = disabled state (true = building is disabled) [Phase 11: Building Management]
   tileDisabled?: Record<string, boolean>;
+  /*
+   * Незавершённые постройки и улучшения (bigplan.md, пункты 18–19).
+   * key = "x,y". Клетка уже занята и оплачена, но здание ещё не работает: пока работа
+   * в этой карте, тайл считается отключённым (см. effectiveDisabledTiles).
+   * Работа хранит абсолютное время старта, поэтому достраивается за оффлайн сама.
+   */
+  tileJobs?: Record<string, import('./systems/construction').TileJob>;
   // key = "x,y"; value = deposit type (where extraction buildings can be placed)
   deposits?: Record<string, DepositType>;
   // key = "x,y" (and special key "base"); values are stringified decimals
@@ -987,6 +994,33 @@ export interface PlayerStats {
    * «Помогите 100 цивилизациям» была недостижима в принципе.
    */
   contractsCompleted: number;
+
+  /*
+   * КУМУЛЯТИВНЫЕ СЧЁТЧИКИ СОБЫТИЙ (bigplan.md, пункты 11 и 26).
+   *
+   * Десять типов условий достижений были недостижимы не из-за ошибки в проверке, а потому что
+   * игра вообще не считала нужную величину: в achievementsHelpers на их месте стояли `TODO` и
+   * `return false`. Вывести их постфактум из состояния нельзя — убитый босс и отбитая волна
+   * не оставляют следа в стейте, — поэтому счётчики инкрементируются в точке события.
+   *
+   * Все монотонно растут и никогда не убывают: достижение, полученное за 10 боссов, не должно
+   * отбираться. Эта же статистика нужна профилю и лидерборду, поэтому она живёт в stats,
+   * а не внутри системы достижений.
+   */
+  /** Убито врагов всего (любых). */
+  enemiesKilled: number;
+  /** Убито боссов. */
+  bossKills: number;
+  /** Волн атак отбито без потери базы. */
+  attacksDefended: number;
+  /** Караванов доставлено успешно (не потеряно по пути). */
+  caravansDelivered: number;
+  /** Получено награды от редких случайных событий. */
+  rareEventRewards: number;
+  /** Пережито «цепных реакций». */
+  chainReactionsSurvived: number;
+  /** Все политики, которые когда-либо активировались (уникальные id). */
+  uniquePoliciesActivated: string[];
 }
 
 export interface RetentionState {
@@ -1165,6 +1199,12 @@ export interface GameState {
   setHighlightedBuilding: (buildingId: string | null) => void;
   placeSelectedBuildAt: (pos: GridCoord) => void;
   removeBuildingAt: (pos: GridCoord) => void;
+  /**
+   * Отменить незавершённую постройку или улучшение на клетке и вернуть списанное
+   * (bigplan.md, пункты 18–19). Без отмены ошибочный клик по дорогому зданию заморозил бы
+   * ресурсы до конца стройки.
+   */
+  cancelTileJob: (pos: GridCoord) => void;
 
   setTileMarketPolicy: (tileKey: string, resource: TradeResourceType, patch: { import?: boolean; export?: boolean }) => void;
   buyUpgrade: (id: UpgradeId) => void;
@@ -1228,6 +1268,11 @@ export interface GameState {
   toggleRandomEvents: () => void;
   // Achievements system (Фаза 8.7)
   unlockAchievement: (achievementId: string) => void;
+  /**
+   * Выдать сразу несколько достижений одним обновлением состояния (bigplan.md, пункт 27).
+   * Поштучный вызов в цикле работал по устаревшему снимку state и терял начисления.
+   */
+  unlockAchievements: (achievementIds: string[]) => void;
   // Megastructures system (Фаза 9)
   startMegastructure: (megastructureId: MegastructureId) => void;
   toggleMegastructure: (megastructureId: MegastructureId, active: boolean) => void;

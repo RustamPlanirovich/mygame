@@ -15,6 +15,7 @@ import {
 } from '../../core/math/proximity';
 import { GameIcon } from '../ui/icons';
 import { Lock, Search } from 'lucide-react';
+import { buildDurationSeconds } from '../../core/systems/construction';
 
 /*
  * Строительство в стиле Industry Idle: один плоский список с поиском, а не колода
@@ -599,6 +600,19 @@ export function BuildPanel() {
                   )}
                   {unlocked && Object.keys(cost).length === 0 && (
                     <span className="font-mono text-3xs text-accent">бесплатно</span>
+                  )}
+                  {/*
+                    Время постройки (bigplan.md, пункт 18): игрок должен видеть его ДО клика.
+                    Считается с учётом кривой обучения, поэтому у уже привычного здания
+                    показанное время меньше.
+                  */}
+                  {unlocked && (
+                    <span
+                      className="whitespace-nowrap font-mono text-3xs tabular-nums text-content-faint"
+                      title="Время постройки. Уменьшается по мере того, как вы строите такие здания."
+                    >
+                      ~{buildDurationSeconds(b, placed)}с
+                    </span>
                   )}
                 </div>
               </button>

@@ -8,7 +8,16 @@ import {
   getDiscoveryCost 
 } from '../../utils/galaxyGenerator';
 import { notify } from '../../utils/notifications';
+import { dangerLabel, localizeGalaxyBonus, localizeGeneratedName, resourceLabel, specialFeatureLabel, technologyLabel } from '../../core/i18n/label';
 import { GameIcon, IconText } from '../ui/icons';
+
+// Эмодзи особенностей: сама подпись берётся из specialFeatureLabel, здесь только иконка.
+const SPECIAL_FEATURE_ICON: Record<string, string> = {
+  black_hole: '🌀',
+  nebula: '☁️',
+  quasar: '💫',
+  ruins: '🏛️',
+};
 
 export function GalaxyMap() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -53,7 +62,11 @@ export function GalaxyMap() {
         }
       } else {
         const galaxy = GALAXIES[galaxyId];
-        notify.info(`Требуется исследование: ${galaxy.unlockRequirement || 'неизвестно'}`);
+        notify.info(
+          galaxy.unlockRequirement
+            ? `Требуется исследование: ${technologyLabel(galaxy.unlockRequirement)}`
+            : 'Требуется исследование: неизвестно',
+        );
       }
     }
   };
@@ -67,18 +80,6 @@ export function GalaxyMap() {
       case 'very_high': return '#ff8080';
       case 'extreme': return '#e74c3c';
       default: return '#7f849f';
-    }
-  };
-
-  const getDangerLabel = (level: string) => {
-    switch (level) {
-      case 'very_low': return 'Очень низкая';
-      case 'low': return 'Низкая';
-      case 'medium': return 'Средняя';
-      case 'high': return 'Высокая';
-      case 'very_high': return 'Очень высокая';
-      case 'extreme': return 'Экстремальная';
-      default: return level;
     }
   };
 
@@ -156,7 +157,7 @@ export function GalaxyMap() {
                         color: getDangerColor(galaxy.dangerLevel)
                       }}
                     >
-                      <GameIcon icon="⚠️" /> {getDangerLabel(galaxy.dangerLevel)}
+                      <GameIcon icon="⚠️" /> {dangerLabel(galaxy.dangerLevel)}
                     </span>
 
                     {/* Platforms Count */}
@@ -171,7 +172,7 @@ export function GalaxyMap() {
                       <>
                         {Object.entries(galaxy.resourceBonuses).slice(0, 2).map(([res, mult]) => (
                           <span key={res} className="px-1.5 py-0.5 rounded bg-green-900/30 text-green-400">
-                            {res}: +{((mult - 1) * 100).toFixed(0)}%
+                            {resourceLabel(res)}: +{((mult - 1) * 100).toFixed(0)}%
                           </span>
                         ))}
                         {Object.keys(galaxy.resourceBonuses).length > 2 && (
@@ -183,7 +184,7 @@ export function GalaxyMap() {
                     {/* Unlock Requirement */}
                     {!isUnlocked && galaxy.unlockRequirement && (
                       <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
-                        <GameIcon icon="🔬" /> {galaxy.unlockRequirement}
+                        <GameIcon icon="🔬" /> {technologyLabel(galaxy.unlockRequirement)}
                       </span>
                     )}
                   </div>
@@ -296,7 +297,7 @@ export function GalaxyMap() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <h4 className="text-base font-bold text-white truncate">
-                            #{galaxy.galaxyNumber} {galaxy.generated.name}
+                            #{galaxy.galaxyNumber} {localizeGeneratedName(galaxy.generated.name)}
                           </h4>
                           {galaxy.completed && (
                             <span className="flex-shrink-0 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded">
@@ -315,10 +316,8 @@ export function GalaxyMap() {
                                 color: featureColor,
                               }}
                             >
-                              <IconText>{galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}</IconText>
-                              {galaxy.generated.specialFeature === 'nebula' && '☁️ Туманность'}
-                              {galaxy.generated.specialFeature === 'quasar' && '💫 Квазар'}
-                              {galaxy.generated.specialFeature === 'ruins' && '🏛️ Руины'}
+                              <IconText>{SPECIAL_FEATURE_ICON[galaxy.generated.specialFeature] ?? ''}</IconText>{' '}
+                              {specialFeatureLabel(galaxy.generated.specialFeature)}
                             </span>
                           )}
 
@@ -341,7 +340,7 @@ export function GalaxyMap() {
                                         : 'bg-red-900/30 text-red-400'
                                     }`}
                                   >
-                                    {res}: {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
+                                    {resourceLabel(res)}: {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
                                   </span>
                                 ))}
                               {Object.keys(galaxy.generated.resourceModifiers).length > 2 && (
@@ -353,7 +352,7 @@ export function GalaxyMap() {
                           {/* Rewards (only if discovered) */}
                           {isDiscovered && galaxy.rewards.uniqueBonus && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
-                              <GameIcon icon="🎁" /> {galaxy.rewards.uniqueBonus}
+                              <GameIcon icon="🎁" /> {localizeGalaxyBonus(galaxy.rewards.uniqueBonus)}
                             </span>
                           )}
 

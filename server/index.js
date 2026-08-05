@@ -524,15 +524,32 @@ app.get('/api/preferences/pinned-resources', authMiddleware, async (req, res) =>
 app.put('/api/preferences/pinned-resources', authMiddleware, async (req, res) => {
   try {
     const { pinnedResources } = req.body;
-    
+
     if (!Array.isArray(pinnedResources)) {
       res.status(400).json({ ok: false, error: 'INVALID_PINNED_RESOURCES' });
       return;
     }
 
+    /*
+     * Раньше в JSONB уходил любой массив любого размера с любым содержимым: сервер не знает
+     * список ResourceType (он живёт в TS-типах клиента), но форму и объём проверить обязан,
+     * иначе колонка users.pinned_resources — это произвольное хранилище на стороне сервера.
+     * Клиент дополнительно фильтрует по RESOURCE_LABEL (см. usePinnedResources).
+     */
+    const MAX_PINS = 32;
+    const cleaned = [];
+    for (const item of pinnedResources) {
+      if (typeof item !== 'string') continue;
+      if (item.length === 0 || item.length > 64) continue;
+      if (!/^[a-z0-9_]+$/.test(item)) continue;
+      if (cleaned.includes(item)) continue;
+      cleaned.push(item);
+      if (cleaned.length >= MAX_PINS) break;
+    }
+
     const result = await pool.query(
       'UPDATE users SET pinned_resources = $1::jsonb WHERE id = $2 RETURNING pinned_resources',
-      [JSON.stringify(pinnedResources), req.userId]
+      [JSON.stringify(cleaned), req.userId]
     );
     
     if (result.rowCount === 0) {

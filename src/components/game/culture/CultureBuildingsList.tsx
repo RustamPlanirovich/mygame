@@ -4,6 +4,7 @@ import { CULTURE_BUILDINGS, isCultureBuildingAvailable } from '../../../core/con
 import type { CultureBuilding, CultureBuildingType, CultureBuildingEffect } from '../../../core/gameTypes.culture';
 import { formatNumber } from '../../../core/math/format';
 import { GameIcon, IconText } from '../../ui/icons';
+import { resourceLabel } from '../../../core/i18n/label';
 
 // ==========================================
 // CULTURE BUILDINGS LIST
@@ -171,7 +172,7 @@ const CultureBuildingCard: React.FC<CultureBuildingCardProps> = ({
           )}
           {Object.entries(building.baseCost).map(([resource, amount]) => (
             <span key={resource} className="text-gray-300">
-              {formatNumber(amount as any)} {resource}
+              {formatNumber(amount as any)} {resourceLabel(resource)}
             </span>
           ))}
         </div>

@@ -70,6 +70,22 @@ function determineDistrictType(buildings: Building[]): DistrictType | null {
 /**
  * Вычислить бонус для района на основе количества и типа зданий
  */
+/**
+ * Потолок множителя по типу района. Вынесено из calculateDistrictBonus, потому что нужно
+ * снаружи: «идеальный район» в достижениях — это район, чей бонус дошёл до потолка
+ * (см. isDistrictMaxed). Раньше этого понятия не существовало, и достижение «Перфекционист»
+ * было недостижимо (bigplan.md, пункт 11).
+ */
+export const DISTRICT_MAX_MULTIPLIER: Record<DistrictType, number> = {
+  electronics: 1.5,    // Макс +50%
+  military: 1.4,       // Макс +40%
+  space: 1.6,          // Макс +60%
+  research: 1.8,       // Макс +80%
+  energy: 1.3,         // Макс +30%
+  production: 1.3,     // Макс +30%
+  mining: 1.4,         // Макс +40%
+};
+
 function calculateDistrictBonus(type: DistrictType, buildingCount: number): number {
   const baseBonus = {
     electronics: 0.05,   // +5% за здание
@@ -80,22 +96,20 @@ function calculateDistrictBonus(type: DistrictType, buildingCount: number): numb
     production: 0.03,    // +3% за здание
     mining: 0.04,        // +4% за здание
   };
-  
+
   const bonus = baseBonus[type];
   const multiplier = 1 + bonus * (buildingCount - 2); // -2 потому что бонус начинается с 3 зданий
-  
+
   // Ограничиваем максимальный бонус
-  const maxMultipliers = {
-    electronics: 1.5,    // Макс +50%
-    military: 1.4,       // Макс +40%
-    space: 1.6,          // Макс +60%
-    research: 1.8,       // Макс +80%
-    energy: 1.3,         // Макс +30%
-    production: 1.3,     // Макс +30%
-    mining: 1.4,         // Макс +40%
-  };
-  
-  return Math.min(multiplier, maxMultipliers[type]);
+  return Math.min(multiplier, DISTRICT_MAX_MULTIPLIER[type]);
+}
+
+/**
+ * Район «идеальный» — его бонус упёрся в потолок для своего типа.
+ * Сравнение с допуском: bonus считается через умножение, точное равенство с 1.5 ненадёжно.
+ */
+export function isDistrictMaxed(district: District): boolean {
+  return district.bonus >= DISTRICT_MAX_MULTIPLIER[district.type] - 1e-9;
 }
 
 /**

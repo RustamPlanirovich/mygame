@@ -12,6 +12,7 @@ import {
 import { useMemo } from 'react';
 import Decimal from 'break_eternity.js';
 import { GameIcon, IconText } from '../ui/icons';
+import { resourceLabel } from '../../core/i18n/label';
 
 const getTierColor = (tier: string) => {
   switch (tier) {
@@ -87,7 +88,7 @@ function ContractCard({ contract, state, affordable, onComplete }: ContractCardP
             return (
               <div key={res.resource} className="space-y-1">
                 <div className="flex justify-between items-center">
-                  <span className="text-cyber-text-dim">{res.resource}</span>
+                  <span className="text-cyber-text-dim">{resourceLabel(res.resource)}</span>
                   <div className="flex items-center gap-2">
                     <span className={res.willComplete ? 'text-green-400' : 'text-red-400'}>
                       {formatNumber(res.current)} / {formatNumber(res.needed)}

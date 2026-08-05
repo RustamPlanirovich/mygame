@@ -6,6 +6,7 @@
 import { memo, useState, useEffect } from 'react';
 import { useAdvisorStore } from '../../../features/advisorStore';
 import { useFinanceStore } from '../../../features/financeStore';
+import { useGameStore } from '../../../features/gameStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { P2P_LENDING_CONFIG } from '../../../core/gameTypes.ai';
 import type { P2PLoanOffer, P2PLoan } from '../../../core/gameTypes.ai';
@@ -44,9 +45,29 @@ function P2PLendingImpl() {
   // Точечные подписки: раньше `useFinanceStore()` будил всю панель P2P на каждый
   // set() финансового стора (тик цен акций, начисление процентов и т.д.).
   const creditScore = useFinanceStore((s) => s.creditScore);
-  const bankBalance = useFinanceStore((s) => s.bank.balance);
-  const withdrawFromBank = useFinanceStore((s) => s.withdrawFromBank);
-  const depositToBank = useFinanceStore((s) => s.depositToBank);
+
+  /*
+   * P2P-кредиты работают с ИГРОВЫМИ кредитами, как и банковские (см. registerGameCreditsAdapter
+   * в gameStore). Раньше обе ветки ходили в bank.balance — расчётный счёт биржи, — и игрок,
+   * взявший кредит, не видел денег на своём балансе.
+   */
+  const gameCredits = useGameStore((s) => s.currency.credits);
+
+  const takeCredits = (amount: ReturnType<typeof D>): boolean => {
+    let ok = false;
+    useGameStore.setState((s) => {
+      if (s.currency.credits.lt(amount)) return s;
+      ok = true;
+      return { currency: { ...s.currency, credits: s.currency.credits.sub(amount) } };
+    });
+    return ok;
+  };
+
+  const giveCredits = (amount: ReturnType<typeof D>): void => {
+    useGameStore.setState((s) => ({
+      currency: { ...s.currency, credits: s.currency.credits.add(amount) },
+    }));
+  };
 
   // Загрузка данных
   useEffect(() => {
@@ -58,13 +79,13 @@ function P2PLendingImpl() {
   const handleCreateOffer = async () => {
     // Проверяем баланс
     const amount = D(createForm.amount);
-    if (amount.gt(D(bankBalance))) {
-      alert('❌ Недостаточно средств на банковском счёте');
+    if (amount.gt(gameCredits)) {
+      alert('❌ Недостаточно кредитов колонии');
       return;
     }
 
     // Списываем со счёта
-    if (!withdrawFromBank(amount)) {
+    if (!takeCredits(amount)) {
       alert('❌ Не удалось списать средства');
       return;
     }
@@ -81,7 +102,7 @@ function P2PLendingImpl() {
       setActiveTab('my-offers');
     } else {
       // Возвращаем деньги
-      depositToBank(amount);
+      giveCredits(amount);
       alert(`❌ Ошибка: ${result.error}`);
     }
   };
@@ -90,8 +111,8 @@ function P2PLendingImpl() {
     const success = await cancelP2POffer(offer.id);
     if (success) {
       // Возвращаем деньги на счёт
-      depositToBank(D(offer.amount));
-      alert(`✅ Оффер отменён. ${formatNumber(D(offer.amount))} ₡ возвращено на счёт.`);
+      giveCredits(D(offer.amount));
+      alert(`✅ Оффер отменён. ${formatNumber(D(offer.amount))} ₡ возвращено в кредиты колонии.`);
     } else {
       alert('❌ Не удалось отменить оффер');
     }
@@ -106,9 +127,9 @@ function P2PLendingImpl() {
     const result = await borrowP2P(offer.id, creditScore);
     if (result.success) {
       // Зачисляем деньги на счёт (за вычетом комиссии)
-      depositToBank(D(result.amountReceived || '0'));
+      giveCredits(D(result.amountReceived || '0'));
       alert(
-        `✅ Кредит получен! ${formatNumber(D(result.amountReceived || '0'))} ₡ зачислено на банковский счёт.`
+        `✅ Кредит получен! ${formatNumber(D(result.amountReceived || '0'))} ₡ зачислено в кредиты колонии.`
       );
       setActiveTab('as-borrower');
     } else {
@@ -118,13 +139,13 @@ function P2PLendingImpl() {
 
   const handlePayLoan = async (loan: P2PLoan, amount: string) => {
     const payAmount = D(amount);
-    if (payAmount.gt(D(bankBalance))) {
-      alert('❌ Недостаточно средств на банковском счёте');
+    if (payAmount.gt(gameCredits)) {
+      alert('❌ Недостаточно кредитов колонии');
       return;
     }
 
     // Списываем со счёта
-    if (!withdrawFromBank(payAmount)) {
+    if (!takeCredits(payAmount)) {
       alert('❌ Не удалось списать средства');
       return;
     }
@@ -134,7 +155,7 @@ function P2PLendingImpl() {
       alert(`✅ Платёж ${formatNumber(payAmount)} ₡ проведён успешно!`);
     } else {
       // Возвращаем деньги
-      depositToBank(payAmount);
+      giveCredits(payAmount);
       alert(`❌ Ошибка: ${result.error}`);
     }
   };
@@ -372,12 +393,12 @@ function P2PLendingImpl() {
 
             <div className="flex items-center justify-between">
               <div className="text-sm text-slate-400">
-                Баланс: <span className="font-mono tabular-nums">{formatNumber(D(bankBalance))}</span> ₡
+                Кредиты колонии: <span className="font-mono tabular-nums">{formatNumber(gameCredits)}</span> ₡
               </div>
               <button
                 type="button"
                 onClick={handleCreateOffer}
-                disabled={D(createForm.amount).gt(D(bankBalance))}
+                disabled={D(createForm.amount).gt(gameCredits)}
                 className="btn-info"
               >
                 Создать оффер
@@ -476,7 +497,7 @@ function P2PLendingImpl() {
             ) : (
               <div className="space-y-2">
                 {myLoansAsBorrower.map((loan) => (
-                  <LoanPaymentCard key={loan.id} loan={loan} onPay={handlePayLoan} bankBalance={bankBalance} />
+                  <LoanPaymentCard key={loan.id} loan={loan} onPay={handlePayLoan} available={gameCredits} />
                 ))}
               </div>
             )}
@@ -491,11 +512,12 @@ function P2PLendingImpl() {
 function LoanPaymentCard({
   loan,
   onPay,
-  bankBalance,
+  available,
 }: {
   loan: P2PLoan;
   onPay: (loan: P2PLoan, amount: string) => void;
-  bankBalance: string;
+  /** Доступные игровые кредиты — платить теперь можно только ими. */
+  available: ReturnType<typeof D>;
 }) {
   const [payAmount, setPayAmount] = useState('');
 
@@ -571,7 +593,7 @@ function LoanPaymentCard({
           <button
             type="button"
             onClick={() => onPay(loan, payAmount)}
-            disabled={!payAmount || D(payAmount).lte(0) || D(payAmount).gt(D(bankBalance))}
+            disabled={!payAmount || D(payAmount).lte(0) || D(payAmount).gt(available)}
             className="btn-primary"
           >
             Погасить

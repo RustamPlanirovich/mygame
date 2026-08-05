@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { useGameStore } from '../../../features/gameStore';
+import { resourceLabel } from '../../../core/i18n/label';
 import { Badge, Field, Modal, Panel, Tabs, type TabItem } from '../../ui';
 import { ProductionChartsGrid } from './ProductionChart';
 import { BottleneckAnalyzer } from './BottleneckAnalyzer';
@@ -233,7 +234,7 @@ const ProductionTab = memo(function ProductionTab() {
                 selectedResources.includes(resource) ? 'btn-primary' : ''
               }`}
             >
-              {resource.replace(/_/g, ' ')}
+              {resourceLabel(resource)}
             </button>
           ))}
         </div>

@@ -10,6 +10,7 @@ import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { EmptyState, Panel, Stat } from '../../ui';
 import type { ResourceLoss, LossReason } from '../../../core/gameTypes.analytics';
 import { D, formatNumber } from '../../../core/math/format';
+import { resourceLabel } from '../../../core/i18n/label';
 import { PieChart } from './charts';
 import { GameIcon, IconText } from '../../ui/icons';
 
@@ -52,7 +53,7 @@ const LossItem = memo(function LossItem({ loss }: LossItemProps) {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium capitalize text-cyber-gray-200">
-              {loss.resource.replace(/_/g, ' ')}
+              {resourceLabel(loss.resource)}
             </span>
             <span
               className="rounded px-2 py-0.5 text-xs"
@@ -206,7 +207,7 @@ export const LossTracker = memo(function LossTracker() {
                       className="flex items-center justify-between text-sm"
                     >
                       <span className="capitalize text-cyber-gray-300">
-                        {resource.replace(/_/g, ' ')}
+                        {resourceLabel(resource)}
                       </span>
                       <span className="text-red-400">-{formatNumber(D(value))}</span>
                     </div>

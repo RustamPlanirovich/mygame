@@ -120,11 +120,17 @@ export function calculateBuildingROI(
     ? D(building.energyConsumption)
     : D(0);
   
-  // Определяем тип здания из id
-  const buildingType = building.id.includes('_mk') 
-    ? building.id.split('_mk')[0].replace(/_/g, ' ')
-    : building.id.replace(/_/g, ' ');
-  
+  /*
+   * Тип здания — это ревизия без суффикса `_mkN` (miner_mk2 → miner). Раньше здесь
+   * дополнительно делался `.replace(/_/g, ' ')`, то есть из id лепилась английская подпись
+   * («steel smelter»). Поле нигде не показывается, а если начнёт — показывать надо
+   * building.name, поэтому оставляем чистый id и не притворяемся, что это подпись.
+   */
+  const buildingType = building.id.includes('_mk')
+    ? building.id.split('_mk')[0]
+    : building.id;
+
+
   return {
     buildingId: building.id,
     buildingName: building.name,
@@ -136,7 +142,7 @@ export function calculateBuildingROI(
     paybackTimeSeconds,
     paybackTimeFormatted: paybackTimeSeconds > 0 && paybackTimeSeconds < Infinity
       ? formatDuration(paybackTimeSeconds)
-      : paybackTimeSeconds < 0 ? 'Убыточно' : 'N/A',
+      : paybackTimeSeconds < 0 ? 'Убыточно' : 'Нет данных',
     currentROI,
     profitability,
     energyConsumption: energyConsumption.mul(building.count || 1).toString(),

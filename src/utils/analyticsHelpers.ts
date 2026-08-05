@@ -5,8 +5,9 @@
  */
 
 import Decimal from 'break_eternity.js';
-import type { 
-  ResourceType, 
+import { resourceLabel } from '../core/i18n/label';
+import type {
+  ResourceType,
   Building,
   ResourceState
 } from '../core/gameTypes';
@@ -431,7 +432,9 @@ export function createResourceDistributionData(
   ];
   
   return entries.map((e, i) => ({
-    label: e.label,
+    // label — это подпись для диаграммы, а не id: раньше сюда уходил ключ ресурса
+    // («integrated_circuit»), и легенда была на английском.
+    label: resourceLabel(e.label),
     value: e.value.toString(),
     color: colors[i % colors.length],
   }));

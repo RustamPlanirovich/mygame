@@ -56,7 +56,8 @@ export const ResourceDistribution = memo(function ResourceDistribution({
     const total = entries.reduce((acc, item) => acc + D(item.value).toNumber(), 0);
 
     const mapped = entries.map(item => ({
-      name: type === 'energy' ? item.label : item.label.replace(/_/g, ' '),
+      // Подписи уже локализованы в createResourceDistributionData / createEnergyConsumptionData.
+      name: item.label,
       value: D(item.value).toNumber(),
       color: item.color,
     }));

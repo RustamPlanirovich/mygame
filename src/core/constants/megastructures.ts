@@ -1,5 +1,6 @@
 import Decimal from 'break_eternity.js';
 import type { Megastructure, MegastructureId, GameEnding, EndingId } from '../gameTypes';
+import { resourceLabel } from '../i18n/label';
 
 // Мегаструктуры - финальные постройки для эндгейма
 export const MEGASTRUCTURES: Record<MegastructureId, Megastructure> = {
@@ -336,7 +337,7 @@ export function canBuildMegastructure(
     const resourceData = state.resources[resource];
     const available = resourceData ? resourceData.amount : new Decimal(0);
     if (available.lt(amount)) {
-      missing.push(`Недостаточно ${resource}: ${available.toFixed(0)}/${amount.toFixed(0)}`);
+      missing.push(`Недостаточно ${resourceLabel(resource)}: ${available.toFixed(0)}/${amount.toFixed(0)}`);
     }
   }
 

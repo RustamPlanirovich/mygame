@@ -859,6 +859,12 @@ interface SavedGrid {
   tileLevels: Record<string, number>;
   tileEvolutionLevels: Record<string, number>;
   tileDisabled: Record<string, boolean>;
+  /*
+   * Незавершённые постройки/улучшения (bigplan.md, пункты 18–19). Хранятся вместе с гридом,
+   * иначе перезагрузка страницы съедала бы уже оплаченную стройку: клетка занята, ресурсы
+   * списаны, а работы нет — здание навсегда осталось бы неработающим.
+   */
+  tileJobs: Record<string, SavedTileJob>;
   deposits: Record<string, string>;
   buffers: Record<string, Record<string, DecStr>>;
   activeTransports: Array<{
@@ -876,6 +882,75 @@ interface SavedGrid {
   cameraY: number | null;
   cameraZoom: number | null;
 }
+
+/*
+ * Работа на клетке в сейве. Время — абсолютное (startedAt + duration), поэтому загрузка сейва
+ * автоматически достраивает всё, что успело завершиться за оффлайн: первый же тик увидит, что
+ * now >= startedAt + duration. Никакой отдельной оффлайн-логики для стройки не требуется.
+ */
+interface SavedTileJob {
+  kind: 'build' | 'upgrade';
+  buildingId: string;
+  startedAt: number;
+  duration: number;
+  targetLevel: number | null;
+  paidCost: Record<string, DecStr>;
+  paidCredits: DecStr | null;
+}
+
+const encTileJobs = (src: GridState['tileJobs']): Record<string, SavedTileJob> => {
+  const out: Record<string, SavedTileJob> = {};
+  for (const [tileKey, job] of Object.entries(rec(src))) {
+    if (!isRec(job)) continue;
+    const j = job as NonNullable<GridState['tileJobs']>[string];
+    const paidCost: Record<string, DecStr> = {};
+    for (const [res, val] of Object.entries(rec(j.paidCost))) {
+      if (val === undefined || val === null) continue;
+      paidCost[res] = encD(val as string);
+    }
+    out[tileKey] = {
+      kind: j.kind === 'upgrade' ? 'upgrade' : 'build',
+      buildingId: String(j.buildingId ?? ''),
+      startedAt: num(j.startedAt, 0),
+      duration: num(j.duration, 0),
+      targetLevel: typeof j.targetLevel === 'number' ? j.targetLevel : null,
+      paidCost,
+      paidCredits: j.paidCredits ? encD(j.paidCredits) : null,
+    };
+  }
+  return out;
+};
+
+const decTileJobs = (raw: unknown): NonNullable<GridState['tileJobs']> => {
+  const out: NonNullable<GridState['tileJobs']> = {};
+  for (const [tileKey, job] of Object.entries(rec(raw))) {
+    if (!isRec(job)) continue;
+    const j = job as AnyRec;
+    const buildingId = str(j.buildingId, '');
+    // Работа без здания или без длительности неприменима — молча выбрасываем, а не
+    // оставляем клетку навсегда «в стройке».
+    if (!buildingId) continue;
+    const duration = num(j.duration, 0);
+    if (duration <= 0) continue;
+
+    const paidCost: Partial<Record<ResourceType, string>> = {};
+    for (const [res, val] of Object.entries(rec(j.paidCost))) {
+      if (val === undefined || val === null) continue;
+      paidCost[res as ResourceType] = encD(val as string);
+    }
+
+    out[tileKey] = {
+      kind: j.kind === 'upgrade' ? 'upgrade' : 'build',
+      buildingId,
+      startedAt: num(j.startedAt, 0),
+      duration,
+      ...(typeof j.targetLevel === 'number' ? { targetLevel: j.targetLevel } : {}),
+      paidCost,
+      ...(j.paidCredits ? { paidCredits: encD(j.paidCredits) } : {}),
+    };
+  }
+  return out;
+};
 
 const encBuffers = (
   src: Record<string, Partial<Record<ResourceType, string>>> | undefined,
@@ -940,6 +1015,7 @@ const encGrid = (src: GridState): SavedGrid => ({
   tileLevels: encNumRecord(src.tileLevels),
   tileEvolutionLevels: encNumRecord(src.tileEvolutionLevels),
   tileDisabled: encBoolRecord(src.tileDisabled),
+  tileJobs: encTileJobs(src.tileJobs),
   deposits: cloneJson(src.deposits as Record<string, string>, {}),
   buffers: encBuffers(src.buffers),
   activeTransports: encArray(src.activeTransports, (t) => ({
@@ -974,6 +1050,7 @@ const decGrid = (raw: unknown, base: GridState): GridState => {
     tileLevels: decNumRecord<string>(r.tileLevels) as Record<string, number>,
     tileEvolutionLevels: decNumRecord<string>(r.tileEvolutionLevels) as Record<string, number>,
     tileDisabled: decBoolRecord<string>(r.tileDisabled) as Record<string, boolean>,
+    tileJobs: decTileJobs(r.tileJobs),
     deposits: isRec(r.deposits)
       ? (cloneJson(r.deposits as Record<string, DepositType>, {}) as Record<string, DepositType>)
       : { ...(base.deposits ?? {}) },
@@ -2305,6 +2382,19 @@ interface SavedPlayerStats {
   lifetimeCreditsEarned: DecStr;
   lifetimeCreditsSpent: DecStr;
   contractsCompleted: number;
+  /*
+   * Кумулятивные счётчики событий (bigplan.md, пункты 11 и 26). Без них достижения за боссов,
+   * отбитые волны, караваны и редкие события были недостижимы: игра не считала эти величины,
+   * а вывести их из состояния постфактум невозможно. Обязаны сохраняться — иначе счётчик
+   * сбрасывался бы каждой перезагрузкой, и «убей 10 боссов» никогда не закрылось бы.
+   */
+  enemiesKilled: number;
+  bossKills: number;
+  attacksDefended: number;
+  caravansDelivered: number;
+  rareEventRewards: number;
+  chainReactionsSurvived: number;
+  uniquePoliciesActivated: string[];
 }
 
 const encPlayerStats = (src: PlayerStats): SavedPlayerStats => ({
@@ -2318,6 +2408,13 @@ const encPlayerStats = (src: PlayerStats): SavedPlayerStats => ({
   lifetimeCreditsEarned: encD(src.lifetimeCreditsEarned),
   lifetimeCreditsSpent: encD(src.lifetimeCreditsSpent),
   contractsCompleted: nonNegInt(src.contractsCompleted, 0),
+  enemiesKilled: nonNegInt(src.enemiesKilled, 0),
+  bossKills: nonNegInt(src.bossKills, 0),
+  attacksDefended: nonNegInt(src.attacksDefended, 0),
+  caravansDelivered: nonNegInt(src.caravansDelivered, 0),
+  rareEventRewards: nonNegInt(src.rareEventRewards, 0),
+  chainReactionsSurvived: nonNegInt(src.chainReactionsSurvived, 0),
+  uniquePoliciesActivated: encArray(src.uniquePoliciesActivated, (p) => String(p)),
 });
 
 const decPlayerStats = (raw: unknown): PlayerStats => {
@@ -2332,6 +2429,14 @@ const decPlayerStats = (raw: unknown): PlayerStats => {
     lifetimeCreditsSpent: decD(r.lifetimeCreditsSpent, 0),
     // Отсутствует в старых сейвах -> 0, а не undefined (иначе Math.floor(undefined/5) = NaN).
     contractsCompleted: nonNegInt(r.contractsCompleted, 0),
+    // Те же правила для счётчиков событий: старый сейв даёт 0, а не undefined.
+    enemiesKilled: nonNegInt(r.enemiesKilled, 0),
+    bossKills: nonNegInt(r.bossKills, 0),
+    attacksDefended: nonNegInt(r.attacksDefended, 0),
+    caravansDelivered: nonNegInt(r.caravansDelivered, 0),
+    rareEventRewards: nonNegInt(r.rareEventRewards, 0),
+    chainReactionsSurvived: nonNegInt(r.chainReactionsSurvived, 0),
+    uniquePoliciesActivated: decArray(r.uniquePoliciesActivated, (p) => String(p)),
   };
 };
 

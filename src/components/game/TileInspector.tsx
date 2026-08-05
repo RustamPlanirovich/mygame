@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   useGameStore,
   calculateCost,
@@ -25,6 +25,18 @@ import { isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
 import { GameIcon, IconText } from '../ui/icons';
+import { jobProgress, jobRemainingMs, type TileJob } from '../../core/systems/construction';
+
+/** «12с» / «1м 05с» — остаток работы человеческим текстом. */
+function formatJobRemaining(job: TileJob, now: number): string {
+  const ms = jobRemainingMs(job, now);
+  const totalSeconds = Math.ceil(ms / 1000);
+  if (totalSeconds <= 0) return 'готово';
+  if (totalSeconds < 60) return `${totalSeconds}с`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}м ${String(seconds).padStart(2, '0')}с`;
+}
 
 const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
   if (buildingId === 'miner_mk1') return 'ore';
@@ -103,6 +115,15 @@ export function TileInspector() {
     }
     return s.grid.tileDisabled;
   });
+  // Незавершённые стройки/улучшения активной сетки (на платформе — своя очередь).
+  const tileJobs = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.tileJobs;
+    }
+    return s.grid.tileJobs;
+  });
   const marketPolicy = useGameStore((s) => {
     const platformId = s.galaxies.activePlatformId;
     if (platformId) {
@@ -145,11 +166,12 @@ export function TileInspector() {
     tileLevels,
     tileEvolutionLevels,
     tileDisabled,
+    tileJobs,
     marketPolicy,
     selectedBuildId,
     width: gridWidth,
     height: gridHeight,
-  }), [selected, tiles, deposits, buffers, tileLevels, tileEvolutionLevels, tileDisabled, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
+  }), [selected, tiles, deposits, buffers, tileLevels, tileEvolutionLevels, tileDisabled, tileJobs, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
   
   const buildings = useGameStore((s) => s.buildings);
   // Get resources from active platform or main base
@@ -179,6 +201,7 @@ export function TileInspector() {
   const downgradeBuildingAt = useGameStore((s) => s.downgradeBuildingAt);
   const evolveBuildingAt = useGameStore((s) => s.evolveBuildingAt);
   const toggleBuildingDisabled = useGameStore((s) => s.toggleBuildingDisabled);
+  const cancelTileJob = useGameStore((s) => s.cancelTileJob);
 
   // State for building settings modal
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -188,6 +211,24 @@ export function TileInspector() {
   const buildingLevel = selectedKey ? (grid.tileLevels?.[selectedKey] || 1) : 1;
   const evolutionLevel = selectedKey ? (grid.tileEvolutionLevels?.[selectedKey] || 0) : 0;
   const isDisabled = selectedKey ? (grid.tileDisabled?.[selectedKey] || false) : false;
+
+  /*
+   * Незавершённая стройка/улучшение на этой клетке (bigplan.md, пункты 18–19).
+   * Пока работа идёт, здание не производит, а кнопки улучшения бессмысленны.
+   */
+  const activeJob = selectedKey ? grid.tileJobs?.[selectedKey] : undefined;
+
+  /*
+   * Часы для прогресс-бара. Тикают ТОЛЬКО когда на выбранной клетке идёт работа: панель и без
+   * того перерисовывается на каждый тик игры, но полагаться на это нельзя — стройка идёт
+   * секунды, и полоса должна двигаться, даже если в стейте больше ничего не меняется.
+   */
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!activeJob) return;
+    const id = setInterval(() => setNowTick(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [activeJob]);
 
   const tileMarketPolicy = selectedKey ? (grid.marketPolicy?.[selectedKey] ?? {}) : {};
 
@@ -606,15 +647,56 @@ export function TileInspector() {
               </div>
             )}
 
+            {/*
+              Идёт стройка или улучшение (bigplan.md, пункты 18–19). Блок объясняет, почему
+              здание не производит, показывает остаток времени и даёт отменить — без отмены
+              ошибочный клик по дорогому зданию заморозил бы ресурсы до конца работы.
+            */}
+            {activeJob && (
+              <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-blue/40">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-xs text-cyber-blue">
+                    <GameIcon icon="🏗️" />{' '}
+                    {activeJob.kind === 'build'
+                      ? 'Идёт постройка'
+                      : `Идёт улучшение до ур. ${activeJob.targetLevel ?? '?'}`}
+                  </div>
+                  <div className="text-xs font-mono text-cyber-text-dim tabular-nums">
+                    {formatJobRemaining(activeJob, nowTick)}
+                  </div>
+                </div>
+
+                <div className="h-1.5 rounded bg-cyber-black/60 overflow-hidden">
+                  <div
+                    className="h-full bg-cyber-blue transition-[width] duration-200"
+                    style={{ width: `${Math.round(jobProgress(activeJob, nowTick) * 100)}%` }}
+                  />
+                </div>
+
+                <div className="text-[10px] text-cyber-text-dim mt-1.5">
+                  Пока идёт работа, здание не производит и не потребляет.
+                </div>
+
+                <button
+                  type="button"
+                  className="mt-2 w-full bg-red-600/70 hover:bg-red-600 text-white text-xs py-1.5 px-3 rounded"
+                  onClick={() => grid.selected && cancelTileJob(grid.selected)}
+                >
+                  Отменить и вернуть ресурсы
+                </button>
+              </div>
+            )}
+
             {/* ФАЗА 8.5: Система уровней зданий */}
             <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
               <div className="text-xs text-cyber-text-dim mb-2"><GameIcon icon="⬆️" /> Улучшение здания</div>
-              
+
               {(() => {
                 // Рассчитываем стоимость улучшения
                 const upgradeCostFactor = Math.pow(1.15, buildingLevel);
                 const upgradeCost: Array<{resource: string, amount: Decimal, available: Decimal, canAfford: boolean}> = [];
-                let canAffordUpgrade = buildingLevel < 500;
+                // Пока на клетке идёт работа, новое улучшение в очередь не ставим.
+                let canAffordUpgrade = buildingLevel < 500 && !activeJob;
                 
                 Object.entries(building.baseCost).forEach(([resource, baseCost]) => {
                   const cost = D(baseCost).mul(upgradeCostFactor);
@@ -667,7 +749,7 @@ export function TileInspector() {
                       <button
                         className="flex-1 bg-orange-600/80 hover:bg-orange-600 text-white text-xs py-2 px-3 rounded flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => downgradeBuildingAt(grid.selected!)}
-                        disabled={buildingLevel <= 1}
+                        disabled={buildingLevel <= 1 || !!activeJob}
                       >
                         <ArrowDown size={14} />
                         <span>Понизить (Ур. {buildingLevel - 1})</span>

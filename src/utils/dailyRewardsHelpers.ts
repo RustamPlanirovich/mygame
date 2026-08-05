@@ -1,5 +1,6 @@
 import Decimal from 'break_eternity.js';
 import type { DailyReward, DailyLoginState, TimeBasedReward, TimeBasedRewardsState } from '../core/gameTypes';
+import { resourceLabel } from '../core/i18n/label';
 
 /**
  * Генерирует календарь наград на 7 дней
@@ -230,7 +231,7 @@ export function formatRewardDescription(reward: DailyReward['rewards']): string 
   }
   if (reward.resources) {
     for (const [resource, amount] of Object.entries(reward.resources)) {
-      parts.push(`${getResourceEmoji(resource)} ${amount.toFixed(0)} ${resource}`);
+      parts.push(`${getResourceEmoji(resource)} ${amount.toFixed(0)} ${resourceLabel(resource)}`);
     }
   }
   

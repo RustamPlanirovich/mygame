@@ -35,8 +35,13 @@ export function WarehousePopover(props: {
   buildings: Building[];
   isPinned: (id: ResourceType) => boolean;
   togglePin: (id: ResourceType) => void;
+  /** Достигнут лимит закреплённых ресурсов — новые звёздочки не сработают. */
+  isFull?: boolean;
+  maxPins?: number;
 }) {
   const { open, onClose, anchorRef, resources, buildings, isPinned, togglePin } = props;
+  const pinLimitReached = props.isFull ?? false;
+  const maxPins = props.maxPins ?? 0;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -209,13 +214,24 @@ export function WarehousePopover(props: {
                 {/* Кнопка закрепления - только иконка */}
                 <button
                   type="button"
+                  // Без disabled на достигнутом лимите клик просто ничего не делал: normalizePins
+                  // отрезает всё за пределами MAX_PINS, и это читалось как «кнопка не работает».
+                  disabled={!pinned && pinLimitReached}
                   className={`p-1.5 rounded border transition-all shrink-0 ${
-                    pinned 
-                      ? 'border-cyber-green bg-cyber-green/20 text-cyber-green' 
-                      : 'border-cyber-gray/50 hover:border-cyber-blue text-cyber-text-dim hover:text-cyber-blue'
+                    pinned
+                      ? 'border-cyber-green bg-cyber-green/20 text-cyber-green'
+                      : pinLimitReached
+                        ? 'border-cyber-gray/30 text-cyber-text-dim/40 cursor-not-allowed'
+                        : 'border-cyber-gray/50 hover:border-cyber-blue text-cyber-text-dim hover:text-cyber-blue'
                   }`}
                   onClick={() => togglePin(key)}
-                  title={pinned ? 'Открепить' : 'Закрепить в панели'}
+                  title={
+                    pinned
+                      ? 'Открепить'
+                      : pinLimitReached
+                        ? `Закреплено максимум ${maxPins} ресурсов — открепите любой`
+                        : 'Закрепить в панели'
+                  }
                 >
                   <Pin size={12} className={pinned ? 'fill-current' : ''} />
                 </button>

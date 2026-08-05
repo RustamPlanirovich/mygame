@@ -29,6 +29,7 @@ import * as api from '../utils/marketApi';
 import type { GuildChatMessage, PendingTransaction } from '../utils/marketApi';
 import { getUserId } from '../utils/settingsApi';
 import { D } from '../core/math/format';
+import { resourceLabel } from '../core/i18n/label';
 import { orderEscrowRequirement, formatAmount } from './marketEscrow';
 import {
   creditGameState,
@@ -241,7 +242,7 @@ async function settleWithdrawal(withdrawal: VaultWithdrawalDTO): Promise<VaultOp
      */
     return {
       ok: false,
-      message: `Ресурс ${withdrawal.resource} отсутствует в игровом состоянии — вывод оставлен в очереди.`,
+      message: `Ресурс ${resourceLabel(withdrawal.resource)} отсутствует в игровом состоянии — вывод оставлен в очереди.`,
     };
   }
 

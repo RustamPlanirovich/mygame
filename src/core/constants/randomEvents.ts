@@ -14,6 +14,14 @@ export interface EventConfig {
 export const BASE_EVENT_INTERVAL_MIN = 5 * 60 * 1000; // 5 минут
 export const BASE_EVENT_INTERVAL_MAX = 15 * 60 * 1000; // 15 минут
 
+/**
+ * Порог «редкости» по весу. Отдельного поля rarity у событий нет, а вес — единственная
+ * величина, которая отражает частоту, поэтому редкими считаем события с весом не больше этого.
+ * Нужно для достижения «Везунчик» (bigplan.md, пункт 11): раньше оно не могло выполниться,
+ * потому что игра не отличала редкое событие от обычного.
+ */
+export const RARE_EVENT_MAX_WEIGHT = 5;
+
 // Конфигурация всех типов событий
 export const EVENT_CONFIGS: Record<RandomEventType, EventConfig> = {
   meteor_shower: {
@@ -185,3 +193,12 @@ export const EVENT_EFFECTS = {
     affectedResources: ['semiconductors', 'computer', 'display'],
   },
 };
+
+/**
+ * Редкое ли это событие. Опирается на вес из EVENT_CONFIGS — единственную величину,
+ * описывающую частоту (см. RARE_EVENT_MAX_WEIGHT).
+ */
+export function isRareEvent(type: RandomEventType): boolean {
+  const config = EVENT_CONFIGS[type];
+  return !!config && config.weight <= RARE_EVENT_MAX_WEIGHT;
+}

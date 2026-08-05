@@ -16,6 +16,7 @@ import {
   type TileBuildingSettings,
 } from '../../../core/gameTypes.buildings';
 import { RESOURCE_LABEL } from '../../../core/constants/labels';
+import { resourceLabel } from '../../../core/i18n/label';
 import { getBuildingIcon } from '../../../core/constants/buildingIcons';
 import type { ResourceType } from '../../../core/gameTypes';
 import { formatNumber, D } from '../../../core/math/format';
@@ -495,8 +496,8 @@ function ConditionsTab({ settings, tileKey }: ConditionsTabProps) {
           {settings.conditions.map(condition => (
             <div key={condition.id} className="flex items-center gap-3 p-3 bg-cyber-darker rounded-lg">
               <span className="flex-1 text-sm">
-                {condition.type === 'resource_above' && `Когда ${condition.resource} > ${condition.value}%`}
-                {condition.type === 'resource_below' && `Когда ${condition.resource} < ${condition.value}%`}
+                {condition.type === 'resource_above' && `Когда ${resourceLabel(condition.resource ?? '')} > ${condition.value}%`}
+                {condition.type === 'resource_below' && `Когда ${resourceLabel(condition.resource ?? '')} < ${condition.value}%`}
                 {condition.type === 'energy_available' && `Когда энергии > ${condition.value}%`}
                 <GameIcon icon="→" /> {condition.action === 'enable' ? 'Включить' : condition.action === 'disable' ? 'Выключить' : `Режим: ${condition.targetMode}`}
               </span>

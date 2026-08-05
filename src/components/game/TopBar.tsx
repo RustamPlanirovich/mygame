@@ -147,7 +147,7 @@ export function TopBar({ onOpenProfile, onOpenMaps, onOpenAdmin, compact = false
   const stats = useGameStore((s) => s.stats);
   const maps = useGameStore((s) => s.maps);
 
-  const { pins, isPinned, togglePin } = usePinnedResources();
+  const { pins, isPinned, togglePin, isFull: pinsFull, maxPins } = usePinnedResources();
   const [warehouseOpen, setWarehouseOpen] = useState(false);
   const warehouseButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -398,6 +398,8 @@ export function TopBar({ onOpenProfile, onOpenMaps, onOpenAdmin, compact = false
         buildings={buildings}
         isPinned={isPinned}
         togglePin={togglePin}
+        isFull={pinsFull}
+        maxPins={maxPins}
       />
     </header>
   );

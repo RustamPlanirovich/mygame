@@ -12,6 +12,7 @@ import { EmptyState, Panel, Stat } from '../../ui';
 import type { Bottleneck } from '../../../core/gameTypes.analytics';
 import { getSeverityColor, formatDuration } from '../../../core/gameTypes.analytics';
 import { D, formatNumber, formatRate } from '../../../core/math/format';
+import { resourceLabel } from '../../../core/i18n/label';
 import { GameIcon } from '../../ui/icons';
 
 const SEVERITY_ICON = {
@@ -55,7 +56,7 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
             className="text-sm font-medium capitalize"
             style={{ color: severityColor }}
           >
-            {bottleneck.resource.replace(/_/g, ' ')}
+            {resourceLabel(bottleneck.resource)}
           </span>
         </div>
         <span

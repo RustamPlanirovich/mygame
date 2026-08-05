@@ -8,6 +8,7 @@ import { Modal, EmptyState } from '../ui';
 import { MAP_DEFINITIONS, getUnlockedMaps, getMapDefinition } from '../../core/constants/maps';
 import type { MapDefinition, MapDifficulty, MapSize, GridType } from '../../core/gameTypes.maps';
 import { DIFFICULTY_MULTIPLIERS } from '../../core/gameTypes.maps';
+import { depositLabel, resourceLabel, technologyLabel } from '../../core/i18n/label';
 import { GameIcon, IconText } from '../ui/icons';
 
 interface MapSelectorProps {
@@ -293,7 +294,7 @@ function MapPreview({
               key={resource}
               className="px-2 py-1 rounded bg-cyber-blue/20 text-cyber-blue text-sm"
             >
-              {resource}: {amount}
+              {resourceLabel(resource)}: {amount}
             </span>
           ))}
           <span className="px-2 py-1 rounded bg-cyber-yellow/20 text-cyber-yellow text-sm">
@@ -311,7 +312,7 @@ function MapPreview({
               key={deposit}
               className="px-2 py-0.5 rounded bg-cyber-gray/30 text-cyber-text-dim text-xs"
             >
-              {deposit}
+              {depositLabel(deposit)}
             </span>
           ))}
         </div>
@@ -369,7 +370,8 @@ function getUnlockRequirementText(map: MapDefinition): string {
   const req = map.unlockRequirement;
   switch (req.type) {
     case 'technology':
-      return `Требуется технология: ${req.technologyId}`;
+      // Здесь печатался сырой id технологии («advanced_mining»), а не её название.
+      return `Требуется технология: ${technologyLabel(req.technologyId ?? '')}`;
     case 'ascension':
       return `Требуется Вознесение уровня ${req.ascensionLevel}`;
     case 'playtime':

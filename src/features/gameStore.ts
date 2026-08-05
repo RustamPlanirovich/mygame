@@ -46,7 +46,7 @@ import { D } from '../core/math/format.ts';
 import { serializeGame, loadSavePayload } from './gameSave';
 // Финансы — отдельный store, поэтому их снимок добавляется к payload здесь, а не внутри
 // serializeGame (который работает только с GameState).
-import { serializeFinance, hydrateFinance } from './financeStore';
+import { serializeFinance, hydrateFinance, registerGameCreditsAdapter, resetFinanceState } from './financeStore';
 import { baseResearchPointsPerSecond, baseInfluencePerSecond } from '../core/production/currencyRates';
 import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
@@ -114,17 +114,31 @@ import { GALAXIES } from '../core/constants/galaxies';
 import { SHIP_DEFINITIONS, calculateShipStats, calculateShipUpgradeCost, generateShipName } from '../core/constants/ships';
 import { type EnemyType, ENEMY_DEFINITIONS, getBossForLevel, createPlatformEnemy } from '../core/constants/enemies';
 import { calculateLogisticsEfficiency } from '../utils/logisticsHelpers';
-import { EVENT_CONFIGS, EVENT_EFFECTS, BASE_EVENT_INTERVAL_MIN, BASE_EVENT_INTERVAL_MAX } from '../core/constants/randomEvents';
+import { EVENT_CONFIGS, EVENT_EFFECTS, BASE_EVENT_INTERVAL_MIN, BASE_EVENT_INTERVAL_MAX, isRareEvent } from '../core/constants/randomEvents';
 import { getAchievementById } from '../core/constants/achievements';
 import { MEGASTRUCTURES, GAME_ENDINGS, canBuildMegastructure, getMegastructureRewards, checkEndingRequirements } from '../core/constants/megastructures';
 import { PRESTIGE_UPGRADES, calculateQuantumPoints, canBuyPrestigeUpgrade, getTotalPrestigeBonuses } from '../core/constants/prestige';
-import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
+import { calculateArtifactBonuses, calculateMaxSlots, calculateUsedSlots, getUpgradeCost, shouldDropArtifactFromGalaxy, generateGalaxyArtifact } from '../utils/artifactHelpers';
+import {
+  canClaimDailyReward,
+  claimDailyReward as applyDailyRewardClaim,
+  generateDailyRewardsCalendar,
+  updateDailyLogin,
+  updateTimeBasedRewards,
+} from '../utils/dailyRewardsHelpers';
 import { STARTER_QUESTS } from '../core/constants/quests';
 import { getTotalRepeatableBonuses, isExoticResource, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
 import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredBoosts, isSignalExpired, getSignalRewardDescription, createBoostFromReward } from '../utils/signalHelpers';
 import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
 import { BUILDING_EVOLUTIONS, getNextEvolution } from '../core/constants/buildingEvolutions';
 import { generateGalaxy, getDiscoveryCost } from '../utils/galaxyGenerator';
+import { localizeGeneratedName } from '../core/i18n/label';
+import {
+  buildDurationSeconds,
+  collectCompletedJobs,
+  effectiveDisabledTiles,
+  upgradeDurationSeconds,
+} from '../core/systems/construction';
 import { generateMap } from '../utils/mapGenerator';
 import { getMapDefinition } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
@@ -314,6 +328,13 @@ let productionRatesCache: {
   tileSettingsRef: any; // ФАЗА 5
   tileDisabledRef: any; // ФАЗА 5
   /*
+   * Ссылка на grid.tileJobs. Ставки производства считаются по НАБОРУ отключённых клеток,
+   * в который входят и строящиеся (см. effectiveDisabledTiles). Без этого ключа завершённая
+   * стройка не попадала бы в ставки: tileJobs изменился, а tileDisabled — нет, и кэш считал
+   * бы себя актуальным.
+   */
+  tileJobsRef: any;
+  /*
    * Ссылка на activePolicies. В кэшированные ставки теперь вмешаны множители политик,
    * поэтому переключение политики обязано его сбрасывать — иначе игрок видел бы старые
    * цифры до ближайшей постройки. Сравниваем по ссылке: activatePolicy/deactivatePolicy
@@ -329,6 +350,7 @@ let productionRatesCache: {
   tileEvolutionLevelsRef: null,
   tileSettingsRef: null, // ФАЗА 5
   tileDisabledRef: null, // ФАЗА 5
+  tileJobsRef: null,
   activePoliciesRef: null,
   buildingsCount: 0,
   rates: null,
@@ -583,6 +605,30 @@ const INITIAL_ACHIEVEMENTS: import('../core/gameTypes').AchievementsState = {
   recentlyUnlocked: [],
 };
 
+/**
+ * Начальная статистика игрока. Раньше этот объект дублировался в четырёх местах (initial state,
+ * resetGame, два места сброса), и добавление счётчика означало правку всех четырёх — так и
+ * появлялись пропущенные поля.
+ */
+export const INITIAL_PLAYER_STATS: import('../core/gameTypes').PlayerStats = {
+  totalPlayTime: 0,
+  sessionsCount: 0,
+  currentSessionStart: 0,
+  lifetimeResourcesProduced: {},
+  lifetimeResourcesSpent: {},
+  lifetimeCreditsEarned: D(0),
+  lifetimeCreditsSpent: D(0),
+  contractsCompleted: 0,
+  // Счётчики событий (bigplan.md, пункты 11 и 26) — см. комментарий у PlayerStats.
+  enemiesKilled: 0,
+  bossKills: 0,
+  attacksDefended: 0,
+  caravansDelivered: 0,
+  rareEventRewards: 0,
+  chainReactionsSurvived: 0,
+  uniquePoliciesActivated: [],
+};
+
 const INITIAL_MEGASTRUCTURES: import('../core/gameTypes').MegastructuresState = {
   built: {},
   constructionQueue: [],
@@ -708,16 +754,7 @@ const INITIAL_RETENTION: import('../core/gameTypes').RetentionState = {
     collectionInterval: 4 * 60 * 60 * 1000, // 4 hours
     maxStoredContainers: 2,
   },
-  stats: {
-    totalPlayTime: 0,
-    sessionsCount: 0,
-    currentSessionStart: Date.now(),
-    lifetimeResourcesProduced: {},
-    lifetimeResourcesSpent: {},
-    lifetimeCreditsEarned: D(0),
-    lifetimeCreditsSpent: D(0),
-    contractsCompleted: 0,
-  },
+  stats: { ...INITIAL_PLAYER_STATS, currentSessionStart: Date.now() },
 };
 
 // Signal Interception - Initial State (infinitely.md - Active Play Bonuses)
@@ -3017,16 +3054,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     completedQuests: [],
   },
   lastTick: Date.now(),
-  stats: {
-    totalPlayTime: 0,
-    sessionsCount: 1,
-    currentSessionStart: Date.now(),
-    lifetimeResourcesProduced: {},
-    lifetimeResourcesSpent: {},
-    lifetimeCreditsEarned: D(0),
-    lifetimeCreditsSpent: D(0),
-    contractsCompleted: 0,
-  },
+  stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: Date.now() },
   
   // Energy balance telemetry
   energyProduction: D(0),
@@ -3296,6 +3324,12 @@ export const useGameStore = create<GameState>((set, get) => ({
         const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
         const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, nextPlatformTiles);
 
+        // Стройка на платформе идёт по тем же правилам, что и на базе (см. пункт 18).
+        const platformPaidCost: Partial<Record<ResourceType, string>> = {};
+        for (const [resType, amount] of Object.entries(cost)) {
+          platformPaidCost[resType as ResourceType] = D(amount).toString();
+        }
+
         // Place building on platform
         const updatedPlatforms = [...state.galaxies.platforms];
         updatedPlatforms[platformIndex] = {
@@ -3303,6 +3337,16 @@ export const useGameStore = create<GameState>((set, get) => ({
           grid: {
             ...platform.grid,
             tiles: nextPlatformTiles,
+            tileJobs: {
+              ...(platform.grid.tileJobs ?? {}),
+              [k]: {
+                kind: 'build' as const,
+                buildingId: buildId,
+                startedAt: Date.now(),
+                duration: Math.round(buildDurationSeconds(building, building.count) * 1000),
+                paidCost: platformPaidCost,
+              },
+            },
             selected: null,
             selectedBuildId: null,
           },
@@ -3385,24 +3429,123 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
       const nextTileEvolutionLevels = { ...tileEvolutionLevels, [k]: 0 };
 
-      // Прогресс квестов на постройку конкретного здания и на постройку любого здания.
-      const updatedQuests = advanceQuests(
-        state.quests,
-        (quest) => quest.type === 'build' && (quest.target === buildId || quest.target === 'any'),
-      );
+      /*
+       * Стройка занимает время (bigplan.md, пункт 18). Клетка занимается и стоимость
+       * списывается сразу — иначе можно было бы «поставить» сто зданий бесплатно и ждать, —
+       * но здание не работает, пока в grid.tileJobs есть работа по этой клетке.
+       *
+       * Кривая обучения считается по УЖЕ построенным зданиям этого типа (building.count до
+       * инкремента): десятый майнер ставится заметно быстрее первого.
+       */
+      const buildSeconds = buildDurationSeconds(building, building.count);
+      const paidCost: Partial<Record<ResourceType, string>> = {};
+      for (const [resType, amount] of Object.entries(cost)) {
+        paidCost[resType as ResourceType] = D(amount).toString();
+      }
+      const nextTileJobs = {
+        ...(state.grid.tileJobs ?? {}),
+        [k]: {
+          kind: 'build' as const,
+          buildingId: buildId,
+          startedAt: Date.now(),
+          duration: Math.round(buildSeconds * 1000),
+          paidCost,
+        },
+      };
 
+      /*
+       * Квест на постройку продвигается по ЗАВЕРШЕНИИ, а не по старту — см. обработку
+       * завершённых работ в tick. Иначе задание закрывалось бы недостроенным зданием.
+       */
       return {
         resources: capped,
         buildings: newBuildings,
-        quests: updatedQuests,
         grid: {
           ...state.grid,
           buffers: nextBuffers,
           tiles: nextTiles,
           tileLevels: nextTileLevels,
           tileEvolutionLevels: nextTileEvolutionLevels,
+          tileJobs: nextTileJobs,
           selected: pos,
           selectedBuildId: null, // Сбрасываем режим строительства после установки
+        },
+      };
+    });
+  },
+
+  /**
+   * Отменить незавершённую постройку/улучшение и вернуть списанное.
+   *
+   * Без отмены очередь была бы ловушкой: ошибочный клик по дорогому зданию заморозил бы
+   * ресурсы до конца стройки.
+   */
+  cancelTileJob: (pos) => {
+    set((state) => {
+      const k = keyOf(pos);
+      const jobs = state.grid.tileJobs;
+      const job = jobs?.[k];
+      if (!jobs || !job) return state;
+
+      const nextJobs = { ...jobs };
+      delete nextJobs[k];
+
+      // Возвращаем ресурсы в базовый буфер.
+      let buffers = state.grid.buffers;
+      const newResources = { ...state.resources };
+      if (job.paidCost) {
+        for (const [resType, amount] of Object.entries(job.paidCost)) {
+          const rType = resType as ResourceType;
+          if (!newResources[rType]) continue;
+          const cur = getBuf(buffers, 'base', rType);
+          const next = cur.add(D(amount)).min(newResources[rType].max);
+          buffers = setBuf(buffers, 'base', rType, next);
+          newResources[rType] = { ...newResources[rType], amount: next };
+        }
+      }
+
+      const currency = job.paidCredits
+        ? { ...state.currency, credits: state.currency.credits.add(D(job.paidCredits)) }
+        : state.currency;
+
+      if (job.kind === 'upgrade') {
+        // Улучшение: здание остаётся на месте на прежнем уровне, снимаем только работу.
+        return {
+          resources: newResources,
+          currency,
+          grid: { ...state.grid, buffers, tileJobs: nextJobs },
+        };
+      }
+
+      // Постройка: убираем недостроенное здание с клетки и откатываем счётчик каталога.
+      const nextTiles = { ...state.grid.tiles };
+      delete nextTiles[k];
+      const nextTileLevels = { ...(state.grid.tileLevels ?? {}) };
+      delete nextTileLevels[k];
+      const nextTileEvolutionLevels = { ...(state.grid.tileEvolutionLevels ?? {}) };
+      delete nextTileEvolutionLevels[k];
+
+      const buildingIndex = state.buildings.findIndex((b) => b.id === job.buildingId);
+      const newBuildings = [...state.buildings];
+      if (buildingIndex !== -1) {
+        const b = newBuildings[buildingIndex];
+        newBuildings[buildingIndex] = { ...b, count: Math.max(0, b.count - 1) };
+      }
+
+      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
+      const capped = recomputeCaps(newResources, newBuildings, capsMult, nextTileLevels, nextTiles);
+
+      return {
+        resources: capped,
+        currency,
+        buildings: newBuildings,
+        grid: {
+          ...state.grid,
+          buffers,
+          tiles: nextTiles,
+          tileLevels: nextTileLevels,
+          tileEvolutionLevels: nextTileEvolutionLevels,
+          tileJobs: nextJobs,
         },
       };
     });
@@ -4121,6 +4264,16 @@ export const useGameStore = create<GameState>((set, get) => ({
         state.grid.tiles,
       );
 
+      /*
+       * Уникальные политики за всё время (bigplan.md, пункты 11 и 26). Достижение «Правитель»
+       * требует 10 РАЗНЫХ активированных политик, а проверка смотрела на activePolicies.length,
+       * ограниченный maxActivePolicies — то есть условие могло быть недостижимо в принципе.
+       * Список только растёт: деактивация политики не отбирает достижение.
+       */
+      const everActivated = state.stats.uniquePoliciesActivated.includes(policyId)
+        ? state.stats.uniquePoliciesActivated
+        : [...state.stats.uniquePoliciesActivated, policyId];
+
       return {
         ...state,
         resources,
@@ -4136,6 +4289,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             [policyId]: Date.now(),
           },
         },
+        ...(everActivated !== state.stats.uniquePoliciesActivated
+          ? { stats: { ...state.stats, uniquePoliciesActivated: everActivated } }
+          : {}),
       };
     });
   },
@@ -4379,7 +4535,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       const activeLogisticsHubs: Array<{x: number, y: number, radius: number}> = [];
       
       const tiles = state.grid.tiles;
-      const tileDisabled = state.grid.tileDisabled || {};
+      /*
+       * Строящиеся и улучшаемые клетки не производят: складываем их в тот же набор, что и
+       * вручную отключённые здания — все дальнейшие проверки по tileDisabled работают без
+       * изменений. Когда работ нет, effectiveDisabledTiles возвращает ИСХОДНУЮ ссылку, иначе
+       * кэш ставок производства (productionRatesCache.tileDisabledRef) сбрасывался бы
+       * 20 раз в секунду.
+       */
+      const tileDisabled = effectiveDisabledTiles(state.grid.tileDisabled, state.grid.tileJobs);
 
       // Unified Loop over tiles: O(Tiles) ~ 2500 iter (fast)
       // Avoids Object.entries() allocation
@@ -5604,6 +5767,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         productionRatesCache.tileEvolutionLevelsRef !== state.grid.tileEvolutionLevels ||
         productionRatesCache.tileSettingsRef !== state.grid.tileSettings || // ФАЗА 5: инвалидация при изменении настроек
         productionRatesCache.tileDisabledRef !== state.grid.tileDisabled || // ФАЗА 5: инвалидация при отключении
+        productionRatesCache.tileJobsRef !== state.grid.tileJobs || // стройка/улучшение началось или закончилось
         productionRatesCache.activePoliciesRef !== state.politics.activePolicies || // множители политик вмешаны в ставки
         productionRatesCache.buildingsCount !== currentBuildingsCount ||
         !productionRatesCache.rates;
@@ -5730,6 +5894,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           tileEvolutionLevelsRef: state.grid.tileEvolutionLevels,
           tileSettingsRef: state.grid.tileSettings, // ФАЗА 5
           tileDisabledRef: state.grid.tileDisabled, // ФАЗА 5
+          tileJobsRef: state.grid.tileJobs,
           activePoliciesRef: state.politics.activePolicies,
           buildingsCount: currentBuildingsCount,
           rates: productionRates,
@@ -5993,6 +6158,14 @@ export const useGameStore = create<GameState>((set, get) => ({
        * лишней работой на пустом месте (в большинстве тиков убийств просто нет).
        */
       let enemyKillsThisTick = 0;
+      /*
+       * Кумулятивные счётчики событий (bigplan.md, пункты 11 и 26). Накапливаем локально за тик
+       * и один раз прибавляем к state.stats в конце — по тем же причинам, что и enemyKills:
+       * трогать stats на каждом попадании при 20 Гц значит пересоздавать объект впустую.
+       */
+      let bossKillsThisTick = 0;
+      let attacksDefendedThisTick = 0;
+      let caravansDeliveredThisTick = 0;
       // Note: We now process combat even when baseHp <= 0 to handle regen
       {
         let baseHp = state.combat.baseHp;
@@ -6027,6 +6200,17 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Проверяем модификатор peaceful текущей карты
         const currentMapDef = state.maps?.currentMapId ? getMapDefinition(state.maps.currentMapId) : null;
         const isPeacefulMap = currentMapDef?.modifiers?.includes('peaceful') ?? false;
+
+        /*
+         * Волна считается отбитой, если она закончилась (waveEndsAt прошёл), а база жива.
+         * Проверяем ровно на переходе «была активна -> уже нет», иначе счётчик рос бы каждый
+         * тик после конца волны. Без этого счётчика достижение «Непобедимый» (отбить 50 атак)
+         * было недостижимо: игра не знала, сколько волн отбито (bigplan.md, пункт 11).
+         */
+        const waveWasActiveBefore = state.combat.waveEndsAt > state.lastTick;
+        if (waveWasActiveBefore && waveEndsAt <= now && baseHp.gt(0) && !isPeacefulMap) {
+          attacksDefendedThisTick += 1;
+        }
 
         // Only process waves and combat if base is alive AND map is not peaceful
         if (baseHp.gt(0) && !isPeacefulMap) {
@@ -6490,13 +6674,47 @@ export const useGameStore = create<GameState>((set, get) => ({
           };
         }
         
+        /*
+         * Стройка и улучшения на платформе (bigplan.md, пункты 18–19): та же очередь работ,
+         * что и на базе, только в platform.grid.tileJobs. Сначала закрываем готовые работы,
+         * потом производим — тогда достроившееся здание начинает работать этим же тиком.
+         */
+        const platformCompleted = collectCompletedJobs(platform.grid.tileJobs, now);
+        if (platformCompleted.length > 0) {
+          const jobsCopy = { ...platform.grid.tileJobs };
+          let platformLevels = platform.grid.tileLevels;
+
+          for (const key of platformCompleted) {
+            const job = jobsCopy[key];
+            delete jobsCopy[key];
+            if (job.kind === 'upgrade' && job.targetLevel !== undefined) {
+              platformLevels = { ...(platformLevels ?? {}), [key]: job.targetLevel };
+            }
+            newNotifications.push({
+              type: 'success' as const,
+              title: job.kind === 'build' ? 'Здание на платформе построено' : 'Улучшение на платформе завершено',
+              message: buildingsMap.get(job.buildingId)?.name ?? job.buildingId,
+            });
+          }
+
+          updatedPlatform = {
+            ...updatedPlatform,
+            grid: { ...updatedPlatform.grid, tileJobs: jobsCopy, tileLevels: platformLevels },
+          };
+        }
+
+        const platformJobs = updatedPlatform.grid.tileJobs;
+
         // Process buildings on platform grid and produce resources
         const miningBonus = 1 + (platform.upgrades?.mining || 0) * 0.5; // +50% per mining upgrade
-        
+
         for (const [tileKey, buildingId] of Object.entries(platform.grid.tiles)) {
+          // Недостроенное здание не производит.
+          if (platformJobs?.[tileKey]) continue;
+
           const building = state.buildings.find(b => b.id === buildingId);
           if (!building?.production) continue;
-          
+
           // Check if building is on correct deposit
           const requiredDeposit = requiredDepositForBuilding(building.id);
           if (requiredDeposit) {
@@ -6623,6 +6841,13 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Бой на платформе — такой же бой игрока: квест «уничтожьте врага» не должен
           // требовать, чтобы враг дошёл именно до базы.
           enemyKillsThisTick += deadEnemies.length;
+
+          /*
+           * Боссы живут только в бою на платформах (у врагов базы в типе нет isBoss). Это
+           * единственная точка, где можно узнать, что убит именно босс, — поэтому достижение
+           * «Охотник на боссов» без этого счётчика было недостижимо (bigplan.md, пункт 11).
+           */
+          bossKillsThisTick += deadEnemies.filter(e => e.isBoss).length;
 
           // Grant loot from dead enemies (will be added to currency below)
           deadEnemies.forEach(enemy => {
@@ -7004,6 +7229,10 @@ export const useGameStore = create<GameState>((set, get) => ({
               }
             }
             
+            // Успешная доставка: без этого счётчика достижение «Мастер караванов»
+            // (100 доставок) было недостижимо — игра нигде их не считала.
+            caravansDeliveredThisTick += 1;
+
             // Add success notification
             newNotifications.push({
               type: 'success',
@@ -7452,6 +7681,69 @@ export const useGameStore = create<GameState>((set, get) => ({
           )
         : state.quests;
 
+      /*
+       * ЗАВЕРШЕНИЕ СТРОЙКИ И УЛУЧШЕНИЙ (bigplan.md, пункты 18–19).
+       *
+       * Работы хранят абсолютное время (startedAt + duration), поэтому здесь достаточно
+       * сравнить с now — и это же автоматически закрывает оффлайн: после загрузки сейва
+       * всё, что успело достроиться, достраивается первым же тиком. Обычно список пуст,
+       * и collectCompletedJobs не аллоцирует ничего.
+       */
+      let nextTileJobs = state.grid.tileJobs;
+      let nextTileLevelsAfterJobs = state.grid.tileLevels;
+      let questsAfterJobs = nextQuests;
+      const completedJobKeys = collectCompletedJobs(state.grid.tileJobs, now);
+
+      if (completedJobKeys.length > 0) {
+        const jobsCopy = { ...state.grid.tileJobs };
+        let levels = state.grid.tileLevels;
+
+        for (const key of completedJobKeys) {
+          const job = jobsCopy[key];
+          delete jobsCopy[key];
+
+          if (job.kind === 'upgrade' && job.targetLevel !== undefined) {
+            levels = { ...(levels ?? {}), [key]: job.targetLevel };
+          } else if (job.kind === 'build') {
+            // Квест на постройку закрывается по факту готовности, а не по клику.
+            questsAfterJobs = advanceQuests(
+              questsAfterJobs,
+              (quest) =>
+                quest.type === 'build' && (quest.target === job.buildingId || quest.target === 'any'),
+            );
+          }
+
+          newNotifications.push({
+            type: 'success' as const,
+            title: job.kind === 'build' ? 'Здание построено' : 'Улучшение завершено',
+            message:
+              job.kind === 'build'
+                ? (buildingsMap.get(job.buildingId)?.name ?? job.buildingId)
+                : `${buildingsMap.get(job.buildingId)?.name ?? job.buildingId} → ур. ${job.targetLevel ?? '?'}`,
+          });
+        }
+
+        nextTileJobs = jobsCopy;
+        nextTileLevelsAfterJobs = levels;
+      }
+
+      /*
+       * Кумулятивная статистика (bigplan.md, пункты 11 и 26). Объект stats пересоздаём ТОЛЬКО
+       * когда за тик реально что-то произошло: иначе подписчики (профиль, достижения) получали
+       * бы новую ссылку 20 раз в секунду на пустом месте.
+       */
+      const statsDelta =
+        enemyKillsThisTick + bossKillsThisTick + attacksDefendedThisTick + caravansDeliveredThisTick;
+      const nextStats = statsDelta > 0
+        ? {
+            ...state.stats,
+            enemiesKilled: state.stats.enemiesKilled + enemyKillsThisTick,
+            bossKills: state.stats.bossKills + bossKillsThisTick,
+            attacksDefended: state.stats.attacksDefended + attacksDefendedThisTick,
+            caravansDelivered: state.stats.caravansDelivered + caravansDeliveredThisTick,
+          }
+        : state.stats;
+
       if (newNotifications.length > 0) {
         const addedNotifications = newNotifications.map(notif => ({
           ...notif,
@@ -7472,14 +7764,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         currency: nextCurrency,
         market: nextMarket,
         combat: nextCombat,
-        grid: { 
-          ...state.grid, 
-          buffers, 
+        grid: {
+          ...state.grid,
+          buffers,
           activeTransports: activeTransports.map(t => ({
             ...t,
             amount: t.amount.toString(),
           })),
-          lastDtSeconds: dt 
+          // Обе ссылки меняются только когда работа реально стартовала или завершилась,
+          // иначе остаются прежними — от этого зависит кэш ставок производства.
+          tileJobs: nextTileJobs,
+          tileLevels: nextTileLevelsAfterJobs,
+          lastDtSeconds: dt
         },
         demons: nextDemons,
         meta: { ...state.meta, lifetimeEnergyProduced, blueprints },
@@ -7499,7 +7795,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? { research: { ...state.research, technologies: nextResearchTechnologies } }
           : {}),
         // Тот же приём для квестов — см. nextQuests выше.
-        ...(nextQuests !== state.quests ? { quests: nextQuests } : {}),
+        ...(questsAfterJobs !== state.quests ? { quests: questsAfterJobs } : {}),
+        // И для статистики: новая ссылка только когда счётчики реально изменились.
+        ...(nextStats !== state.stats ? { stats: nextStats } : {}),
         lastTick: now,
         // Use theoretical capacity so UI shows consistent values with analytics
         // (totalEnergyProduction/Consumption already include building levels and evolution)
@@ -7932,6 +8230,13 @@ export const useGameStore = create<GameState>((set, get) => ({
               tileLevels: save.grid.tileLevels ?? {},
               tileEvolutionLevels: save.grid.tileEvolutionLevels ?? {},
               tileDisabled: save.grid.tileDisabled ?? {},
+              /*
+               * Незавершённые стройки/улучшения. Без этой строки перезагрузка съедала бы уже
+               * оплаченную стройку: клетка занята, ресурсы списаны, работы нет — здание
+               * навсегда осталось бы неработающим. Время абсолютное, поэтому всё, что успело
+               * завершиться пока игра была закрыта, закроется первым же тиком.
+               */
+              tileJobs: save.grid.tileJobs ?? {},
               buffers: save.grid.buffers ?? state.grid.buffers,
               deposits: save.grid.deposits ?? state.grid.deposits,
               width: save.grid.width ?? state.grid.width,
@@ -8069,24 +8374,16 @@ export const useGameStore = create<GameState>((set, get) => ({
             currentEvent: save.maps.currentEvent ?? null,
             eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
           } : INITIAL_MAPS,
-          stats: save.stats ? {
-            totalPlayTime: typeof save.stats.totalPlayTime === 'number' ? save.stats.totalPlayTime : 0,
-            sessionsCount: (typeof save.stats.sessionsCount === 'number' ? save.stats.sessionsCount : 0) + 1,
+          /*
+           * Через spread от INITIAL_PLAYER_STATS: у старых сейвов нет счётчиков событий
+           * (enemiesKilled, bossKills, …), и без базового объекта они приезжали бы undefined,
+           * а первый же `+ 1` давал NaN. Новые счётчики так же не требуют правки этого места.
+           */
+          stats: {
+            ...INITIAL_PLAYER_STATS,
+            ...(restored.stats ?? {}),
+            sessionsCount: (restored.stats?.sessionsCount ?? 0) + 1,
             currentSessionStart: Date.now(),
-            lifetimeResourcesProduced: save.stats.lifetimeResourcesProduced ?? {},
-            lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
-            lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
-            lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
-            contractsCompleted: typeof save.stats.contractsCompleted === 'number' ? save.stats.contractsCompleted : 0,
-          } : {
-            totalPlayTime: 0,
-            sessionsCount: 1,
-            currentSessionStart: Date.now(),
-            lifetimeResourcesProduced: {},
-            lifetimeResourcesSpent: {},
-            lifetimeCreditsEarned: D(0),
-            lifetimeCreditsSpent: D(0),
-            contractsCompleted: 0,
           },
 
           // --- slices recovered via ./gameSave.ts (see note above) ---
@@ -8928,6 +9225,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               tileLevels: save.grid.tileLevels && typeof save.grid.tileLevels === 'object' ? save.grid.tileLevels : (state.grid.tileLevels ?? {}),
               tileEvolutionLevels: save.grid.tileEvolutionLevels && typeof save.grid.tileEvolutionLevels === 'object' ? save.grid.tileEvolutionLevels : (state.grid.tileEvolutionLevels ?? {}),
               tileDisabled: save.grid.tileDisabled && typeof save.grid.tileDisabled === 'object' ? save.grid.tileDisabled : (state.grid.tileDisabled ?? {}),
+              // Незавершённые стройки/улучшения — см. пояснение в loadGame выше.
+              tileJobs: save.grid.tileJobs && typeof save.grid.tileJobs === 'object' ? save.grid.tileJobs : {},
               deposits: save.grid.deposits && typeof save.grid.deposits === 'object' ? save.grid.deposits : state.grid.deposits,
               buffers: save.grid.buffers && typeof save.grid.buffers === 'object' ? save.grid.buffers : state.grid.buffers,
               activeTransports: [], // Reset transports on load
@@ -9060,24 +9359,13 @@ export const useGameStore = create<GameState>((set, get) => ({
             currentEvent: save.maps.currentEvent ?? null,
             eventHistory: Array.isArray(save.maps.eventHistory) ? save.maps.eventHistory : [],
           } : INITIAL_MAPS,
-          stats: save.stats ? {
-            totalPlayTime: typeof save.stats.totalPlayTime === 'number' ? save.stats.totalPlayTime : 0,
-            sessionsCount: (typeof save.stats.sessionsCount === 'number' ? save.stats.sessionsCount : 0) + 1,
+          // См. пояснение к тому же месту в loadGameFromSave: базой всегда идёт
+          // INITIAL_PLAYER_STATS, иначе счётчики из старых сейвов приезжают undefined.
+          stats: {
+            ...INITIAL_PLAYER_STATS,
+            ...(restored.stats ?? {}),
+            sessionsCount: (restored.stats?.sessionsCount ?? 0) + 1,
             currentSessionStart: Date.now(), // Новая сессия начинается при загрузке
-            lifetimeResourcesProduced: save.stats.lifetimeResourcesProduced ?? {},
-            lifetimeResourcesSpent: save.stats.lifetimeResourcesSpent ?? {},
-            lifetimeCreditsEarned: D(save.stats.lifetimeCreditsEarned ?? '0'),
-            lifetimeCreditsSpent: D(save.stats.lifetimeCreditsSpent ?? '0'),
-            contractsCompleted: typeof save.stats.contractsCompleted === 'number' ? save.stats.contractsCompleted : 0,
-          } : {
-            totalPlayTime: 0,
-            sessionsCount: 1,
-            currentSessionStart: Date.now(),
-            lifetimeResourcesProduced: {},
-            lifetimeResourcesSpent: {},
-            lifetimeCreditsEarned: D(0),
-            lifetimeCreditsSpent: D(0),
-            contractsCompleted: 0,
           },
           lastTick: Date.now(),
 
@@ -10258,7 +10546,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       const tileKey = `${coord.x},${coord.y}`;
       const activePlatformId = state.galaxies.activePlatformId;
       
-      console.log(`[upgradeBuildingAt] coord: ${tileKey}, activePlatformId: ${activePlatformId}`);
       
       // Get building from active platform or main grid
       let buildingId: string | undefined;
@@ -10273,7 +10560,6 @@ export const useGameStore = create<GameState>((set, get) => ({
           buildingId = platform.grid.tiles[tileKey];
           tileLevels = (platform.grid as any).tileLevels || {};
           isOnPlatform = true;
-          console.log(`[upgradeBuildingAt] On platform, buildingId: ${buildingId}, tileLevels:`, tileLevels);
         } else {
           buildingId = state.grid.tiles[tileKey];
           tileLevels = state.grid.tileLevels || {};
@@ -10291,7 +10577,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Get current level from tileLevels
       const currentLevel = tileLevels[tileKey] || 1;
       
-      console.log(`[upgradeBuildingAt] currentLevel: ${currentLevel}`);
       
       if (currentLevel >= 500) {
         console.warn('Building is already at max level (500)');
@@ -10332,41 +10617,73 @@ export const useGameStore = create<GameState>((set, get) => ({
         return state;
       }
       
-      // Deduct costs
+      // Уже идёт работа на этой клетке — второе улучшение в очередь не ставим.
+      const existingJobs = isOnPlatform && platformIndex !== -1
+        ? state.galaxies.platforms[platformIndex].grid.tileJobs
+        : state.grid.tileJobs;
+      if (existingJobs?.[tileKey]) {
+        console.warn('[upgradeBuildingAt] на клетке уже идёт работа');
+        return state;
+      }
+
+      /*
+       * Списание стоимости.
+       *
+       * Тут был баг, независимый от таймеров: стоимость вычиталась только из
+       * `resources[*].amount`, но НЕ из `grid.buffers.base`, а при загрузке игры
+       * syncResourcesFromBase перетирает amount значением из буфера. То есть стоимость
+       * улучшения возвращалась игроку при каждой перезагрузке. Теперь списываем из буфера —
+       * он и есть источник правды.
+       */
       const newResources = { ...state.resources };
+      let newBuffers = state.grid.buffers;
+      const paidCost: Partial<Record<ResourceType, string>> = {};
+
       Object.entries(upgradeCost).forEach(([resource, cost]) => {
-        if (cost && newResources[resource as import('../core/gameTypes').ResourceType]) {
-          newResources[resource as import('../core/gameTypes').ResourceType] = {
-            ...newResources[resource as import('../core/gameTypes').ResourceType]!,
-            amount: newResources[resource as import('../core/gameTypes').ResourceType]!.amount.minus(cost),
-          };
-        }
+        const rType = resource as ResourceType;
+        if (!cost || !newResources[rType]) return;
+        const cur = getBuf(newBuffers, 'base', rType);
+        const next = cur.sub(cost).max(D(0));
+        newBuffers = setBuf(newBuffers, 'base', rType, next);
+        newResources[rType] = { ...newResources[rType]!, amount: next };
+        paidCost[rType] = D(cost).toString();
       });
-      
+
       let newCredits = state.currency.credits;
+      let paidCredits: string | undefined;
       if (building.creditCost) {
         const creditCost = building.creditCost.mul(Math.pow(1.15, currentLevel));
         newCredits = newCredits.minus(creditCost);
+        paidCredits = creditCost.toString();
       }
-      
-      // Upgrade the building level
-      const newTileLevels = { ...tileLevels, [tileKey]: currentLevel + 1 };
-      
-      console.log(`[upgradeBuildingAt] Upgrading from ${currentLevel} to ${currentLevel + 1}, isOnPlatform: ${isOnPlatform}`);
-      
+
+      /*
+       * Улучшение занимает время (bigplan.md, пункт 19). Уровень поднимается не сейчас,
+       * а по завершении работы: до этого в tileJobs лежит запись с targetLevel, и здание
+       * на время работы не производит.
+       */
+      const upgradeSeconds = upgradeDurationSeconds(building, currentLevel);
+      const job = {
+        kind: 'upgrade' as const,
+        buildingId,
+        startedAt: Date.now(),
+        duration: Math.round(upgradeSeconds * 1000),
+        targetLevel: currentLevel + 1,
+        paidCost,
+        paidCredits,
+      };
+
       if (isOnPlatform && platformIndex !== -1) {
-        // Update platform grid
         const updatedPlatforms = [...state.galaxies.platforms];
+        const platformGrid = updatedPlatforms[platformIndex].grid;
         updatedPlatforms[platformIndex] = {
           ...updatedPlatforms[platformIndex],
           grid: {
-            ...updatedPlatforms[platformIndex].grid,
-            tileLevels: newTileLevels,
-          } as any,
+            ...platformGrid,
+            tileJobs: { ...(platformGrid.tileJobs ?? {}), [tileKey]: job },
+          } as typeof platformGrid,
         };
-        
-        console.log(`[upgradeBuildingAt] Platform upgraded, new tileLevels:`, newTileLevels);
-        
+
         return {
           ...state,
           resources: newResources,
@@ -10374,30 +10691,26 @@ export const useGameStore = create<GameState>((set, get) => ({
             ...state.currency,
             credits: newCredits,
           },
+          grid: { ...state.grid, buffers: newBuffers },
           galaxies: {
             ...state.galaxies,
             platforms: updatedPlatforms,
           },
         };
       }
-      
-      // ФАЗА 8.5: Обновляем grid и пересчитываем вместимость
-      const updatedGrid = {
-        ...state.grid,
-        tileLevels: newTileLevels,
-      };
-      
-      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const updatedResources = recomputeCaps(newResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
-      
+
       return {
         ...state,
-        resources: updatedResources,
+        resources: newResources,
         currency: {
           ...state.currency,
           credits: newCredits,
         },
-        grid: updatedGrid,
+        grid: {
+          ...state.grid,
+          buffers: newBuffers,
+          tileJobs: { ...(state.grid.tileJobs ?? {}), [tileKey]: job },
+        },
       };
     });
   },
@@ -10580,29 +10893,46 @@ export const useGameStore = create<GameState>((set, get) => ({
         return state;
       }
       
-      // Копируем текущие ресурсы для расчётов
+      // Уже идёт работа на клетке — в очередь второй раз не встаём.
+      const existingJobs = isOnPlatform && platformIndex !== -1
+        ? state.galaxies.platforms[platformIndex].grid.tileJobs
+        : state.grid.tileJobs;
+      if (existingJobs?.[tileKey]) {
+        console.warn('[maxUpgradeBuildingAt] на клетке уже идёт работа');
+        return state;
+      }
+
+      /*
+       * Списываем из grid.buffers.base, а не только из resources[*].amount: буфер — источник
+       * правды при загрузке (syncResourcesFromBase перетирает amount), поэтому старое
+       * списание «только в resources» возвращало игроку всю стоимость при перезагрузке.
+       */
       let availableResources = { ...state.resources };
+      let buffers = state.grid.buffers;
       let availableCredits = state.currency.credits;
       let upgradesPerformed = 0;
+      let totalSeconds = 0;
+      const paidCost: Partial<Record<ResourceType, string>> = {};
+      let paidCreditsTotal = D(0);
       const maxUpgrades = 500 - currentLevel; // Максимально до уровня 500
-      
+
       // Пытаемся улучшать пока хватает ресурсов
       for (let i = 0; i < maxUpgrades; i++) {
         const levelForCost = currentLevel + i;
         const costFactor = Math.pow(1.15, levelForCost);
         let canAfford = true;
-        
+
         // Проверяем ресурсы
         for (const [resource, baseCost] of Object.entries(building.baseCost)) {
-          const cost = (baseCost as import('break_eternity.js').default).mul(costFactor);
-          const available = availableResources[resource as import('../core/gameTypes').ResourceType]?.amount || D(0);
-          
+          const cost = (baseCost as Decimal).mul(costFactor);
+          const available = getBuf(buffers, 'base', resource as ResourceType);
+
           if (available.lt(cost)) {
             canAfford = false;
             break;
           }
         }
-        
+
         // Проверяем кредиты
         if (canAfford && building.creditCost) {
           const creditCost = building.creditCost.mul(costFactor);
@@ -10610,53 +10940,72 @@ export const useGameStore = create<GameState>((set, get) => ({
             canAfford = false;
           }
         }
-        
+
         // Если не можем позволить, останавливаемся
         if (!canAfford) break;
-        
+
         // Вычитаем ресурсы
         for (const [resource, baseCost] of Object.entries(building.baseCost)) {
-          const cost = (baseCost as import('break_eternity.js').default).mul(costFactor);
-          const resType = resource as import('../core/gameTypes').ResourceType;
+          const cost = (baseCost as Decimal).mul(costFactor);
+          const resType = resource as ResourceType;
+          const next = getBuf(buffers, 'base', resType).sub(cost).max(D(0));
+          buffers = setBuf(buffers, 'base', resType, next);
           if (availableResources[resType]) {
-            availableResources[resType] = {
-              ...availableResources[resType]!,
-              amount: availableResources[resType]!.amount.minus(cost),
-            };
+            availableResources[resType] = { ...availableResources[resType]!, amount: next };
           }
+          paidCost[resType] = D(paidCost[resType] ?? '0').add(cost).toString();
         }
-        
+
         if (building.creditCost) {
           const creditCost = building.creditCost.mul(costFactor);
           availableCredits = availableCredits.minus(creditCost);
+          paidCreditsTotal = paidCreditsTotal.add(creditCost);
         }
-        
+
+        // Время каждого уровня складывается: «МАКС» — это одна длинная работа, а не
+        // мгновенный прыжок на 40 уровней.
+        totalSeconds += upgradeDurationSeconds(building, levelForCost);
         upgradesPerformed++;
       }
-      
+
       // Если не было улучшений, ничего не делаем
       if (upgradesPerformed === 0) {
         console.log('Cannot afford any upgrades');
         return state;
       }
-      
-      // Применяем улучшения
+
       const newLevel = currentLevel + upgradesPerformed;
-      const newTileLevels = { ...tileLevels, [tileKey]: newLevel };
-      
-      console.log(`Upgraded building from level ${currentLevel} to ${newLevel} (${upgradesPerformed} upgrades)`);
-      
+
+      /*
+       * Одна работа до финального уровня вместо очереди из N: игроку важен итог и общее время,
+       * а промежуточные уровни всё равно не влияют на производство, пока работа идёт.
+       * Потолок общего времени держим разумным — иначе «МАКС» на 400 уровней встал бы на часы.
+       */
+      const MAX_TOTAL_UPGRADE_SECONDS = 300;
+      const job = {
+        kind: 'upgrade' as const,
+        buildingId,
+        startedAt: Date.now(),
+        duration: Math.round(Math.min(totalSeconds, MAX_TOTAL_UPGRADE_SECONDS) * 1000),
+        targetLevel: newLevel,
+        paidCost,
+        ...(paidCreditsTotal.gt(0) ? { paidCredits: paidCreditsTotal.toString() } : {}),
+      };
+
+      console.log(`Queued upgrade from level ${currentLevel} to ${newLevel} (${upgradesPerformed} levels, ${job.duration}ms)`);
+
       if (isOnPlatform && platformIndex !== -1) {
         // Update platform grid
         const updatedPlatforms = [...state.galaxies.platforms];
+        const platformGrid = updatedPlatforms[platformIndex].grid;
         updatedPlatforms[platformIndex] = {
           ...updatedPlatforms[platformIndex],
           grid: {
-            ...updatedPlatforms[platformIndex].grid,
-            tileLevels: newTileLevels,
-          } as any,
+            ...platformGrid,
+            tileJobs: { ...(platformGrid.tileJobs ?? {}), [tileKey]: job },
+          } as typeof platformGrid,
         };
-        
+
         return {
           ...state,
           resources: availableResources,
@@ -10664,35 +11013,39 @@ export const useGameStore = create<GameState>((set, get) => ({
             ...state.currency,
             credits: availableCredits,
           },
+          grid: { ...state.grid, buffers },
           galaxies: {
             ...state.galaxies,
             platforms: updatedPlatforms,
           },
         };
       }
-      
-      const updatedGrid = {
-        ...state.grid,
-        tileLevels: newTileLevels,
-      };
-      
-      const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-      const updatedResources = recomputeCaps(availableResources, state.buildings, capsMult, newTileLevels, state.grid.tiles);
-      
+
       return {
         ...state,
-        resources: updatedResources,
+        resources: availableResources,
         currency: {
           ...state.currency,
           credits: availableCredits,
         },
-        grid: updatedGrid,
+        grid: {
+          ...state.grid,
+          buffers,
+          tileJobs: { ...(state.grid.tileJobs ?? {}), [tileKey]: job },
+        },
       };
     });
   },
 
   resetGame: () => {
     const now = Date.now();
+
+    /*
+     * Финансы живут в отдельном сторе, и resetGame их не трогал — новая игра начиналась
+     * с кредитами, долгом и портфелем предыдущей партии.
+     */
+    resetFinanceState();
+
     const capsMult = computeCapsMultiplier(INITIAL_RESEARCH.levels, INITIAL_META.qubits);
     let resources = recomputeCaps({ ...INITIAL_RESOURCES }, BUILDINGS_WITH_PROXIMITY, capsMult, {}, {});
     let buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
@@ -10707,6 +11060,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       tileLevels: {} as Record<string, number>,
       tileEvolutionLevels: {} as Record<string, number>,
       tileDisabled: {} as Record<string, boolean>,
+      // Незавершённые стройки предыдущей партии не должны переезжать в новую игру.
+      // DEFAULT_GRID поля tileJobs не объявляет, поэтому тип берём из GridState.
+      tileJobs: {} as NonNullable<import('../core/gameTypes').GridState['tileJobs']>,
       activeTransports: [] as typeof DEFAULT_GRID.activeTransports,
       selected: null,
       selectedBuildId: null,
@@ -10752,6 +11108,12 @@ export const useGameStore = create<GameState>((set, get) => ({
         activeQuests: [...STARTER_QUESTS],
         completedQuests: [],
       },
+      /*
+       * Статистику сбрасываем вместе с достижениями. Раньше resetGame её не трогал: новая игра
+       * начиналась с накопленными убийствами, контрактами и караванами предыдущей партии — и
+       * достижения, только что сброшенные строкой выше, тут же выдавались снова.
+       */
+      stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: now },
       lastTick: now,
     });
   },
@@ -10803,7 +11165,33 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         ...state.randomEvents.eventHistory,
       ].slice(0, 20); // Храним последние 20
-      
+
+      /*
+       * Счётчики событий (bigplan.md, пункты 11 и 26). До этого достижения «Везунчик»
+       * (получить награду от редкого события) и «Выживший» (пережить цепную реакцию) были
+       * недостижимы: игра не различала редкие события и не помнила о пережитых.
+       *
+       * «Награда» — это положительный эффект: ресурсы, очки исследований, бонус производства
+       * или открытая технология. Редкое событие с одним только уроном наградой не считается.
+       */
+      const gaveReward = !!(
+        event.effects?.resourceGain ||
+        event.effects?.researchPointsGain ||
+        event.effects?.productionMultiplier ||
+        event.effects?.unlockRandomTechnology
+      );
+      const isRare = isRareEvent(event.type);
+      const survivedChain = event.type === 'chain_reaction';
+
+      const nextStats =
+        (isRare && gaveReward) || survivedChain
+          ? {
+              ...state.stats,
+              rareEventRewards: state.stats.rareEventRewards + (isRare && gaveReward ? 1 : 0),
+              chainReactionsSurvived: state.stats.chainReactionsSurvived + (survivedChain ? 1 : 0),
+            }
+          : state.stats;
+
       return {
         ...updatedState,
         randomEvents: {
@@ -10811,6 +11199,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           activeEvents: updatedEvents.filter(e => e.status !== 'resolved'),
           eventHistory,
         },
+        ...(nextStats !== state.stats ? { stats: nextStats } : {}),
       };
     });
   },
@@ -10835,51 +11224,61 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Фаза 8.7: Система достижений
   unlockAchievement: (achievementId: string) => {
+    get().unlockAchievements([achievementId]);
+  },
+
+  /**
+   * Выдать сразу несколько достижений одним обновлением состояния (bigplan.md, пункт 27).
+   *
+   * Раньше checkAchievements вызывал unlockAchievement в цикле по 50+ достижениям: каждое
+   * давало отдельный set(), причём из УСТАРЕВШЕГО снимка state, полученного до первого из них.
+   * При одновременной выдаче нескольких (например, после долгого оффлайна) каждое следующее
+   * считало награды от старого currency и перетирало предыдущие начисления.
+   */
+  unlockAchievements: (achievementIds: string[]) => {
+    if (achievementIds.length === 0) return;
+
     set((state) => {
-      // Check if already unlocked
-      if (state.achievements.unlocked[achievementId]) {
-        return state;
-      }
-
       const now = Date.now();
-      const newUnlocked = {
-        ...state.achievements.unlocked,
-        [achievementId]: now,
-      };
 
-      const newRecentlyUnlocked = [
-        ...state.achievements.recentlyUnlocked,
-        { achievementId, unlockedAt: now },
-      ];
+      // Свежая проверка: между сбором списка и этим set достижение могло уже открыться.
+      const fresh = achievementIds.filter((id) => !state.achievements.unlocked[id]);
+      if (fresh.length === 0) return state;
 
-      // Apply achievement rewards
-      const achievement = getAchievementById(achievementId);
+      const newUnlocked = { ...state.achievements.unlocked };
+      const newRecentlyUnlocked = [...state.achievements.recentlyUnlocked];
       let newCurrency = { ...state.currency };
-      
-      if (achievement?.reward) {
-        if (achievement.reward.credits) {
-          newCurrency.credits = newCurrency.credits.add(achievement.reward.credits);
-        }
-        if (achievement.reward.researchPoints) {
-          newCurrency.researchPoints = newCurrency.researchPoints.add(achievement.reward.researchPoints);
-        }
-        if (achievement.reward.influence) {
-          newCurrency.influence = newCurrency.influence.add(achievement.reward.influence);
-        }
-      }
-
-      // Add notification
       const notifications: import('../core/gameTypes').Notification[] = [
         ...state.galaxies.notifications,
-        {
+      ];
+
+      for (const achievementId of fresh) {
+        newUnlocked[achievementId] = now;
+        newRecentlyUnlocked.push({ achievementId, unlockedAt: now });
+
+        // Apply achievement rewards
+        const achievement = getAchievementById(achievementId);
+        if (achievement?.reward) {
+          if (achievement.reward.credits) {
+            newCurrency.credits = newCurrency.credits.add(achievement.reward.credits);
+          }
+          if (achievement.reward.researchPoints) {
+            newCurrency.researchPoints = newCurrency.researchPoints.add(achievement.reward.researchPoints);
+          }
+          if (achievement.reward.influence) {
+            newCurrency.influence = newCurrency.influence.add(achievement.reward.influence);
+          }
+        }
+
+        notifications.push({
           id: `achievement_${achievementId}_${now}`,
           type: 'success' as const,
           title: `🎉 ${achievement?.name || achievementId}`,
           message: `Достижение разблокировано!`,
           timestamp: now,
           read: false,
-        },
-      ];
+        });
+      }
 
       return {
         achievements: {
@@ -10890,7 +11289,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         currency: newCurrency,
         galaxies: {
           ...state.galaxies,
-          notifications,
+          // Список уведомлений ограничен, как и в тике: иначе пачка достижений после
+          // оффлайна вытеснит всё остальное и будет расти без предела.
+          notifications: notifications.slice(-50),
         },
       };
     });
@@ -11930,7 +12331,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       queued.push({
         type: 'info' as const,
         title: 'Галактика исследована',
-        message: `🌌 ${updatedGalaxies[galaxyIndex].generated.name}`,
+        message: `🌌 ${localizeGeneratedName(updatedGalaxies[galaxyIndex].generated.name)}`,
       });
       
       return {
@@ -11951,148 +12352,159 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Artifact System Methods (infinitely.md Phase 6)
   // ============================================================================
   
+  /*
+   * Здесь и во всех действиях ниже (артефакты, daily rewards, сигналы) был один и тот же
+   * дефект: внутри `set((state) => ...)` вызывался вложенный `set({...})`, а внешний апдейтер
+   * возвращал `return state` — то есть снимок ДО вложенного set. Для синхронных случаев это
+   * молча откатывало всё начисление (см. collectTimeBasedReward, claimSignal, spawnNewSignal,
+   * updateSignals), для асинхронных (`import(...).then`) — записывало устаревший snapshot
+   * currency/grid поверх результата тиков, который идёт 20 раз в секунду.
+   *
+   * Правильная форма: читать состояние через get(), а применять одним функциональным
+   * `set((s) => ...)`, который видит свежий стейт. Сайд-эффекты (тосты) — после set,
+   * а не внутри апдейтера.
+   */
   equipArtifact: (artifactId: string) => {
-    set((state) => {
-      const artifact = state.artifacts.discovered.find(a => a.id === artifactId);
-      if (!artifact) return state;
-      
-      // Проверяем, не экипирован ли уже
-      if (state.artifacts.equipped.includes(artifactId)) return state;
-      
-      // Проверяем доступность слотов
-      import('../utils/artifactHelpers').then(({ calculateUsedSlots }) => {
-        const currentUsed = calculateUsedSlots(state.artifacts.discovered, state.artifacts.equipped);
-        if (currentUsed + artifact.slotsRequired > state.artifacts.maxSlots) {
-          state.addNotification({
-            // Здесь и ниже: 'error' в union'е Notification нет (attack/warning/success/info),
-            // ближайший по смыслу уровень — 'warning'. Красный тост с 'error' живёт в другой
-            // системе (utils/notifications), у неё свой набор типов.
-            type: 'warning',
-            title: 'Недостаточно слотов',
-            message: `Артефакт требует ${artifact.slotsRequired} слотов, доступно ${state.artifacts.maxSlots - currentUsed}`,
-          });
-          return;
-        }
-        
-        set({
-          artifacts: {
-            ...state.artifacts,
-            equipped: [...state.artifacts.equipped, artifactId],
-            usedSlots: currentUsed + artifact.slotsRequired,
-          },
-        });
+    const state = get();
+    const artifact = state.artifacts.discovered.find(a => a.id === artifactId);
+    if (!artifact) return;
+
+    // Проверяем, не экипирован ли уже
+    if (state.artifacts.equipped.includes(artifactId)) return;
+
+    // Проверяем доступность слотов
+    const currentUsed = calculateUsedSlots(state.artifacts.discovered, state.artifacts.equipped);
+    if (currentUsed + artifact.slotsRequired > state.artifacts.maxSlots) {
+      state.addNotification({
+        // Здесь и ниже: 'error' в union'е Notification нет (attack/warning/success/info),
+        // ближайший по смыслу уровень — 'warning'. Красный тост с 'error' живёт в другой
+        // системе (utils/notifications), у неё свой набор типов.
+        type: 'warning',
+        title: 'Недостаточно слотов',
+        message: `Артефакт требует ${artifact.slotsRequired} слотов, доступно ${state.artifacts.maxSlots - currentUsed}`,
       });
-      
-      return state;
+      return;
+    }
+
+    set((s) => {
+      if (s.artifacts.equipped.includes(artifactId)) return s;
+      const equipped = [...s.artifacts.equipped, artifactId];
+      return {
+        artifacts: {
+          ...s.artifacts,
+          equipped,
+          usedSlots: calculateUsedSlots(s.artifacts.discovered, equipped),
+        },
+      };
     });
   },
-  
+
   unequipArtifact: (artifactId: string) => {
-    set((state) => {
-      const artifact = state.artifacts.discovered.find(a => a.id === artifactId);
-      if (!artifact) return state;
-      
-      import('../utils/artifactHelpers').then(({ calculateUsedSlots }) => {
-        const newEquipped = state.artifacts.equipped.filter(id => id !== artifactId);
-        const newUsed = calculateUsedSlots(state.artifacts.discovered, newEquipped);
-        
-        set({
-          artifacts: {
-            ...state.artifacts,
-            equipped: newEquipped,
-            usedSlots: newUsed,
-          },
-        });
-      });
-      
-      return state;
+    if (!get().artifacts.discovered.some(a => a.id === artifactId)) return;
+
+    set((s) => {
+      const newEquipped = s.artifacts.equipped.filter(id => id !== artifactId);
+      return {
+        artifacts: {
+          ...s.artifacts,
+          equipped: newEquipped,
+          usedSlots: calculateUsedSlots(s.artifacts.discovered, newEquipped),
+        },
+      };
     });
   },
-  
+
   upgradeArtifact: (artifactId: string) => {
-    set((state) => {
-      const artifactIndex = state.artifacts.discovered.findIndex(a => a.id === artifactId);
-      if (artifactIndex === -1) return state;
-      
-      const artifact = state.artifacts.discovered[artifactIndex];
-      
-      // Проверяем макс уровень
-      if (artifact.level >= artifact.maxLevel) {
-        state.addNotification({
-          type: 'warning',
-          title: 'Максимальный уровень',
-          message: 'Артефакт достиг максимального уровня',
-        });
-        return state;
-      }
-      
-      import('../utils/artifactHelpers').then(({ getUpgradeCost }) => {
-        const cost = getUpgradeCost(artifact);
-        
-        // Проверяем стоимость
-        if (state.currency.credits.lt(cost.credits)) {
-          state.addNotification({
-            type: 'warning',
-            title: 'Недостаточно кредитов',
-            message: `Требуется ${cost.credits.toFixed(0)} кредитов`,
-          });
-          return;
-        }
-        
-        if (cost.qp && state.prestige.availableQuantumPoints < cost.qp.toNumber()) {
-          state.addNotification({
-            type: 'warning',
-            title: 'Недостаточно QP',
-            message: `Требуется ${cost.qp.toFixed(0)} квантовых очков`,
-          });
-          return;
-        }
-        
-        if (cost.ap && state.ascension.ascensionPoints < cost.ap.toNumber()) {
-          state.addNotification({
-            type: 'warning',
-            title: 'Недостаточно AP',
-            message: `Требуется ${cost.ap.toFixed(0)} очков вознесения`,
-          });
-          return;
-        }
-        
-        // Списываем ресурсы и улучшаем артефакт
-        const updatedArtifacts = [...state.artifacts.discovered];
-        updatedArtifacts[artifactIndex] = {
-          ...artifact,
-          level: artifact.level + 1,
-        };
-        
-        set({
-          currency: {
-            ...state.currency,
-            credits: state.currency.credits.sub(cost.credits),
-          },
-          prestige: cost.qp ? {
-            ...state.prestige,
-            availableQuantumPoints: state.prestige.availableQuantumPoints - cost.qp.toNumber(),
-          } : state.prestige,
-          ascension: cost.ap ? {
-            ...state.ascension,
-            ascensionPoints: state.ascension.ascensionPoints - cost.ap.toNumber(),
-          } : state.ascension,
-          artifacts: {
-            ...state.artifacts,
-            discovered: updatedArtifacts,
-            totalUpgraded: state.artifacts.totalUpgraded + 1,
-          },
-        });
-        
-        state.addNotification({
-          type: 'success',
-          title: 'Артефакт улучшен',
-          message: `${artifact.name} улучшен до уровня ${artifact.level + 1}`,
-        });
+    const state = get();
+    const artifactIndex = state.artifacts.discovered.findIndex(a => a.id === artifactId);
+    if (artifactIndex === -1) return;
+
+    const artifact = state.artifacts.discovered[artifactIndex];
+
+    // Проверяем макс уровень
+    if (artifact.level >= artifact.maxLevel) {
+      state.addNotification({
+        type: 'warning',
+        title: 'Максимальный уровень',
+        message: 'Артефакт достиг максимального уровня',
       });
-      
-      return state;
+      return;
+    }
+
+    const cost = getUpgradeCost(artifact);
+
+    // Проверяем стоимость
+    if (state.currency.credits.lt(cost.credits)) {
+      state.addNotification({
+        type: 'warning',
+        title: 'Недостаточно кредитов',
+        message: `Требуется ${cost.credits.toFixed(0)} кредитов`,
+      });
+      return;
+    }
+
+    if (cost.qp && state.prestige.availableQuantumPoints < cost.qp.toNumber()) {
+      state.addNotification({
+        type: 'warning',
+        title: 'Недостаточно QP',
+        message: `Требуется ${cost.qp.toFixed(0)} квантовых очков`,
+      });
+      return;
+    }
+
+    if (cost.ap && state.ascension.ascensionPoints < cost.ap.toNumber()) {
+      state.addNotification({
+        type: 'warning',
+        title: 'Недостаточно AP',
+        message: `Требуется ${cost.ap.toFixed(0)} очков вознесения`,
+      });
+      return;
+    }
+
+    let upgraded = false;
+
+    set((s) => {
+      // Повторная проверка по свежему стейту: между get() и set мог пройти тик или второй клик.
+      const idx = s.artifacts.discovered.findIndex(a => a.id === artifactId);
+      if (idx === -1) return s;
+      const current = s.artifacts.discovered[idx];
+      if (current.level >= current.maxLevel) return s;
+      if (s.currency.credits.lt(cost.credits)) return s;
+      if (cost.qp && s.prestige.availableQuantumPoints < cost.qp.toNumber()) return s;
+      if (cost.ap && s.ascension.ascensionPoints < cost.ap.toNumber()) return s;
+
+      const updatedArtifacts = [...s.artifacts.discovered];
+      updatedArtifacts[idx] = { ...current, level: current.level + 1 };
+      upgraded = true;
+
+      return {
+        currency: {
+          ...s.currency,
+          credits: s.currency.credits.sub(cost.credits),
+        },
+        prestige: cost.qp ? {
+          ...s.prestige,
+          availableQuantumPoints: s.prestige.availableQuantumPoints - cost.qp.toNumber(),
+        } : s.prestige,
+        ascension: cost.ap ? {
+          ...s.ascension,
+          ascensionPoints: s.ascension.ascensionPoints - cost.ap.toNumber(),
+        } : s.ascension,
+        artifacts: {
+          ...s.artifacts,
+          discovered: updatedArtifacts,
+          totalUpgraded: s.artifacts.totalUpgraded + 1,
+        },
+      };
     });
+
+    if (upgraded) {
+      get().addNotification({
+        type: 'success',
+        title: 'Артефакт улучшен',
+        message: `${artifact.name} улучшен до уровня ${artifact.level + 1}`,
+      });
+    }
   },
 
   // ============================================================================
@@ -12101,176 +12513,167 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Проверить и обновить daily login при загрузке
   checkAndUpdateDailyLogin: () => {
-    set((state) => {
-      import('../utils/dailyRewardsHelpers').then(({ 
-        updateDailyLogin, 
-        generateDailyRewardsCalendar,
-        updateTimeBasedRewards
-      }) => {
-        let dailyLogin = state.retention.dailyLogin;
-        
-        // Первый вход - создаём календарь
-        if (dailyLogin.rewards.length === 0) {
-          dailyLogin = {
-            ...dailyLogin,
-            rewards: generateDailyRewardsCalendar(),
-            lastLoginDate: '',
-          };
-        }
-        
-        // Обновляем daily login
-        dailyLogin = updateDailyLogin(dailyLogin);
-        
-        // Обновляем time-based rewards
-        const timeBasedRewards = updateTimeBasedRewards(
-          state.retention.timeBasedRewards,
-          Date.now()
-        );
-        
-        // Обновляем статистику
-        const stats = {
-          ...state.retention.stats,
-          sessionsCount: state.retention.stats.sessionsCount + 1,
-          currentSessionStart: Date.now(),
+    set((s) => {
+      let dailyLogin = s.retention.dailyLogin;
+
+      // Первый вход - создаём календарь
+      if (dailyLogin.rewards.length === 0) {
+        dailyLogin = {
+          ...dailyLogin,
+          rewards: generateDailyRewardsCalendar(),
+          lastLoginDate: '',
         };
-        
-        set({
-          retention: {
-            dailyLogin,
-            timeBasedRewards,
-            stats,
+      }
+
+      // Обновляем daily login
+      dailyLogin = updateDailyLogin(dailyLogin);
+
+      // Обновляем time-based rewards
+      const timeBasedRewards = updateTimeBasedRewards(s.retention.timeBasedRewards, Date.now());
+
+      return {
+        retention: {
+          dailyLogin,
+          timeBasedRewards,
+          // Обновляем статистику
+          stats: {
+            ...s.retention.stats,
+            sessionsCount: s.retention.stats.sessionsCount + 1,
+            currentSessionStart: Date.now(),
           },
-        });
-      });
-      
-      return state;
+        },
+      };
     });
   },
 
   // Собрать награду за день
   claimDailyReward: (day: number) => {
-    set((state) => {
-      import('../utils/dailyRewardsHelpers').then(({ 
-        canClaimDailyReward,
-        claimDailyReward 
-      }) => {
-        if (!canClaimDailyReward(state.retention.dailyLogin, day)) {
-          state.addNotification({
-            type: 'warning',
-            title: 'Недоступно',
-            message: 'Эта награда уже собрана или ещё недоступна',
-          });
-          return;
-        }
-        
-        const reward = state.retention.dailyLogin.rewards.find(r => r.day === day);
-        if (!reward) return;
-        
-        // Начисляем награды
-        let newCurrency = { ...state.currency };
-        let newGrid = { ...state.grid };
-        
-        if (reward.rewards.credits) {
-          newCurrency.credits = newCurrency.credits.add(reward.rewards.credits);
-        }
-        if (reward.rewards.researchPoints) {
-          newCurrency.researchPoints = newCurrency.researchPoints.add(reward.rewards.researchPoints);
-        }
-        if (reward.rewards.influence) {
-          newCurrency.influence = newCurrency.influence.add(reward.rewards.influence);
-        }
-        
-        // Ресурсы
-        if (reward.rewards.resources) {
-          for (const [resType, amount] of Object.entries(reward.rewards.resources)) {
-            const type = resType as ResourceType;
-            const cur = getBuf(newGrid.buffers, 'base', type);
-            const newAmount = cur.add(amount);
-            newGrid = {
-              ...newGrid,
-              buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
-            };
-          }
-        }
-        
-        // Обновляем статус награды
-        const updatedDailyLogin = claimDailyReward(state.retention.dailyLogin, day);
-        
-        set({
-          currency: newCurrency,
-          grid: newGrid,
-          retention: {
-            ...state.retention,
-            dailyLogin: updatedDailyLogin,
-          },
-        });
-        
-        state.addNotification({
-          type: 'success',
-          title: `Награда за день ${day} получена!`,
-          message: `🎁 Стрик: ${state.retention.dailyLogin.currentStreak} дней`,
-        });
-      });
-      
-      return state;
-    });
-  },
+    const state = get();
 
-  // Собрать time-based reward
-  collectTimeBasedReward: (rewardId: string) => {
-    set((state) => {
-      const reward = state.retention.timeBasedRewards.containers.find(r => r.id === rewardId);
-      if (!reward || reward.collected) return state;
-      
+    if (!canClaimDailyReward(state.retention.dailyLogin, day)) {
+      state.addNotification({
+        type: 'warning',
+        title: 'Недоступно',
+        message: 'Эта награда уже собрана или ещё недоступна',
+      });
+      return;
+    }
+
+    if (!state.retention.dailyLogin.rewards.some(r => r.day === day)) return;
+
+    let claimedStreak: number | null = null;
+
+    set((s) => {
+      // Свежая проверка: между get() и set мог пройти второй клик по той же награде.
+      if (!canClaimDailyReward(s.retention.dailyLogin, day)) return s;
+      const reward = s.retention.dailyLogin.rewards.find(r => r.day === day);
+      if (!reward) return s;
+
       // Начисляем награды
-      let newCurrency = { ...state.currency };
-      let newGrid = { ...state.grid };
-      
+      const newCurrency = { ...s.currency };
+      let newGrid = s.grid;
+
       if (reward.rewards.credits) {
         newCurrency.credits = newCurrency.credits.add(reward.rewards.credits);
       }
       if (reward.rewards.researchPoints) {
         newCurrency.researchPoints = newCurrency.researchPoints.add(reward.rewards.researchPoints);
       }
-      
+      if (reward.rewards.influence) {
+        newCurrency.influence = newCurrency.influence.add(reward.rewards.influence);
+      }
+
       // Ресурсы
       if (reward.rewards.resources) {
         for (const [resType, amount] of Object.entries(reward.rewards.resources)) {
           const type = resType as ResourceType;
           const cur = getBuf(newGrid.buffers, 'base', type);
-          const newAmount = cur.add(amount);
           newGrid = {
             ...newGrid,
-            buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
+            buffers: setBuf(newGrid.buffers, 'base', type, cur.add(amount)),
           };
         }
       }
-      
-      // Отмечаем как собранное
-      const updatedContainers = state.retention.timeBasedRewards.containers.map(r =>
-        r.id === rewardId ? { ...r, collected: true } : r
-      );
-      
-      set({
+
+      // Обновляем статус награды
+      const updatedDailyLogin = applyDailyRewardClaim(s.retention.dailyLogin, day);
+      claimedStreak = updatedDailyLogin.currentStreak;
+
+      return {
         currency: newCurrency,
         grid: newGrid,
         retention: {
-          ...state.retention,
+          ...s.retention,
+          dailyLogin: updatedDailyLogin,
+        },
+      };
+    });
+
+    if (claimedStreak !== null) {
+      get().addNotification({
+        type: 'success',
+        title: `Награда за день ${day} получена!`,
+        message: `🎁 Стрик: ${claimedStreak} дней`,
+      });
+    }
+  },
+
+  // Собрать time-based reward
+  collectTimeBasedReward: (rewardId: string) => {
+    let collected = false;
+
+    set((s) => {
+      const reward = s.retention.timeBasedRewards.containers.find(r => r.id === rewardId);
+      if (!reward || reward.collected) return s;
+
+      // Начисляем награды
+      const newCurrency = { ...s.currency };
+      let newGrid = s.grid;
+
+      if (reward.rewards.credits) {
+        newCurrency.credits = newCurrency.credits.add(reward.rewards.credits);
+      }
+      if (reward.rewards.researchPoints) {
+        newCurrency.researchPoints = newCurrency.researchPoints.add(reward.rewards.researchPoints);
+      }
+
+      // Ресурсы
+      if (reward.rewards.resources) {
+        for (const [resType, amount] of Object.entries(reward.rewards.resources)) {
+          const type = resType as ResourceType;
+          const cur = getBuf(newGrid.buffers, 'base', type);
+          newGrid = {
+            ...newGrid,
+            buffers: setBuf(newGrid.buffers, 'base', type, cur.add(amount)),
+          };
+        }
+      }
+
+      collected = true;
+
+      return {
+        currency: newCurrency,
+        grid: newGrid,
+        retention: {
+          ...s.retention,
           timeBasedRewards: {
-            ...state.retention.timeBasedRewards,
-            containers: updatedContainers,
+            ...s.retention.timeBasedRewards,
+            // Отмечаем как собранное
+            containers: s.retention.timeBasedRewards.containers.map(r =>
+              r.id === rewardId ? { ...r, collected: true } : r
+            ),
           },
         },
-      });
-      
-      state.addNotification({
+      };
+    });
+
+    if (collected) {
+      get().addNotification({
         type: 'success',
         title: 'Контейнер получен!',
         message: '📦 Ресурсы добавлены',
       });
-      
-      return state;
-    });
+    }
   },
 
   // ============================================================================
@@ -12281,31 +12684,26 @@ export const useGameStore = create<GameState>((set, get) => ({
    * Обрабатывает спавн нового сигнала
    */
   spawnNewSignal: () => {
-    set((state) => {
-      if (!shouldSpawnSignal(state.signalInterception)) {
-        return state;
+    set((s) => {
+      if (!shouldSpawnSignal(s.signalInterception)) {
+        return s;
       }
-      
+
       // Получаем текущее производство для расчёта наград
       const currentProduction: Partial<Record<ResourceType, Decimal>> = {};
-      for (const [type, resState] of Object.entries(state.resources)) {
+      for (const [type, resState] of Object.entries(s.resources)) {
         // Поля perSecond у ResourceState нет — выработка за секунду лежит в `production`.
         // Прежний код клал сюда undefined, и награда за сигнал считалась от нулевого дохода.
         currentProduction[type as ResourceType] = resState.production;
       }
-      
-      const newSignal = spawnSignal(currentProduction);
-      const nextTime = calculateNextSignalTime(state.signalInterception.signalFrequency);
-      
-      set({
+
+      return {
         signalInterception: {
-          ...state.signalInterception,
-          activeSignal: newSignal,
-          nextSignalAt: nextTime,
+          ...s.signalInterception,
+          activeSignal: spawnSignal(currentProduction),
+          nextSignalAt: calculateNextSignalTime(s.signalInterception.signalFrequency),
         },
-      });
-      
-      return state;
+      };
     });
   },
   
@@ -12313,39 +12711,45 @@ export const useGameStore = create<GameState>((set, get) => ({
    * Обрабатывает клик по сигналу
    */
   claimSignal: (signalId: string) => {
-    set((state) => {
-      const signal = state.signalInterception.activeSignal;
-      
-      if (!signal || signal.id !== signalId || signal.claimed) {
-        return state;
-      }
-      
-      // Проверяем, не истёк ли сигнал
-      if (isSignalExpired(signal)) {
-        // Сигнал истёк - не получаем награду
-        set({
-          signalInterception: {
-            ...state.signalInterception,
-            activeSignal: null,
-            totalSignalsMissed: state.signalInterception.totalSignalsMissed + 1,
-          },
-        });
-        
-        state.addNotification({
-          type: 'warning',
-          title: 'Сигнал потерян!',
-          message: 'Вы не успели перехватить сигнал 😢',
-        });
-        
-        return state;
-      }
-      
+    const signal = get().signalInterception.activeSignal;
+
+    if (!signal || signal.id !== signalId || signal.claimed) {
+      return;
+    }
+
+    // Проверяем, не истёк ли сигнал
+    if (isSignalExpired(signal)) {
+      // Сигнал истёк - не получаем награду
+      set((s) => ({
+        signalInterception: {
+          ...s.signalInterception,
+          activeSignal: null,
+          totalSignalsMissed: s.signalInterception.totalSignalsMissed + 1,
+        },
+      }));
+
+      get().addNotification({
+        type: 'warning',
+        title: 'Сигнал потерян!',
+        message: 'Вы не успели перехватить сигнал 😢',
+      });
+
+      return;
+    }
+
+    const { reward } = signal;
+    let claimed = false;
+
+    set((s) => {
+      // Свежая проверка: защита от двойного клика по одному сигналу.
+      const current = s.signalInterception.activeSignal;
+      if (!current || current.id !== signalId || current.claimed) return s;
+
       // Применяем награду
-      const { reward } = signal;
-      let newCurrency = { ...state.currency };
-      let newGrid = { ...state.grid };
-      let newBoosts = [...state.signalInterception.activeBoosts];
-      
+      const newCurrency = { ...s.currency };
+      let newGrid = s.grid;
+      const newBoosts = [...s.signalInterception.activeBoosts];
+
       // Мгновенные награды
       if (reward.type === 'resources' || reward.type === 'instant') {
         if (reward.credits) {
@@ -12368,15 +12772,14 @@ export const useGameStore = create<GameState>((set, get) => ({
           for (const [resType, amount] of Object.entries(reward.resources)) {
             const type = resType as ResourceType;
             const cur = getBuf(newGrid.buffers, 'base', type);
-            const newAmount = cur.add(amount);
             newGrid = {
               ...newGrid,
-              buffers: setBuf(newGrid.buffers, 'base', type, newAmount),
+              buffers: setBuf(newGrid.buffers, 'base', type, cur.add(amount)),
             };
           }
         }
       }
-      
+
       // Бусты
       if (reward.type === 'boost') {
         const boost = createBoostFromReward(signal);
@@ -12384,36 +12787,42 @@ export const useGameStore = create<GameState>((set, get) => ({
           newBoosts.push(boost);
         }
       }
-      
+
+      claimed = true;
+
       // Обновляем состояние
-      set({
+      return {
         currency: newCurrency,
         grid: newGrid,
         signalInterception: {
-          ...state.signalInterception,
-          activeSignal: { ...signal, claimed: true },
+          ...s.signalInterception,
+          activeSignal: { ...current, claimed: true },
           activeBoosts: newBoosts,
-          totalSignalsCaught: state.signalInterception.totalSignalsCaught + 1,
+          totalSignalsCaught: s.signalInterception.totalSignalsCaught + 1,
         },
-      });
-      
-      // Через небольшую задержку убираем сигнал
-      setTimeout(() => {
-        set((state) => ({
+      };
+    });
+
+    if (!claimed) return;
+
+    // Через небольшую задержку убираем сигнал
+    setTimeout(() => {
+      set((s) => {
+        // Не гасим сигнал, если за секунду успел заспавниться следующий.
+        if (s.signalInterception.activeSignal?.id !== signalId) return s;
+        return {
           signalInterception: {
-            ...state.signalInterception,
+            ...s.signalInterception,
             activeSignal: null,
           },
-        }));
-      }, 1000);
-      
-      state.addNotification({
-        type: 'success',
-        title: 'Сигнал перехвачен! 🎯',
-        message: getSignalRewardDescription(reward),
+        };
       });
-      
-      return state;
+    }, 1000);
+
+    get().addNotification({
+      type: 'success',
+      title: 'Сигнал перехвачен! 🎯',
+      message: getSignalRewardDescription(reward),
     });
   },
   
@@ -12421,30 +12830,38 @@ export const useGameStore = create<GameState>((set, get) => ({
    * Обновляет состояние сигналов (удаляет истёкшие бусты и сигналы)
    */
   updateSignals: () => {
-    set((state) => {
+    set((s) => {
       // Удаляем истёкшие бусты
-      const activeBoosts = removeExpiredBoosts(state.signalInterception.activeBoosts);
-      
+      const activeBoosts = removeExpiredBoosts(s.signalInterception.activeBoosts);
+
       // Проверяем истёкший сигнал
-      let activeSignal = state.signalInterception.activeSignal;
-      let totalMissed = state.signalInterception.totalSignalsMissed;
-      
+      let activeSignal = s.signalInterception.activeSignal;
+      let totalMissed = s.signalInterception.totalSignalsMissed;
+
       if (activeSignal && !activeSignal.claimed && isSignalExpired(activeSignal)) {
         // Сигнал истёк и не был собран
         activeSignal = null;
         totalMissed += 1;
       }
-      
-      set({
+
+      // Вызывается каждую секунду из игрового цикла. removeExpiredBoosts всегда возвращает
+      // новый массив (filter), поэтому сравниваем длину: без этого каждый вызов подсовывал
+      // подписчикам SignalOverlay новую ссылку и ререндерил его раз в секунду впустую.
+      if (
+        activeSignal === s.signalInterception.activeSignal &&
+        activeBoosts.length === s.signalInterception.activeBoosts.length
+      ) {
+        return s;
+      }
+
+      return {
         signalInterception: {
-          ...state.signalInterception,
+          ...s.signalInterception,
           activeSignal,
           activeBoosts,
           totalSignalsMissed: totalMissed,
         },
-      });
-      
-      return state;
+      };
     });
   },
   
@@ -13157,6 +13574,34 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 }));
+
+/*
+ * Мост «кредиты игры <-> финансы». Кредиты (займы) — инструмент игровых кредитов: тело
+ * приходит в currency.credits, платежи списываются оттуда же. financeStore не может
+ * импортировать gameStore напрямую (gameStore уже импортирует financeStore — был бы цикл),
+ * поэтому доступ инжектируется здесь, при инициализации модуля.
+ */
+registerGameCreditsAdapter({
+  read: () => useGameStore.getState().currency.credits,
+  add: (amount) => {
+    useGameStore.setState((s) => ({
+      currency: { ...s.currency, credits: s.currency.credits.add(amount) },
+    }));
+  },
+  spend: (amount) => {
+    // Проверка и списание в одном set: между чтением и записью проходит тик, который
+    // тоже меняет credits, и раздельная проверка позволила бы уйти в минус.
+    let ok = false;
+    useGameStore.setState((s) => {
+      if (s.currency.credits.lt(amount)) return s;
+      ok = true;
+      return {
+        currency: { ...s.currency, credits: s.currency.credits.sub(amount) },
+      };
+    });
+    return ok;
+  },
+});
 
 // Вспомогательная функция для применения эффектов события
 function applyEventEffects(state: GameState, event: RandomEvent): GameState {

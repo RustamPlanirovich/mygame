@@ -9,6 +9,7 @@ import {
 } from '../../core/production/policyEffects';
 import { Landmark, Info, XCircle } from 'lucide-react';
 import { notify } from '../../utils/notifications';
+import { technologyLabel } from '../../core/i18n/label';
 import { GameIcon, IconText } from '../ui/icons';
 
 const CATEGORY_LABELS: Record<PolicyCategory, string> = {
@@ -214,7 +215,7 @@ export function PoliticsPanel() {
                                 key={techId}
                                 className={research.technologies[techId] ? 'text-green-400' : 'text-red-400'}
                               >
-                                <IconText>{research.technologies[techId] ? '✓' : '✗'}</IconText> {techId}
+                                <IconText>{research.technologies[techId] ? '✓' : '✗'}</IconText> {technologyLabel(techId)}
                               </div>
                             ))}
                           </div>

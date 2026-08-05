@@ -18,6 +18,7 @@ import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
 import { getPowerSources } from '../../utils/powerGridHelpers';
 import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
+import { jobProgress } from '../../core/systems/construction';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
@@ -175,6 +176,8 @@ export function FactoryGrid() {
       buffers: activeGrid.buffers,
       tileEvolutionLevels: (mainGrid as any).tileEvolutionLevels || {},
       tileDisabled: (mainGrid as any).tileDisabled || {},
+      // Незавершённые стройки/улучшения: берём из АКТИВНОЙ сетки — на платформе своя очередь.
+      tileJobs: (activeGrid as any).tileJobs || {},
       width: activeGrid.width,
       height: activeGrid.height,
     };
@@ -188,6 +191,7 @@ export function FactoryGrid() {
            a.buffers === b.buffers &&
            a.tileEvolutionLevels === b.tileEvolutionLevels &&
            a.tileDisabled === b.tileDisabled &&
+           a.tileJobs === b.tileJobs &&
            a.width === b.width &&
            a.height === b.height;
   });
@@ -1114,7 +1118,13 @@ export function FactoryGrid() {
             
             // Проверяем, отключено ли здание вручную
             const isDisabled = grid.tileDisabled?.[k] || false;
-            
+
+            /*
+             * Стройка/улучшение в процессе (bigplan.md, пункты 18–19). Здание уже стоит на
+             * клетке и оплачено, но не работает — показываем это явно, иначе игрок решит,
+             * что постройка сломалась.
+             */
+            const job = grid.tileJobs?.[k];
 
             const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
             const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
@@ -1127,11 +1137,39 @@ export function FactoryGrid() {
                 t.tint = THEME_COLORS.cyberRed;
                 t.alpha = 0.7;
               }
+              // Недостроенное — полупрозрачное: видно, что это ещё «стройка», а не здание.
+              if (job) {
+                t.alpha = 0.45;
+              }
             }
-            
+
+            if (job) {
+              // Дуга заполнения по прогрессу: считается от абсолютного времени, поэтому
+              // не «замирает», если вкладка была свёрнута.
+              const progress = jobProgress(job, Date.now());
+              const radius = currentGridMode === 'hex' ? HEX_SIZE * 0.78 : CELL / 2 - 3;
+              const startAngle = -Math.PI / 2;
+              const endAngle = startAngle + Math.PI * 2 * progress;
+              const color = job.kind === 'build' ? THEME_COLORS.cyberBlue : THEME_COLORS.cyberYellow;
+
+              // Фоновое кольцо
+              g.moveTo(centerX + radius, centerY);
+              g.arc(centerX, centerY, radius, 0, Math.PI * 2)
+                .stroke({ color, width: 1, alpha: 0.2 });
+
+              if (progress > 0) {
+                g.moveTo(
+                  centerX + Math.cos(startAngle) * radius,
+                  centerY + Math.sin(startAngle) * radius,
+                );
+                g.arc(centerX, centerY, radius, startAngle, endAngle)
+                  .stroke({ color, width: 2.5, alpha: 0.95 });
+              }
+            }
+
             // КРУГОВОЙ ИНДИКАТОР ЗАГРУЗКИ для работающих зданий
-            // Здание работает если не отключено вручную
-            if (!isDisabled && showDetailedText) {
+            // Здание работает если не отключено вручную и не находится в стройке
+            if (!isDisabled && !job && showDetailedText) {
               const bRef = buildingsById[buildingId];
               // Показываем индикатор только для зданий с производством или потреблением
               if (bRef && (bRef.production || bRef.consumption)) {
@@ -1382,7 +1420,9 @@ export function FactoryGrid() {
       grid.width, 
       grid.height, 
       grid.tileDisabled,
-      combat.enemies.length, 
+      // Дуга прогресса стройки должна появляться и исчезать сразу, не дожидаясь смены буферов.
+      grid.tileJobs,
+      combat.enemies.length,
       worldSize, 
       buildingsById,
       // Added new dependencies from top-level useMemo

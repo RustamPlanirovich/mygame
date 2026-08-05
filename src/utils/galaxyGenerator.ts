@@ -5,31 +5,41 @@ import type { ProceduralGalaxy, SpecialGalaxyFeature, ResourceType } from '../co
 // Galaxy Name Generation
 // ============================================================================
 
+/*
+ * Списки были английскими, и «Crimson Expanse» / «Alpha Nexus» уходили в сохранение — это и
+ * есть английские названия во вкладке «Галактика». Порядок слов сохранён один в один, чтобы
+ * генерация по тому же seed давала ту же позицию в списке: у уже открытых галактик название
+ * останется на своём месте, просто по-русски. Прилагательные — в женском роде («галактика»).
+ *
+ * Для галактик, уже сохранённых с английским названием, есть localizeGeneratedName()
+ * в core/i18n/label.ts — она переводит их при отображении, без миграции сейвов.
+ */
 const GALAXY_NAME_PREFIXES = [
-  'Nebula', 'Spiral', 'Elliptical', 'Irregular', 'Dwarf', 'Giant',
-  'Dark', 'Bright', 'Ancient', 'Lost', 'Hidden', 'Void', 'Radiant',
-  'Crimson', 'Azure', 'Golden', 'Silver', 'Crystal', 'Shadow', 'Eternal'
+  'Туманная', 'Спиральная', 'Эллиптическая', 'Неправильная', 'Карликовая', 'Гигантская',
+  'Тёмная', 'Яркая', 'Древняя', 'Потерянная', 'Скрытая', 'Пустотная', 'Сияющая',
+  'Багровая', 'Лазурная', 'Золотая', 'Серебряная', 'Кристальная', 'Теневая', 'Вечная'
 ];
 
 const GALAXY_NAME_SUFFIXES = [
-  'Expanse', 'Cluster', 'Region', 'Zone', 'Sector', 'Domain', 'Realm',
-  'Haven', 'Wastes', 'Fields', 'Depths', 'Heights', 'Core', 'Edge',
-  'Frontier', 'Reach', 'Veil', 'Crown', 'Heart', 'Nexus'
+  'Ширь', 'Скопление', 'Область', 'Зона', 'Сектор', 'Владение', 'Царство',
+  'Убежище', 'Пустоши', 'Поля', 'Глубины', 'Высоты', 'Ядро', 'Край',
+  'Рубеж', 'Предел', 'Завеса', 'Венец', 'Сердце', 'Узел'
 ];
 
 const GALAXY_NAME_NUMBERS = [
-  'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
-  'Iota', 'Kappa', 'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron', 'Pi', 'Rho',
-  'Sigma', 'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega'
+  'Альфа', 'Бета', 'Гамма', 'Дельта', 'Эпсилон', 'Дзета', 'Эта', 'Тета',
+  'Йота', 'Каппа', 'Лямбда', 'Мю', 'Ню', 'Кси', 'Омикрон', 'Пи', 'Ро',
+  'Сигма', 'Тау', 'Ипсилон', 'Фи', 'Хи', 'Пси', 'Омега'
 ];
 
 function generateGalaxyName(rng: () => number): string {
   const useNumber = rng() > 0.5;
-  
+
   if (useNumber) {
     const number = GALAXY_NAME_NUMBERS[Math.floor(rng() * GALAXY_NAME_NUMBERS.length)];
     const suffix = GALAXY_NAME_SUFFIXES[Math.floor(rng() * GALAXY_NAME_SUFFIXES.length)];
-    return `${number} ${suffix}`;
+    // «Узел Сигма», а не «Сигма Узел»: греческая буква в русском идёт после существительного.
+    return `${suffix} ${number}`;
   } else {
     const prefix = GALAXY_NAME_PREFIXES[Math.floor(rng() * GALAXY_NAME_PREFIXES.length)];
     const suffix = GALAXY_NAME_SUFFIXES[Math.floor(rng() * GALAXY_NAME_SUFFIXES.length)];
@@ -145,16 +155,21 @@ function generateRewards(
 ): ProceduralGalaxy['rewards'] {
   const rewards: ProceduralGalaxy['rewards'] = {};
   
-  // Unique bonus (always present)
+  /*
+   * Список был английским, и эти строки попадали в сохранение как есть — отсюда
+   * «Global Production +5%» во вкладке «Галактика». Порядок сохранён, чтобы генерация по тому
+   * же seed давала тот же бонус. Уже сохранённые английские значения переводит
+   * localizeGalaxyBonus() из core/i18n/label.ts.
+   */
   const bonusTypes = [
-    'Global Production +5%',
-    'Research Speed +10%',
-    'Energy Efficiency +8%',
-    'Ship Combat Power +15%',
-    'Platform Defense +12%',
-    'Quantum Points Gain +20%',
-    'Building Upgrade Cost -10%',
-    'Resource Storage +25%',
+    'Общее производство +5%',
+    'Скорость исследований +10%',
+    'Энергоэффективность +8%',
+    'Боевая мощь кораблей +15%',
+    'Защита платформ +12%',
+    'Прирост квантовых очков +20%',
+    'Стоимость улучшений −10%',
+    'Ёмкость складов +25%',
   ];
   rewards.uniqueBonus = bonusTypes[Math.floor(rng() * bonusTypes.length)];
   

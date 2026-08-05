@@ -12,6 +12,7 @@ import { useAnalyticsStore } from '../../../features/analyticsStore';
 import type { ResourceType } from '../../../core/gameTypes';
 import { D, formatNumber, formatRate } from '../../../core/math/format';
 import { toRechartsData } from '../../../utils/analyticsHelpers';
+import { resourceLabel } from '../../../core/i18n/label';
 
 interface ProductionChartProps {
   resource: ResourceType;
@@ -52,7 +53,7 @@ export const ProductionChart = memo(function ProductionChart({
   }, [resource, getFilteredHistory, history]);
 
   const color = RESOURCE_COLORS[resource] || '#3ee07f';
-  const label = resource.replace(/_/g, ' ');
+  const label = resourceLabel(resource);
 
   if (!history || history.data.length === 0) {
     return (

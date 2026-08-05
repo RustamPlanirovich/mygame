@@ -4,7 +4,6 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import Decimal from 'break_eternity.js';
 import type {
   FinanceState,
@@ -125,11 +124,63 @@ export function isStockPriceSourceServer(): boolean {
 }
 
 // ==========================================
+// МОСТ К ИГРОВЫМ КРЕДИТАМ
+// ==========================================
+
+/*
+ * В игре два разных кошелька: `currency.credits` в gameStore (то, чем строят и что игрок
+ * называет «балансом») и `bank.balance` здесь (расчётный счёт: акции, дивиденды, вклады).
+ *
+ * Кредит зачислялся на bank.balance, а платежи по нему списывались оттуда же. Для игрока это
+ * выглядело как «взял кредит — деньги не пришли»: чтобы ими воспользоваться, надо было найти
+ * в банке кнопку «Вывести в кредиты игры», о которой ниоткуда не узнать.
+ *
+ * Решение: КРЕДИТЫ — инструмент игровых кредитов. Тело кредита приходит сразу в
+ * currency.credits, платежи и досрочное погашение списываются оттуда же. Расчётный счёт
+ * остаётся тем, чем и был — счётом для биржи и вкладов.
+ *
+ * Мост инжектируется, а не импортируется: gameStore уже импортирует financeStore, и прямой
+ * импорт в обратную сторону дал бы цикл модулей.
+ */
+export interface GameCreditsAdapter {
+  /** Текущий баланс игровых кредитов. */
+  read: () => Decimal;
+  /** Начислить игровые кредиты. */
+  add: (amount: Decimal) => void;
+  /** Списать игровые кредиты. false — если не хватило. */
+  spend: (amount: Decimal) => boolean;
+}
+
+let gameCredits: GameCreditsAdapter | null = null;
+
+/** Вызывается один раз из gameStore при инициализации модуля. */
+export function registerGameCreditsAdapter(adapter: GameCreditsAdapter): void {
+  gameCredits = adapter;
+}
+
+/**
+ * Кошелёк для операций по кредитам. Если мост не зарегистрирован (юнит-тест стора без
+ * gameStore), падать нельзя — работаем по расчётному счёту, как раньше.
+ */
+function creditsWallet(): GameCreditsAdapter | null {
+  return gameCredits;
+}
+
+// ==========================================
 // СОЗДАНИЕ STORE
 // ==========================================
 
+/*
+ * Здесь был `persist` с ключом 'finance-storage' — ОДИН на аккаунт, независимо от слота.
+ * Финансы при этом уже сохраняются в серверный сейв слота (serializeFinance ниже вызывается
+ * из gameStore.saveGame), поэтому localStorage дублировал их и восстанавливался при
+ * монтировании РАНЬШЕ загрузки слота. Результат: кредиты, взятые на одной карте, висели
+ * на всех остальных — это и есть пункт 8 в bigplan.md.
+ *
+ * Persist убран целиком: единственный источник правды — сейв слота. Старый ключ подчищает
+ * cleanupLegacyLocalStorage().
+ */
 export const useFinanceStore = create<FinanceStore>()(
-  persist(
     (set, get) => ({
       // Начальное состояние
       ...INITIAL_FINANCE_STATE,
@@ -331,29 +382,43 @@ export const useFinanceStore = create<FinanceStore>()(
         
         // Создаём кредит
         const loan = createLoan(product, amount, effectiveRate, collateral);
-        
+
         // Обновляем кредитный рейтинг (небольшое снижение за новый кредит)
         const { newScore, event } = updateCreditScore(state.creditScore, {
           type: 'new_loan',
           change: -5,
           description: `Оформлен новый кредит: ${product.name}`,
         });
-        
-        // Зачисляем сумму на счёт
-        const newBalance = D(state.bank.balance).add(amount);
+
         const newTotalDebt = D(state.totalDebt).add(D(loan.remainingBalance));
-        
-        set({
-          bank: {
-            ...state.bank,
-            balance: newBalance.toString(),
-          },
-          loans: [...state.loans, loan],
-          creditScore: newScore,
-          creditScoreHistory: [...state.creditScoreHistory, event],
-          totalDebt: newTotalDebt.toString(),
-        });
-        
+
+        /*
+         * Тело кредита зачисляем в ИГРОВЫЕ кредиты — это тот баланс, который игрок видит
+         * в TopBar и которым строит. Раньше сумма уходила на bank.balance, и кредит выглядел
+         * не зачисленным. Расчётный счёт — только запасной путь, если мост не поднят.
+         */
+        const wallet = creditsWallet();
+        if (wallet) {
+          wallet.add(amount);
+          set({
+            loans: [...state.loans, loan],
+            creditScore: newScore,
+            creditScoreHistory: [...state.creditScoreHistory, event],
+            totalDebt: newTotalDebt.toString(),
+          });
+        } else {
+          set({
+            bank: {
+              ...state.bank,
+              balance: D(state.bank.balance).add(amount).toString(),
+            },
+            loans: [...state.loans, loan],
+            creditScore: newScore,
+            creditScoreHistory: [...state.creditScoreHistory, event],
+            totalDebt: newTotalDebt.toString(),
+          });
+        }
+
         return { success: true, loan };
       },
       
@@ -371,11 +436,17 @@ export const useFinanceStore = create<FinanceStore>()(
           return { success: false, isFullyPaid: false, error: 'Кредит уже закрыт' };
         }
         
-        const balance = D(state.bank.balance);
+        /*
+         * Платёж списывается из того же кошелька, куда пришло тело кредита — из игровых
+         * кредитов (см. registerGameCreditsAdapter). Иначе игрок получал деньги в одном
+         * месте, а платить должен был из другого.
+         */
+        const wallet = creditsWallet();
+        const balance = wallet ? wallet.read() : D(state.bank.balance);
         if (amount.gt(balance)) {
-          return { success: false, isFullyPaid: false, error: 'Недостаточно средств' };
+          return { success: false, isFullyPaid: false, error: 'Недостаточно кредитов' };
         }
-        
+
         // Обрабатываем платёж
         const { updatedLoan, isFullyPaid } = processLoanPayment(loan, amount);
         
@@ -390,17 +461,28 @@ export const useFinanceStore = create<FinanceStore>()(
         const newLoans = [...state.loans];
         newLoans[loanIndex] = updatedLoan;
         
-        const newBalance = balance.sub(amount);
         const newTotalDebt = D(state.totalDebt).sub(amount);
         const newLoanInterestPaid = D(state.stats.totalLoanInterestPaid).add(
           D(updatedLoan.paymentHistory[updatedLoan.paymentHistory.length - 1]?.interestPart || '0')
         );
-        
+
+        // Сначала списываем деньги: если списание не прошло (баланс изменился между проверкой
+        // и списанием), кредит не должен считаться оплаченным.
+        if (wallet) {
+          if (!wallet.spend(amount)) {
+            return { success: false, isFullyPaid: false, error: 'Недостаточно кредитов' };
+          }
+        }
+
         set({
-          bank: {
-            ...state.bank,
-            balance: newBalance.toString(),
-          },
+          ...(wallet
+            ? {}
+            : {
+                bank: {
+                  ...state.bank,
+                  balance: balance.sub(amount).toString(),
+                },
+              }),
           loans: newLoans,
           creditScore: newScore,
           creditScoreHistory: [...state.creditScoreHistory, event],
@@ -411,7 +493,7 @@ export const useFinanceStore = create<FinanceStore>()(
             loansFullyPaid: isFullyPaid ? state.stats.loansFullyPaid + 1 : state.stats.loansFullyPaid,
           },
         });
-        
+
         return { success: true, isFullyPaid };
       },
       
@@ -1117,34 +1199,7 @@ export const useFinanceStore = create<FinanceStore>()(
           marketEvents: [],
         });
       },
-    }),
-    {
-      name: 'finance-storage',
-      partialize: (state) => ({
-        bank: state.bank,
-        loans: state.loans,
-        maxLoanCapacity: state.maxLoanCapacity,
-        creditScore: state.creditScore,
-        creditScoreHistory: state.creditScoreHistory,
-        positions: state.positions,
-        stockTransactions: state.stockTransactions.slice(-100), // Последние 100 транзакций
-        fundInvestments: state.fundInvestments,
-        netWorth: state.netWorth,
-        liquidAssets: state.liquidAssets,
-        totalDebt: state.totalDebt,
-        netWorthHistory: state.netWorthHistory,
-        lastStockUpdate: state.lastStockUpdate,
-        lastDividendPayout: state.lastDividendPayout,
-        stats: state.stats,
-      }),
-      onRehydrateStorage: () => (state) => {
-        // После восстановления из storage, инициализируем акции и фонды
-        if (state && state.stocks.length === 0) {
-          state.initializeFinance();
-        }
-      },
-    }
-  )
+    })
 );
 
 // ============================================================================
@@ -1168,6 +1223,14 @@ export const useFinanceStore = create<FinanceStore>()(
  * серверные (см. syncStockPricesFromServer), и сохранённый снимок цен при загрузке
  * конфликтовал бы с авторитетными. Они пересоздаются из констант.
  */
+/**
+ * Полный сброс финансов. Нужен gameStore.resetGame: новая игра обязана начинаться без
+ * кредитов и портфеля предыдущей, иначе долг переезжает в свежую партию.
+ */
+export function resetFinanceState(): void {
+  useFinanceStore.getState().resetFinance();
+}
+
 export function serializeFinance(): Record<string, unknown> {
   const s = useFinanceStore.getState();
   return {
@@ -1199,9 +1262,16 @@ export function serializeFinance(): Record<string, unknown> {
 export function hydrateFinance(raw: unknown): void {
   const store = useFinanceStore.getState();
 
-  // Нет секции finance — старый сейв. Ничего не трогаем: в памяти уже либо начальное
-  // состояние, либо то, что успело подняться из localStorage.
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  /*
+   * Нет секции finance — старый сейв или другая карта. Раньше здесь был просто `return`, и в
+   * памяти оставались финансы ПРЕДЫДУЩЕГО слота: банковский счёт, кредиты и рейтинг переезжали
+   * на новую карту. Загрузка слота обязана быть полной заменой состояния, поэтому сбрасываем
+   * в начальное — иначе взятый на одной карте кредит виден на всех.
+   */
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    store.resetFinance();
+    return;
+  }
 
   const r = raw as Record<string, unknown>;
   const isObj = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
