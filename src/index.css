@@ -766,3 +766,26 @@
     --edge: var(--ink-500);
   }
 }
+
+/* ==========================================================================
+   GAME ICONS
+   The hand-drawn futuristic set that replaced the emoji. Icons are duotone:
+   `color` carries the line work, `--gi-2` the accent fill. Both are set per
+   glyph by <GameIcon>, so all this layer owns is metrics and the optional halo.
+   ========================================================================== */
+.game-icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -0.15em;
+  overflow: visible;
+}
+
+.game-icon--glow {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 55%, transparent));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .game-icon--glow {
+    filter: none;
+  }
+}

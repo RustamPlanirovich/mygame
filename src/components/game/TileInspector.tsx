@@ -24,6 +24,7 @@ import { BUILDING_EVOLUTIONS, getNextEvolution, getCurrentEvolution, getEvolutio
 import { isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
+import { GameIcon, IconText } from '../ui/icons';
 
 const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
   if (buildingId === 'miner_mk1') return 'ore';
@@ -377,7 +378,7 @@ export function TileInspector() {
         ) : isBaseSelected ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="text-2xl">🏠</div>
+              <div className="text-2xl"><GameIcon icon="🏠" /></div>
               <div>
                 <div className="text-sm font-bold text-cyber-text">Центральная База</div>
                 <div className="text-[10px] text-cyber-gray-light">Координаты: {basePos.x}, {basePos.y}</div>
@@ -406,7 +407,7 @@ export function TileInspector() {
                 return (
                   <div className="bg-cyber-dark/40 p-2 rounded border border-green-500/30 mt-2">
                     <div className="text-xs text-green-400 mb-1.5 flex items-center gap-1">
-                      📦 Складские модули ({totalWarehouseCount})
+                      <GameIcon icon="📦" /> Складские модули ({totalWarehouseCount})
                     </div>
                     <div className="space-y-1">
                       {warehouseBuildings.filter(b => b.count > 0).map(b => (
@@ -417,7 +418,7 @@ export function TileInspector() {
                       ))}
                     </div>
                     <div className="text-[9px] text-green-300/70 mt-1.5 pt-1.5 border-t border-green-500/20">
-                      💡 Каждый склад увеличивает вместимость базы за каждый уровень
+                      <GameIcon icon="💡" /> Каждый склад увеличивает вместимость базы за каждый уровень
                     </div>
                   </div>
                 );
@@ -427,7 +428,7 @@ export function TileInspector() {
 
             <div className="pt-2 border-t border-cyber-gray/50">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-cyber-text-dim">📦 Содержимое склада</div>
+                <div className="text-xs text-cyber-text-dim"><GameIcon icon="📦" /> Содержимое склада</div>
                 <div className="text-[10px] text-cyber-gray-light">
                   {(Object.keys(resources) as ResourceType[]).filter(r => {
                     const raw = grid.buffers.base?.[r];
@@ -455,7 +456,7 @@ export function TileInspector() {
                           <span className="text-cyber-text-dim">{RESOURCE_LABEL[r]}</span>
                           <span className={`font-mono ${full ? 'text-cyber-red font-bold' : fillPercent > 80 ? 'text-orange-400' : 'text-cyber-text'}`}>
                             {formatNumber(amt)} / {formatNumber(max)}
-                            {full && <span className="ml-1">⚠️</span>}
+                            {full && <span className="ml-1"><GameIcon icon="⚠️" /></span>}
                           </span>
                         </div>
                         <div className="h-1.5 bg-cyber-gray/20 rounded-full overflow-hidden">
@@ -502,14 +503,14 @@ export function TileInspector() {
                 <div className="text-xs text-cyber-text-dim mb-2">Оборона</div>
                 <div className="text-xs text-cyber-text-dim space-y-1">
                   <div>
-                    Турели: {defenseUi.turretNeed.gt(0)
+                    Турели: <IconText>{defenseUi.turretNeed.gt(0)
                       ? `${formatNumber(defenseUi.turretUsed)}⚡/с из ${formatNumber(defenseUi.turretNeed)}⚡/с · эффективность ${Math.round(defenseUi.turretPct * 100)}%`
-                      : '—'}
+                      : '—'}</IconText>
                   </div>
                   <div>
-                    Щит: {defenseUi.shieldMax.gt(0)
+                    Щит: <IconText>{defenseUi.shieldMax.gt(0)
                       ? `${formatNumber(defenseUi.shieldHp)} / ${formatNumber(defenseUi.shieldMax)} · реген +${formatNumber(defenseUi.shieldRegen)}/с · ${formatNumber(defenseUi.shieldUsed)}⚡/с из ${formatNumber(defenseUi.shieldNeed)}⚡/с`
-                      : '—'}
+                      : '—'}</IconText>
                   </div>
                   {defenseUi.pressurePotential.gt(0) ? (
                     <div>
@@ -559,7 +560,7 @@ export function TileInspector() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs">
                     <div className={`font-bold ${isDisabled ? 'text-red-300' : 'text-cyan-300'}`}>
-                      {isDisabled ? '⏸️ Здание отключено' : '▶️ Здание работает'}
+                      <IconText>{isDisabled ? '⏸️ Здание отключено' : '▶️ Здание работает'}</IconText>
                     </div>
                     <div className="text-[10px] text-cyber-gray-light mt-0.5">
                       {isDisabled 
@@ -597,7 +598,7 @@ export function TileInspector() {
               <div className="bg-purple-900/20 p-2 rounded border border-purple-500/30">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs">
-                    <div className="font-bold text-purple-300">⚙️ Продвинутые настройки</div>
+                    <div className="font-bold text-purple-300"><GameIcon icon="⚙️" /> Продвинутые настройки</div>
                     <div className="text-[10px] text-cyber-gray-light mt-0.5">
                       Режимы работы, приоритеты, автопродажа
                     </div>
@@ -615,7 +616,7 @@ export function TileInspector() {
 
             {/* ФАЗА 8.5: Система уровней зданий */}
             <div className="bg-cyber-dark/40 p-2 rounded border border-cyber-green/30">
-              <div className="text-xs text-cyber-text-dim mb-2">⬆️ Улучшение здания</div>
+              <div className="text-xs text-cyber-text-dim mb-2"><GameIcon icon="⬆️" /> Улучшение здания</div>
               
               {(() => {
                 // Рассчитываем стоимость улучшения
@@ -684,11 +685,11 @@ export function TileInspector() {
                     {/* Стоимость улучшения */}
                     {buildingLevel < 500 && upgradeCost.length > 0 && (
                       <div className="text-[10px] mt-2 p-1.5 bg-green-900/20 rounded border border-green-500/30">
-                        <div className="text-green-400 font-semibold mb-1">📈 Стоимость улучшения:</div>
+                        <div className="text-green-400 font-semibold mb-1"><GameIcon icon="📈" /> Стоимость улучшения:</div>
                         <div className="flex flex-wrap gap-2">
                           {upgradeCost.map(({ resource, amount, canAfford }) => (
                             <span key={resource} className={canAfford ? 'text-green-300' : 'text-red-400'}>
-                              {resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]} {formatNumber(amount)}
+                              <IconText>{resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]}</IconText> {formatNumber(amount)}
                             </span>
                           ))}
                         </div>
@@ -698,11 +699,11 @@ export function TileInspector() {
                     {/* Возврат за понижение */}
                     {buildingLevel > 1 && downgradeRefund.length > 0 && (
                       <div className="text-[10px] mt-2 p-1.5 bg-orange-900/20 rounded border border-orange-500/30">
-                        <div className="text-orange-400 font-semibold mb-1">📉 Возврат за понижение (50%):</div>
+                        <div className="text-orange-400 font-semibold mb-1"><GameIcon icon="📉" /> Возврат за понижение (50%):</div>
                         <div className="flex flex-wrap gap-2">
                           {downgradeRefund.map(({ resource, amount }) => (
                             <span key={resource} className="text-orange-300">
-                              {resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]} {formatNumber(amount)}
+                              <IconText>{resource === 'credits' ? '💰' : RESOURCE_LABEL[resource as ResourceType]}</IconText> {formatNumber(amount)}
                             </span>
                           ))}
                         </div>
@@ -710,16 +711,16 @@ export function TileInspector() {
                     )}
                     
                     <div className="text-[10px] text-cyber-gray-light mt-2 space-y-0.5">
-                      <div>💡 Каждый уровень умножает производство и потребление</div>
+                      <div><GameIcon icon="💡" /> Каждый уровень умножает производство и потребление</div>
                       
                       {/* Производство */}
                       {building.production && Object.keys(building.production).length > 0 && (
                         <>
-                          <div>🎯 Производство на уровне {buildingLevel}: {Object.entries(building.production).map(([res, amt]) => 
+                          <div><GameIcon icon="🎯" /> Производство на уровне {buildingLevel}: {Object.entries(building.production).map(([res, amt]) => 
                             `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel))}/с`
                           ).join(', ')}</div>
                           {buildingLevel < 500 && (
-                            <div>🔮 На уровне {buildingLevel + 1}: {Object.entries(building.production).map(([res, amt]) => 
+                            <div><GameIcon icon="🔮" /> На уровне {buildingLevel + 1}: {Object.entries(building.production).map(([res, amt]) => 
                               `${RESOURCE_LABEL[res as ResourceType]} ${formatNumber(D(amt).mul(buildingLevel + 1))}/с`
                             ).join(', ')}</div>
                           )}
@@ -749,9 +750,9 @@ export function TileInspector() {
                           <>
                             {/* Здесь печатался сам номер уровня вместо разбивки по ресурсам:
                                 fmt() собран как раз для этого, но его забыли вызвать. */}
-                            <div className="text-purple-300">📦 Вместимость на уровне {buildingLevel}: {fmt(buildingLevel)}</div>
+                            <div className="text-purple-300"><GameIcon icon="📦" /> Вместимость на уровне {buildingLevel}: {fmt(buildingLevel)}</div>
                             {buildingLevel < 500 && (
-                              <div className="text-purple-400">🔮 На уровне {buildingLevel + 1}: {fmt(buildingLevel + 1)}</div>
+                              <div className="text-purple-400"><GameIcon icon="🔮" /> На уровне {buildingLevel + 1}: {fmt(buildingLevel + 1)}</div>
                             )}
                           </>
                         );
@@ -782,7 +783,7 @@ export function TileInspector() {
                   <div className="bg-gradient-to-r from-purple-900/40 to-pink-900/40 p-2 rounded border border-purple-500/50">
                     <div className="flex items-center gap-2 text-xs text-purple-300">
                       <Sparkles size={14} className="text-purple-400" />
-                      <span className="font-bold">⭐ МАКС. ЭВОЛЮЦИЯ</span>
+                      <span className="font-bold"><GameIcon icon="⭐" /> МАКС. ЭВОЛЮЦИЯ</span>
                     </div>
                     <div className="text-[10px] text-purple-200 mt-1">
                       {currentEvolution?.nameRu || 'Максимальная форма'}: Множитель производства ×{currentMultiplier}
@@ -807,12 +808,12 @@ export function TileInspector() {
                 <div className="bg-gradient-to-r from-purple-900/20 to-pink-900/20 p-2 rounded border border-purple-500/30">
                   <div className="text-xs text-cyber-text-dim mb-2 flex items-center gap-2">
                     <Sparkles size={14} className="text-purple-400" />
-                    <span>🧬 Эволюция здания</span>
+                    <span><GameIcon icon="🧬" /> Эволюция здания</span>
                   </div>
                   
                   {currentEvolution && (
                     <div className="text-[10px] text-purple-300 mb-2">
-                      ✨ Текущая: {currentEvolution.nameRu} (×{currentMultiplier} производство)
+                      <GameIcon icon="✨" /> Текущая: {currentEvolution.nameRu} (×{currentMultiplier} производство)
                     </div>
                   )}
 
@@ -833,12 +834,12 @@ export function TileInspector() {
                     <div className="text-[10px] text-cyber-text-dim mb-2 flex flex-wrap gap-2">
                       {nextEvolution.cost.credits && (
                         <span className={hasEnoughCredits ? 'text-cyber-green' : 'text-cyber-red'}>
-                          💰 {formatNumber(nextEvolution.cost.credits)}
+                          <GameIcon icon="💰" /> {formatNumber(nextEvolution.cost.credits)}
                         </span>
                       )}
                       {nextEvolution.cost.quantum_points && (
                         <span className={hasEnoughQP ? 'text-cyber-green' : 'text-cyber-red'}>
-                          ⚛️ {formatNumber(nextEvolution.cost.quantum_points)} QP
+                          <GameIcon icon="⚛️" /> {formatNumber(nextEvolution.cost.quantum_points)} QP
                         </span>
                       )}
                     </div>
@@ -855,19 +856,19 @@ export function TileInspector() {
                   >
                     <Sparkles size={14} />
                     <span>
-                      {!canEvolveLevel
+                      <IconText>{!canEvolveLevel
                         ? `Требуется уровень ${nextEvolution.level}`
                         : !canAfford
                         ? 'Недостаточно ресурсов'
                         : `Эволюционировать → ${nextEvolution.nameRu}`
-                      }
+                      }</IconText>
                     </span>
                   </button>
 
                   <div className="text-[10px] text-purple-200/80 mt-2 space-y-0.5">
-                    <div>🌟 {nextEvolution.nameRu}: ×{nextEvolution.multiplier} к производству</div>
+                    <div><GameIcon icon="🌟" /> {nextEvolution.nameRu}: ×{nextEvolution.multiplier} к производству</div>
                     {nextEvolution.description && (
-                      <div className="text-purple-300/60">{nextEvolution.description}</div>
+                      <div className="text-purple-300/60"><IconText>{nextEvolution.description}</IconText></div>
                     )}
                   </div>
                 </div>
@@ -930,16 +931,16 @@ export function TileInspector() {
                 <div className="flex items-center gap-2 font-bold">
                   <Zap size={14} className={powerStatus.isPowerSource ? 'text-cyan-400' : powerStatus.isPowered ? 'text-green-400' : 'text-red-400'} />
                   {powerStatus.isPowerSource ? (
-                    <span>⚡ Источник энергии (радиус: {powerStatus.radius} клеток)</span>
+                    <span><GameIcon icon="⚡" /> Источник энергии (радиус: {powerStatus.radius} клеток)</span>
                   ) : powerStatus.isPowered ? (
-                    <span>✅ В зоне энергопокрытия</span>
+                    <span><GameIcon icon="✅" /> В зоне энергопокрытия</span>
                   ) : (
-                    <span>⚠️ ВНЕ ЗОНЫ ЭНЕРГОПОКРЫТИЯ</span>
+                    <span><GameIcon icon="⚠️" /> ВНЕ ЗОНЫ ЭНЕРГОПОКРЫТИЯ</span>
                   )}
                 </div>
                 {!powerStatus.isPowerSource && !powerStatus.isPowered && (
                   <div className="text-[10px] text-red-200/80 mt-1">
-                    💡 Постройте электростанцию или подстанцию поблизости!
+                    <GameIcon icon="💡" /> Постройте электростанцию или подстанцию поблизости!
                   </div>
                 )}
               </div>
@@ -954,7 +955,7 @@ export function TileInspector() {
               <div className="text-xs bg-red-900/30 border border-red-500/50 text-red-300 p-2 rounded">
                 <div className="flex items-center gap-2 font-bold">
                   <PowerOff size={14} className="text-red-400" />
-                  <span>⏸️ ЗДАНИЕ ОТКЛЮЧЕНО</span>
+                  <span><GameIcon icon="⏸️" /> ЗДАНИЕ ОТКЛЮЧЕНО</span>
                 </div>
                 <div className="text-[10px] text-red-200/80 mt-1">
                   Производство и потребление ресурсов остановлено. Включите здание выше для возобновления работы.
@@ -963,7 +964,7 @@ export function TileInspector() {
             )}
 
             <div className="text-xs text-cyber-blue bg-cyber-dark/40 p-2 rounded border border-cyber-blue/30 mb-2">
-              🔄 <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Вращающийся индикатор на здании показывает, что оно работает.
+              <GameIcon icon="🔄" /> <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Вращающийся индикатор на здании показывает, что оно работает.
             </div>
 
             {ioInfo?.hasInputs ? (
@@ -982,8 +983,8 @@ export function TileInspector() {
 
             <div className="text-[10px] text-cyber-gray-light italic mb-2">
               � Все ресурсы производятся в локальном буфере здания<br/>
-              🔄 Автоматическая доставка от ближайшего источника (здание или база)<br/>
-              💡 Излишки базовых ресурсов (20+ сек) отправляются на базу
+              <GameIcon icon="🔄" /> Автоматическая доставка от ближайшего источника (здание или база)<br/>
+              <GameIcon icon="💡" /> Излишки базовых ресурсов (20+ сек) отправляются на базу
             </div>
 
             {ioInfo?.hasInputs ? (
@@ -1042,7 +1043,7 @@ export function TileInspector() {
                 <div className="text-xs text-cyber-text-dim mb-2">Локальный буфер клетки</div>
                 <div className="text-[10px] text-cyber-gray-light mb-2 italic">
                   ℹ️ Все ресурсы автоматически отправляются на базу<br/>
-                  🔄 Здесь показан рабочий буфер (10 секунд производства)
+                  <GameIcon icon="🔄" /> Здесь показан рабочий буфер (10 секунд производства)
                 </div>
                 <div className="space-y-1.5">
                   {(['ore', 'ice', 'carbon', 'steel', 'dark_matter'] as ResourceType[])
@@ -1091,9 +1092,9 @@ export function TileInspector() {
                   <div className="mt-3 pt-2 border-t border-cyber-gray/50">
                     <div className="text-xs text-cyber-text-dim mb-2">Политика рынка (автоторговля)</div>
                     <div className="text-[10px] text-cyber-gray-light mb-2 italic">
-                      💡 ИМП: Автоматически докупать ресурс с рынка если не хватает для производства<br/>
-                      💡 ЭКС: Автоматически продавать излишки ресурса → конвертация в ⚡энергию<br/>
-                      ⚠️ Автопродажа останавливается если энергия переполнена (достигнут лимит)
+                      <GameIcon icon="💡" /> ИМП: Автоматически докупать ресурс с рынка если не хватает для производства<br/>
+                      <GameIcon icon="💡" /> ЭКС: Автоматически продавать излишки ресурса <GameIcon icon="→" /> конвертация в <GameIcon icon="⚡" />энергию<br/>
+                      <GameIcon icon="⚠️" /> Автопродажа останавливается если энергия переполнена (достигнут лимит)
                     </div>
                     <div className="space-y-1">
                       {(['ore', 'ice', 'carbon', 'steel'] as TradeResourceType[]).map((r) => {
@@ -1149,12 +1150,12 @@ export function TileInspector() {
                   <div className="text-xs text-cyber-text-dim">
                     Стоимость:{' '}
                     <span className="text-cyber-text-dim">
-                      {Object.entries(selectedBuildCost)
+                      <IconText>{Object.entries(selectedBuildCost)
                         .map(([res, amt]) => {
                           const r = res as ResourceType;
                           return `${formatNumber(amt)} ${r === 'energy' ? '⚡' : RESOURCE_LABEL[r]}`;
                         })
-                        .join(', ')}
+                        .join(', ')}</IconText>
                     </span>
                   </div>
                 ) : null}

@@ -5,6 +5,7 @@ import { formatNumber, D } from '../../core/math/format';
 import { useGameStore } from '../../features/gameStore';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import type { ResourceType, TechnologyId } from '../../core/gameTypes';
+import { GameIcon, IconText } from '../ui/icons';
 
 interface QuestsPanelProps {
   quests: Quest[];
@@ -176,7 +177,7 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
               }`}
             >
               <span className="flex items-center gap-1">
-                {req.met ? '✓' : '✗'} {req.label}
+                <IconText>{req.met ? '✓' : '✗'}</IconText> <IconText>{req.label}</IconText>
               </span>
               <span className="font-mono">
                 {req.current} / {req.needed}
@@ -192,7 +193,7 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
     <div className="h-full flex flex-col bg-cyber-darker">
       <div className="shrink-0 p-4 border-b border-cyber-gray bg-cyber-dark">
         <h2 className="text-lg font-bold text-cyber-green flex items-center gap-2">
-          <span>📋</span>
+          <span><GameIcon icon="📋" /></span>
           <span>Квесты</span>
         </h2>
         <p className="text-xs text-cyber-text-dim mt-1">
@@ -218,15 +219,15 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="text-2xl">{getQuestIcon(quest.type)}</div>
+                    <div className="text-2xl"><GameIcon icon={getQuestIcon(quest.type)} /></div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
                           <h4 className={`font-bold text-sm ${quest.isCompleted ? 'text-cyber-green' : 'text-cyber-text'}`}>
-                            {quest.title}
+                            <IconText>{quest.title}</IconText>
                           </h4>
                           <p className="text-xs text-cyber-text-dim mt-1">
-                            {quest.description}
+                            <IconText>{quest.description}</IconText>
                           </p>
                         </div>
                         <button
@@ -251,10 +252,10 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
                           <div className="flex items-center justify-between text-[10px] mb-1">
                             <span className="text-cyber-text-dim">Прогресс</span>
                             <span className={`font-mono ${quest.isCompleted ? 'text-cyber-green' : 'text-cyber-text'}`}>
-                              {quest.isCompleted 
+                              <IconText>{quest.isCompleted 
                                 ? `${quest.targetAmount} / ${quest.targetAmount} ✓`
                                 : `${quest.currentAmount || 0} / ${quest.targetAmount}`
-                              }
+                              }</IconText>
                             </span>
                           </div>
                           <div className="h-1.5 bg-cyber-black rounded-full overflow-hidden">
@@ -305,7 +306,7 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
         {/* Empty State */}
         {inProgressQuests.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="text-6xl mb-4">📋</div>
+            <div className="text-6xl mb-4"><GameIcon icon="📋" /></div>
             <p className="text-cyber-text-dim">
               Нет доступных квестов
             </p>

@@ -11,6 +11,7 @@ import { LOAN_PRODUCTS, calculateInterestRate, calculateMaxLoanAmount } from '..
 import { formatLoanSummary, generatePaymentSchedule } from '../../../utils/loanCalculator';
 import { getCreditScoreCategory, getCreditScoreCategoryName, getCreditScoreColor } from '../../../core/gameTypes.finance';
 import { Alert, Badge, Meter, Panel, Stat } from '../../ui';
+import { GameIcon } from '../../ui/icons';
 
 // memo: родительская FinancePanel рендерится на каждый тик, пропсов у компонента нет.
 export const LoanManager = memo(LoanManagerImpl);
@@ -321,7 +322,7 @@ function LoanManagerImpl() {
                       aria-label="График платежей"
                       className="btn"
                     >
-                      📅
+                      <GameIcon icon="📅" />
                     </button>
                   </div>
 
@@ -437,7 +438,7 @@ function LoanManagerImpl() {
                   {/* Просрочка */}
                   {loan.daysOverdue > 0 && (
                     <div className="mb-3">
-                      <Alert tone="danger">⚠️ Просрочено: {loan.daysOverdue} дней</Alert>
+                      <Alert tone="danger"><GameIcon icon="⚠️" /> Просрочено: {loan.daysOverdue} дней</Alert>
                     </div>
                   )}
 
@@ -484,7 +485,7 @@ function LoanManagerImpl() {
             {paidLoans.map(loan => (
               <div key={loan.id} className="flex justify-between items-center card py-2">
                 <div>
-                  <span className="text-green-400">✓</span>
+                  <span className="text-green-400"><GameIcon icon="✓" /></span>
                   <span className="ml-2">Кредит #<span className="font-mono">{loan.id.slice(-6)}</span></span>
                 </div>
                 <div className="text-sm text-slate-400">
@@ -496,7 +497,7 @@ function LoanManagerImpl() {
             {defaultedLoans.map(loan => (
               <div key={loan.id} className="flex justify-between items-center card py-2 border-danger/40 bg-danger/10">
                 <div>
-                  <span className="text-red-400">✗</span>
+                  <span className="text-red-400"><GameIcon icon="✗" /></span>
                   <span className="ml-2">Кредит #<span className="font-mono">{loan.id.slice(-6)}</span></span>
                 </div>
                 <div className="text-sm text-red-400">
@@ -509,7 +510,7 @@ function LoanManagerImpl() {
             {paidP2PLoans.map(loan => (
               <div key={loan.id} className="flex justify-between items-center card py-2 border-purple-500/30">
                 <div>
-                  <span className="text-green-400">✓</span>
+                  <span className="text-green-400"><GameIcon icon="✓" /></span>
                   <span className="ml-2">P2P #<span className="font-mono">{loan.id.slice(-6)}</span></span>
                   <Badge className="ml-1 text-purple-400">от {loan.lenderName || 'Кредитора'}</Badge>
                 </div>
@@ -522,7 +523,7 @@ function LoanManagerImpl() {
             {defaultedP2PLoans.map(loan => (
               <div key={loan.id} className="flex justify-between items-center card py-2 border-danger/40 bg-danger/10">
                 <div>
-                  <span className="text-red-400">✗</span>
+                  <span className="text-red-400"><GameIcon icon="✗" /></span>
                   <span className="ml-2">P2P #<span className="font-mono">{loan.id.slice(-6)}</span></span>
                   <Badge className="ml-1 text-purple-400">от {loan.lenderName || 'Кредитора'}</Badge>
                 </div>

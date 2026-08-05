@@ -8,6 +8,7 @@ import {
   getDiscoveryCost 
 } from '../../utils/galaxyGenerator';
 import { notify } from '../../utils/notifications';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function GalaxyMap() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -84,7 +85,7 @@ export function GalaxyMap() {
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white">🌌 Карта Галактик</h2>
+        <h2 className="text-xl font-bold text-white"><GameIcon icon="🌌" /> Карта Галактик</h2>
         <div className="text-xs text-gray-400">
           Открыто: {unlockedGalaxies.length}/{galaxyEntries.length}
         </div>
@@ -128,7 +129,7 @@ export function GalaxyMap() {
               <div className="flex items-start gap-3">
                 {/* Icon/Status */}
                 <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center text-2xl">
-                  {!isUnlocked ? '🔒' : isCurrent ? '✓' : '🌌'}
+                  <IconText>{!isUnlocked ? '🔒' : isCurrent ? '✓' : '🌌'}</IconText>
                 </div>
 
                 {/* Main Info */}
@@ -143,7 +144,7 @@ export function GalaxyMap() {
                   </div>
                   
                   <p className="text-xs text-gray-400 mb-2 line-clamp-1">
-                    {galaxy.description}
+                    <IconText>{galaxy.description}</IconText>
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2 text-[10px]">
@@ -155,13 +156,13 @@ export function GalaxyMap() {
                         color: getDangerColor(galaxy.dangerLevel)
                       }}
                     >
-                      ⚠️ {getDangerLabel(galaxy.dangerLevel)}
+                      <GameIcon icon="⚠️" /> {getDangerLabel(galaxy.dangerLevel)}
                     </span>
 
                     {/* Platforms Count */}
                     {isUnlocked && platformCounts[galaxyId] > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400">
-                        🛰️ {platformCounts[galaxyId]}
+                        <GameIcon icon="🛰️" /> {platformCounts[galaxyId]}
                       </span>
                     )}
 
@@ -182,7 +183,7 @@ export function GalaxyMap() {
                     {/* Unlock Requirement */}
                     {!isUnlocked && galaxy.unlockRequirement && (
                       <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
-                        🔬 {galaxy.unlockRequirement}
+                        <GameIcon icon="🔬" /> {galaxy.unlockRequirement}
                       </span>
                     )}
                   </div>
@@ -191,7 +192,7 @@ export function GalaxyMap() {
                 {/* Arrow/Action Indicator */}
                 {(isUnlocked || canUnlock) && (
                   <div className="flex-shrink-0 text-gray-400">
-                    →
+                    <GameIcon icon="→" />
                   </div>
                 )}
               </div>
@@ -202,22 +203,22 @@ export function GalaxyMap() {
 
       {/* Legend */}
       <div className="bg-gray-800/30 rounded-lg p-3 border border-gray-700">
-        <div className="text-xs font-semibold text-white mb-1.5">💡 Подсказка</div>
+        <div className="text-xs font-semibold text-white mb-1.5"><GameIcon icon="💡" /> Подсказка</div>
         <div className="grid grid-cols-2 gap-2 text-[10px]">
           <div className="flex items-center gap-1.5">
-            <span className="text-cyan-400">✓</span>
+            <span className="text-cyan-400"><GameIcon icon="✓" /></span>
             <span className="text-gray-400">Активная</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span>🌌</span>
+            <span><GameIcon icon="🌌" /></span>
             <span className="text-gray-400">Открытая</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span>🔒</span>
+            <span><GameIcon icon="🔒" /></span>
             <span className="text-gray-400">Заблокирована</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-green-400">⭐</span>
+            <span className="text-green-400"><GameIcon icon="⭐" /></span>
             <span className="text-gray-400">Есть бонусы</span>
           </div>
         </div>
@@ -227,7 +228,7 @@ export function GalaxyMap() {
       {proceduralUnlocked && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-white">🌠 Процедурные Галактики</h3>
+            <h3 className="text-lg font-bold text-white"><GameIcon icon="🌠" /> Процедурные Галактики</h3>
             <div className="text-[10px] text-gray-400">
               Открыто: {proceduralGalaxies.filter(g => g.discovered).length}/{proceduralGalaxies.length}
             </div>
@@ -236,7 +237,7 @@ export function GalaxyMap() {
           {/* Info Banner */}
           <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-lg p-3 border border-purple-500/30">
             <div className="text-[10px] text-gray-300">
-              🌌 Бесконечные процедурно генерируемые миры с уникальными свойствами и наградами.
+              <GameIcon icon="🌌" /> Бесконечные процедурно генерируемые миры с уникальными свойствами и наградами.
             </div>
           </div>
 
@@ -249,7 +250,7 @@ export function GalaxyMap() {
                     Сгенерировать #{8 + proceduralGalaxies.length}
                   </div>
                   <div className="text-[10px] text-gray-400">
-                    Стоимость: {formatNumber(getDiscoveryCost(8 + proceduralGalaxies.length))} 💰
+                    Стоимость: {formatNumber(getDiscoveryCost(8 + proceduralGalaxies.length))} <GameIcon icon="💰" />
                   </div>
                 </div>
                 <button
@@ -288,7 +289,7 @@ export function GalaxyMap() {
                     <div className="flex items-start gap-3">
                       {/* Icon */}
                       <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center text-2xl">
-                        {!isDiscovered ? '🔒' : galaxy.completed ? '✓' : '🌠'}
+                        <IconText>{!isDiscovered ? '🔒' : galaxy.completed ? '✓' : '🌠'}</IconText>
                       </div>
 
                       {/* Main Info */}
@@ -314,7 +315,7 @@ export function GalaxyMap() {
                                 color: featureColor,
                               }}
                             >
-                              {galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}
+                              <IconText>{galaxy.generated.specialFeature === 'black_hole' && '🌀 Черная дыра'}</IconText>
                               {galaxy.generated.specialFeature === 'nebula' && '☁️ Туманность'}
                               {galaxy.generated.specialFeature === 'quasar' && '💫 Квазар'}
                               {galaxy.generated.specialFeature === 'ruins' && '🏛️ Руины'}
@@ -323,7 +324,7 @@ export function GalaxyMap() {
 
                           {/* Difficulty */}
                           <span className="px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
-                            ⚔️ ×{galaxy.generated.difficulty.toFixed(1)}
+                            <GameIcon icon="⚔️" /> ×{galaxy.generated.difficulty.toFixed(1)}
                           </span>
 
                           {/* Resource Modifiers (only if discovered) */}
@@ -352,14 +353,14 @@ export function GalaxyMap() {
                           {/* Rewards (only if discovered) */}
                           {isDiscovered && galaxy.rewards.uniqueBonus && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">
-                              🎁 {galaxy.rewards.uniqueBonus}
+                              <GameIcon icon="🎁" /> {galaxy.rewards.uniqueBonus}
                             </span>
                           )}
 
                           {/* Artifact (only if discovered) */}
                           {isDiscovered && galaxy.rewards.artifactId && (
                             <span className="px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">
-                              💎 Артефакт
+                              <GameIcon icon="💎" /> Артефакт
                             </span>
                           )}
                         </div>
@@ -383,7 +384,7 @@ export function GalaxyMap() {
                             Исследовать
                           </button>
                         ) : (
-                          <span className="text-gray-400">→</span>
+                          <span className="text-gray-400"><GameIcon icon="→" /></span>
                         )}
                       </div>
                     </div>

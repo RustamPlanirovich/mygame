@@ -19,6 +19,7 @@ import { TraderLeaderboard } from './TraderLeaderboard';
 import { GuildPanel } from './GuildPanel';
 import { VaultPanel } from './VaultPanel';
 import { DirectOffers } from './DirectOffers';
+import { GameIcon } from '../../ui/icons';
 
 type MarketTab = ReturnType<typeof useMarketStore.getState>['activeTab'];
 
@@ -80,7 +81,7 @@ export function GlobalMarketPanel() {
     <div className="relative flex h-full flex-col bg-surface-base text-content-primary">
       <div className="flex shrink-0 items-center justify-between border-b border-edge px-3 py-2">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-          <span>🌐</span>
+          <span><GameIcon icon="🌐" /></span>
           <span>Глобальная биржа</span>
         </h2>
         <span className="text-2xs text-content-faint">Торгуйте с другими игроками</span>

@@ -5,6 +5,7 @@ import type { DemonId, TradeResourceType } from '../../core/gameTypes';
 import { DEMON_DEFS } from '../../core/constants/progression';
 import { TRADE_LABEL } from '../../core/constants/labels';
 import { Skull, Settings } from 'lucide-react';
+import { GameIcon, IconText } from '../ui/icons';
 
 const ORDER: DemonId[] = ['smart_broker', 'overclocker', 'oracle'];
 
@@ -42,7 +43,7 @@ export function DemonsPanel() {
           <Skull size={16} className="text-cyber-green" />
           <span>Демоны</span>
         </h2>
-        <div className="text-[10px] text-cyber-text-dim">аренда за ⚡/с</div>
+        <div className="text-[10px] text-cyber-text-dim">аренда за <GameIcon icon="⚡" />/с</div>
       </div>
 
       <div className="space-y-1.5">
@@ -60,13 +61,13 @@ export function DemonsPanel() {
                   {active && !paid && <span className="text-[9px] px-1 py-0.5 rounded bg-cyber-red/20 text-cyber-red border border-cyber-red/50 shrink-0">НЕ ОПЛ.</span>}
                 </div>
                 <div className="text-[10px] text-cyber-text-dim mt-0.5">
-                  {def.description}
+                  <IconText>{def.description}</IconText>
                 </div>
                 <div className="text-[10px] text-cyber-text-dim mt-0.5">
-                  {formatNumber(def.energyPerSecond)}⚡/с
+                  {formatNumber(def.energyPerSecond)}<GameIcon icon="⚡" />/с
                   <span className="text-cyber-gray-light"> · {active ? (
                     <span className={effective ? 'text-cyber-green' : 'text-cyber-red'}>
-                      {effective ? '✓ опл.' : '✗ не опл.'}
+                      <IconText>{effective ? '✓ опл.' : '✗ не опл.'}</IconText>
                     </span>
                   ) : 'ВЫКЛ'}</span>
                 </div>
@@ -85,13 +86,13 @@ export function DemonsPanel() {
 
       {oracleHint ? (
         <div className="text-[10px] text-cyber-text-dim mt-2">
-          🔮 Oracle: <span className="text-cyber-text">{oracleHint.name}</span>
+          <GameIcon icon="🔮" /> Oracle: <span className="text-cyber-text">{oracleHint.name}</span>
           <span className="text-cyber-gray-light"> · ROI ≈ {oracleHint.roi}с</span>
         </div>
       ) : null}
       
       <div className="text-[10px] text-cyber-text-dim mt-2">
-        💡 Эффекты работают только при оплате (хватает ⚡).
+        <GameIcon icon="💡" /> Эффекты работают только при оплате (хватает <GameIcon icon="⚡" />).
       </div>
 
       {/* Smart-Broker Settings */}
@@ -103,13 +104,13 @@ export function DemonsPanel() {
           >
             <Settings size={14} />
             <span>Настройки автопродажи Smart-Broker</span>
-            <span className="text-cyber-gray-light">{showBrokerSettings ? '▼' : '▶'}</span>
+            <span className="text-cyber-gray-light"><IconText>{showBrokerSettings ? '▼' : '▶'}</IconText></span>
           </button>
 
           {showBrokerSettings && (
             <div className="space-y-1.5 max-h-48 overflow-y-auto cyber-scrollbar">
               <div className="text-[10px] text-cyber-text-dim mb-2">
-                💡 Отключите автопродажу для ресурсов, которые нужно копить
+                <GameIcon icon="💡" /> Отключите автопродажу для ресурсов, которые нужно копить
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {TRADEABLE_RESOURCES.map((res) => {
@@ -125,7 +126,7 @@ export function DemonsPanel() {
                       }`}
                       title={excluded ? 'Не продается' : 'Продается автоматически'}
                     >
-                      <span className="mr-1">{excluded ? '🚫' : '✓'}</span>
+                      <span className="mr-1"><IconText>{excluded ? '🚫' : '✓'}</IconText></span>
                       {TRADE_LABEL[res] || res}
                     </button>
                   );

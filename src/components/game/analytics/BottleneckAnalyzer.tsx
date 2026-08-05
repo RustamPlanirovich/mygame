@@ -12,6 +12,7 @@ import { EmptyState, Panel, Stat } from '../../ui';
 import type { Bottleneck } from '../../../core/gameTypes.analytics';
 import { getSeverityColor, formatDuration } from '../../../core/gameTypes.analytics';
 import { D, formatNumber, formatRate } from '../../../core/math/format';
+import { GameIcon } from '../../ui/icons';
 
 const SEVERITY_ICON = {
   low: Info,
@@ -173,7 +174,7 @@ export const BottleneckAnalyzer = memo(function BottleneckAnalyzer() {
       >
         {bottlenecks.length === 0 ? (
           <EmptyState
-            icon={<span className="text-4xl">✅</span>}
+            icon={<span className="text-4xl"><GameIcon icon="✅" /></span>}
             title={<span className="text-green-400">Узких мест не обнаружено</span>}
             hint="Производство работает эффективно"
           />

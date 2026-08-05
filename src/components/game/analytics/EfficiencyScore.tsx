@@ -8,6 +8,7 @@ import { memo, type ReactNode } from 'react';
 import { Gauge, Zap, Box, AlertTriangle, Factory } from 'lucide-react';
 import { useAnalyticsStore } from '../../../features/analyticsStore';
 import { Panel } from '../../ui';
+import { GameIcon } from '../../ui/icons';
 
 interface ScoreBarProps {
   label: string;
@@ -130,7 +131,7 @@ export const EfficiencyScore = memo(function EfficiencyScore() {
       {/* Tips based on lowest score */}
       <div className="mt-6 rounded-lg bg-cyber-gray-900/50 p-4">
         <h4 className="mb-2 text-sm font-medium text-cyber-gray-300">
-          💡 Рекомендации
+          <GameIcon icon="💡" /> Рекомендации
         </h4>
         <ul className="space-y-1 text-xs text-cyber-gray-400">
           {breakdown.production < 80 && (
@@ -146,7 +147,7 @@ export const EfficiencyScore = memo(function EfficiencyScore() {
             <li>• Устраните узкие места в производственных цепочках</li>
           )}
           {efficiencyScore >= 90 && (
-            <li>✨ Отличная работа! Ваше производство работает эффективно!</li>
+            <li><GameIcon icon="✨" /> Отличная работа! Ваше производство работает эффективно!</li>
           )}
         </ul>
       </div>

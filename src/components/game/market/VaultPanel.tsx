@@ -18,6 +18,7 @@ import { D } from '../../../core/math/format';
 import { VAULT_CREDITS, MARKET_CONSTANTS } from '../../../core/gameTypes.market';
 import type { VaultResource, TradeResourceType } from '../../../core/gameTypes.market';
 import { RESOURCE_NAMES, TRADEABLE_RESOURCES, vaultResourceName } from './resourceLabels';
+import { GameIcon, IconText } from '../../ui/icons';
 
 /** Как часто пересчитывать «сколько у игрока в игре». */
 const HELD_REFRESH_MS = 2000;
@@ -228,7 +229,7 @@ export function VaultPanel() {
       <Panel
         title="Кошелёк биржи"
         subtitle="Биржа торгует только тем, что лежит в сейфе"
-        icon={<span>🔐</span>}
+        icon={<span><GameIcon icon="🔐" /></span>}
         actions={
           <button
             type="button"
@@ -370,7 +371,7 @@ export function VaultPanel() {
 
             {depositNote && (
               <Alert tone={depositNote.tone} onDismiss={() => setDepositNote(null)}>
-                {depositNote.text}
+                <IconText>{depositNote.text}</IconText>
               </Alert>
             )}
           </div>
@@ -462,7 +463,7 @@ export function VaultPanel() {
 
             {withdrawNote && (
               <Alert tone={withdrawNote.tone} onDismiss={() => setWithdrawNote(null)}>
-                {withdrawNote.text}
+                <IconText>{withdrawNote.text}</IconText>
               </Alert>
             )}
           </div>
@@ -476,7 +477,7 @@ export function VaultPanel() {
       </Panel>
 
       {/* ---------- Балансы ---------- */}
-      <Panel title="Балансы сейфа" icon={<span>📦</span>} bodyClassName="p-0">
+      <Panel title="Балансы сейфа" icon={<span><GameIcon icon="📦" /></span>} bodyClassName="p-0">
         {vaultLoading && vaultLoadedAt === 0 ? (
           <div className="p-3">
             <SkeletonRows rows={4} />
@@ -526,7 +527,7 @@ export function VaultPanel() {
       <Panel
         title="Журнал сейфа"
         subtitle="Каждое движение с причиной — по нему сходится баланс"
-        icon={<span>🧾</span>}
+        icon={<span><GameIcon icon="🧾" /></span>}
         actions={
           <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowLedger((v) => !v)}>
             {showLedger ? 'Скрыть' : 'Показать'}

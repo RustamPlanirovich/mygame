@@ -2,6 +2,7 @@ import { useGameStore } from '../../features/gameStore';
 import { ACHIEVEMENTS, getAchievementsByCategory, getTotalAchievementsCount } from '../../core/constants/achievements';
 import type { AchievementCategory } from '../../core/gameTypes';
 import { D } from '../../core/math/format';
+import { GameIcon, IconText } from '../ui/icons';
 
 const CATEGORY_NAMES: Record<AchievementCategory, string> = {
   construction: 'Строительство',
@@ -98,7 +99,7 @@ export default function AchievementsPanel() {
       {/* Overall Progress */}
       <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-4 border border-gray-700">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-bold text-white">🏆 Достижения</h2>
+          <h2 className="text-lg font-bold text-white"><GameIcon icon="🏆" /> Достижения</h2>
           <span className="text-gray-300 font-semibold">
             {unlockedCount} / {totalCount} ({progressPercent}%)
           </span>
@@ -140,7 +141,7 @@ export default function AchievementsPanel() {
                       className="bg-gray-900/50 backdrop-blur-sm rounded-lg p-3 border border-gray-700/50"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="text-2xl opacity-30">❓</div>
+                        <div className="text-2xl opacity-30"><GameIcon icon="❓" /></div>
                         <div className="flex-1">
                           <div className="font-semibold text-gray-500 italic">Скрытое достижение</div>
                           <div className="text-xs text-gray-600">Выполните особое условие, чтобы разблокировать</div>
@@ -163,7 +164,7 @@ export default function AchievementsPanel() {
                   >
                     <div className="flex items-start gap-3">
                       <div className={`text-2xl ${isUnlocked ? '' : 'opacity-40 grayscale'}`}>
-                        {achievement.icon}
+                        <GameIcon icon={achievement.icon} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-1">
@@ -171,11 +172,11 @@ export default function AchievementsPanel() {
                             {achievement.name}
                           </div>
                           {isUnlocked && (
-                            <div className="text-green-400 text-lg flex-shrink-0">✓</div>
+                            <div className="text-green-400 text-lg flex-shrink-0"><GameIcon icon="✓" /></div>
                           )}
                         </div>
                         <div className={`text-xs mb-2 ${isUnlocked ? 'text-gray-300' : 'text-gray-500'}`}>
-                          {achievement.description}
+                          <IconText>{achievement.description}</IconText>
                         </div>
 
                         {/* Progress bar for incomplete achievements */}
@@ -199,17 +200,17 @@ export default function AchievementsPanel() {
                           <div className="flex flex-wrap gap-2 text-xs">
                             {achievement.reward.credits && D(achievement.reward.credits).gt(0) && (
                               <span className={`px-2 py-0.5 rounded ${isUnlocked ? 'bg-yellow-500/20 text-yellow-300' : 'bg-gray-700/50 text-gray-500'}`}>
-                                💰 {D(achievement.reward.credits).toNumber().toLocaleString()}
+                                <GameIcon icon="💰" /> {D(achievement.reward.credits).toNumber().toLocaleString()}
                               </span>
                             )}
                             {achievement.reward.researchPoints && D(achievement.reward.researchPoints).gt(0) && (
                               <span className={`px-2 py-0.5 rounded ${isUnlocked ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700/50 text-gray-500'}`}>
-                                🔬 {D(achievement.reward.researchPoints).toNumber().toLocaleString()}
+                                <GameIcon icon="🔬" /> {D(achievement.reward.researchPoints).toNumber().toLocaleString()}
                               </span>
                             )}
                             {achievement.reward.influence && D(achievement.reward.influence).gt(0) && (
                               <span className={`px-2 py-0.5 rounded ${isUnlocked ? 'bg-purple-500/20 text-purple-300' : 'bg-gray-700/50 text-gray-500'}`}>
-                                👑 {D(achievement.reward.influence).toNumber().toLocaleString()}
+                                <GameIcon icon="👑" /> {D(achievement.reward.influence).toNumber().toLocaleString()}
                               </span>
                             )}
                           </div>

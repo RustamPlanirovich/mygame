@@ -3,6 +3,7 @@ import { useCultureStore, useHappinessFactors } from '../../../features/cultureS
 import { getHappinessTier, HAPPINESS_TIERS } from '../../../core/constants/cultureLevels';
 import { getFactorsByCategory } from '../../../utils/happinessCalculator';
 import type { HappinessCategory, HappinessFactor } from '../../../core/gameTypes.culture';
+import { GameIcon, IconText } from '../../ui/icons';
 
 // ==========================================
 // HAPPINESS DETAILS PANEL
@@ -29,9 +30,9 @@ export const HappinessDetailsPanel: React.FC = () => {
     <div className="flex flex-col gap-4 p-4 bg-gray-800/50 rounded-lg">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-green-400">😊 Счастье населения</h3>
+        <h3 className="text-lg font-bold text-green-400"><GameIcon icon="😊" /> Счастье населения</h3>
         <div className="flex items-center gap-2">
-          <span className="text-3xl">{tierInfo.icon}</span>
+          <span className="text-3xl"><GameIcon icon={tierInfo.icon} /></span>
         </div>
       </div>
 
@@ -95,7 +96,7 @@ export const HappinessDetailsPanel: React.FC = () => {
               className="text-gray-500"
               style={{ color: happiness.current >= tier.minHappiness && happiness.current <= tier.maxHappiness ? tier.color : undefined }}
             >
-              {tier.icon}
+              <GameIcon icon={tier.icon} />
             </span>
           ))}
         </div>
@@ -132,7 +133,7 @@ export const HappinessDetailsPanel: React.FC = () => {
 
       {/* Tips */}
       <div className="bg-gray-700/30 rounded-lg p-3">
-        <h4 className="text-sm font-semibold text-gray-400 mb-2">💡 Советы:</h4>
+        <h4 className="text-sm font-semibold text-gray-400 mb-2"><GameIcon icon="💡" /> Советы:</h4>
         <ul className="text-xs text-gray-400 space-y-1">
           <li>• Стройте культурные здания для повышения счастья</li>
           <li>• Избегайте форсированного режима работы</li>
@@ -179,7 +180,7 @@ const CategorySection: React.FC<CategorySectionProps> = ({
           <span className={`text-sm font-bold ${totalValue >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {totalValue >= 0 ? '+' : ''}{totalValue}
           </span>
-          <span className="text-gray-500">{expanded ? '▲' : '▼'}</span>
+          <span className="text-gray-500"><IconText>{expanded ? '▲' : '▼'}</IconText></span>
         </div>
       </button>
       
@@ -192,8 +193,8 @@ const CategorySection: React.FC<CategorySectionProps> = ({
               className="flex items-center justify-between text-xs py-1 px-2 bg-gray-800/50 rounded"
             >
               <div className="flex items-center gap-2">
-                {factor.icon && <span>{factor.icon}</span>}
-                <span className="text-gray-300">{factor.description}</span>
+                {factor.icon && <span><GameIcon icon={factor.icon} /></span>}
+                <span className="text-gray-300"><IconText>{factor.description}</IconText></span>
                 {factor.temporary && (
                   <span className="text-yellow-500 text-xs">(временно)</span>
                 )}

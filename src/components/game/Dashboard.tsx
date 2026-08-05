@@ -6,6 +6,7 @@ import { GALAXIES } from '../../core/constants/galaxies';
 import { getMapDefinition } from '../../core/constants/maps';
 // Плашка карты рисуется эмодзи из MapDefinition, поэтому иконка Map из lucide не нужна.
 import { UserCircle, Clock } from 'lucide-react';
+import { GameIcon, IconText } from '../ui/icons';
 
 // Форматирование времени игры
 function formatPlaytime(totalSeconds: number): string {
@@ -177,9 +178,9 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
               className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/50 border border-cyber-gray/30 hover:border-cyber-green/50 transition-all"
               title={stat.label}
             >
-              <span className="text-base">{stat.icon}</span>
+              <span className="text-base"><GameIcon icon={stat.icon} /></span>
               <div className="flex flex-col">
-                <span className="text-[9px] text-cyber-text-dim uppercase">{stat.label}</span>
+                <span className="text-[9px] text-cyber-text-dim uppercase"><IconText>{stat.label}</IconText></span>
                 <span className={`text-sm font-bold ${stat.color}`}>
                   {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
                 </span>
@@ -194,9 +195,9 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
               className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/30 border border-cyber-gray/20 hover:border-cyber-green/30 transition-all"
               title={stat.title ?? stat.label}
             >
-              <span className="text-base opacity-80">{stat.icon}</span>
+              <span className="text-base opacity-80"><GameIcon icon={stat.icon} /></span>
               <div className="flex flex-col">
-                <span className="text-[9px] text-cyber-text-dim uppercase">{stat.label}</span>
+                <span className="text-[9px] text-cyber-text-dim uppercase"><IconText>{stat.label}</IconText></span>
                 <span className={`text-sm font-bold ${stat.color}`}>
                   {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
                 </span>
@@ -222,7 +223,7 @@ export const Dashboard = ({ onOpenProfile }: DashboardProps) => {
               className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-dark/30 border border-cyber-gray/20"
               title={`Текущая карта: ${currentMap.name}`}
             >
-              <span className="text-sm">{currentMap.emoji}</span>
+              <span className="text-sm"><GameIcon icon={currentMap.emoji} /></span>
               <span className="text-xs text-cyber-text-dim">{currentMap.name}</span>
             </div>
           )}

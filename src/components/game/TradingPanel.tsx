@@ -4,6 +4,7 @@ import { D, formatNumber } from '../../core/math/format';
 import type { TradeResourceType } from '../../core/gameTypes';
 import { TRADE_LABEL } from '../../core/constants/labels';
 import { TrendingUp, TrendingDown, X, Clock } from 'lucide-react';
+import { GameIcon } from '../ui/icons';
 
 export function TradingPanel() {
   const market = useGameStore((s) => s.market);
@@ -56,7 +57,7 @@ export function TradingPanel() {
 
       {/* Resource Selection */}
       <div className="cyber-panel">
-        <div className="text-xs text-cyber-text-dim mb-2">📦 Ресурс</div>
+        <div className="text-xs text-cyber-text-dim mb-2"><GameIcon icon="📦" /> Ресурс</div>
         <div className="grid grid-cols-4 gap-2">
           {(['ore', 'ice', 'carbon', 'steel'] as TradeResourceType[]).map((r) => (
             <button
@@ -211,7 +212,7 @@ export function TradingPanel() {
 
       {/* Info */}
       <div className="text-xs text-cyber-text-dim bg-cyber-dark/30 rounded-lg p-3">
-        <div className="font-semibold text-cyber-text mb-1">💡 Как работает биржа:</div>
+        <div className="font-semibold text-cyber-text mb-1"><GameIcon icon="💡" /> Как работает биржа:</div>
         <ul className="space-y-1 list-disc list-inside">
           <li>Разместите ордер на покупку/продажу по целевой цене</li>
           <li>Ордер исполнится когда цена достигнет целевой</li>

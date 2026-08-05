@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Alert, EmptyState, Modal, SkeletonRows } from '../ui';
 import { useConfirmDialog } from './ConfirmDialog';
+import { IconText } from '../ui/icons';
 
 interface GameSlotsManagerProps {
   isOpen: boolean;
@@ -374,7 +375,7 @@ export const GameSlotsManager = ({ isOpen, onClose, onSlotSwitch }: GameSlotsMan
                       
                       {/* Описание */}
                       {slot.description && (
-                        <p className="text-sm text-gray-400 mb-2 truncate">{slot.description}</p>
+                        <p className="text-sm text-gray-400 mb-2 truncate"><IconText>{slot.description}</IconText></p>
                       )}
                       
                       {/* Метаданные */}

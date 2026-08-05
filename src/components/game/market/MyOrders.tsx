@@ -7,6 +7,7 @@ import { useMarketStore } from '../../../features/marketStore';
 import { formatPrice, formatVolume } from '../../../utils/marketApi';
 import { RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
+import { GameIcon, IconText } from '../../ui/icons';
 
 export function MyOrders() {
   // Узкие селекторы вместо подписки на весь стор: список ордеров не должен
@@ -61,7 +62,7 @@ export function MyOrders() {
       {/* Активные ордера */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <span>📋</span>
+          <span><GameIcon icon="📋" /></span>
           <span>Активные ордера</span>
           <span className="text-sm font-normal text-gray-400">
             ({activeOrders.length})
@@ -88,7 +89,7 @@ export function MyOrders() {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className={order.type === 'buy' ? 'text-green-400' : 'text-red-400'}>
-                      {order.type === 'buy' ? '🛒 Покупка' : '💰 Продажа'}
+                      <IconText>{order.type === 'buy' ? '🛒 Покупка' : '💰 Продажа'}</IconText>
                     </span>
                     <span className="font-bold">
                       {RESOURCE_NAMES[order.resource as TradeResourceType] || order.resource}
@@ -98,7 +99,7 @@ export function MyOrders() {
                     onClick={() => handleCancel(order.id)}
                     className="text-red-400 hover:text-red-300 text-sm px-2 py-1 bg-red-900/30 rounded"
                   >
-                    ✕ Отменить
+                    <GameIcon icon="✕" /> Отменить
                   </button>
                 </div>
 
@@ -112,7 +113,7 @@ export function MyOrders() {
                   <div>
                     <div className="text-gray-400">Цена</div>
                     <div className="font-medium text-yellow-400">
-                      {formatPrice(order.pricePerUnit)} 💳
+                      {formatPrice(order.pricePerUnit)} <GameIcon icon="💳" />
                     </div>
                   </div>
                   <div>
@@ -141,7 +142,7 @@ export function MyOrders() {
       {/* История ордеров */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <span>📜</span>
+          <span><GameIcon icon="📜" /></span>
           <span>Завершённые ордера</span>
           <span className="text-sm font-normal text-gray-400">
             ({completedOrders.length})
@@ -174,7 +175,7 @@ export function MyOrders() {
                     <tr key={order.id} className="border-b border-gray-700/50">
                       <td className="py-2">
                         <span className={order.type === 'buy' ? 'text-green-400' : 'text-red-400'}>
-                          {order.type === 'buy' ? '🛒' : '💰'}
+                          <IconText>{order.type === 'buy' ? '🛒' : '💰'}</IconText>
                         </span>
                       </td>
                       <td className="py-2">
@@ -187,7 +188,7 @@ export function MyOrders() {
                         {formatPrice(order.pricePerUnit)}
                       </td>
                       <td className={`py-2 text-center ${status.color}`}>
-                        {status.text}
+                        <IconText>{status.text}</IconText>
                       </td>
                       <td className="py-2 text-right text-gray-400">
                         {formatTime(order.createdAt)}

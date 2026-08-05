@@ -4,6 +4,7 @@
 
 import { X, Info, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
 import { useNotificationStore } from '../../utils/notifications';
+import { IconText } from '../ui/icons';
 
 export const NotificationToast = () => {
   const { notifications, removeNotification } = useNotificationStore();
@@ -49,7 +50,9 @@ export const NotificationToast = () => {
             className={`${styles.bg} ${styles.border} border rounded-lg p-3 shadow-lg backdrop-blur-sm animate-slide-in-right flex items-start gap-3`}
           >
             {styles.icon}
-            <p className="flex-1 text-sm text-white">{notification.message}</p>
+            <p className="flex-1 text-sm text-white">
+              <IconText>{notification.message}</IconText>
+            </p>
             <button
               onClick={() => removeNotification(notification.id)}
               className="text-gray-400 hover:text-white transition-colors"

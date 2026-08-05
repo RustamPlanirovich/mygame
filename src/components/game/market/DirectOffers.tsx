@@ -25,6 +25,7 @@ import type {
   VaultResource,
 } from '../../../core/gameTypes.market';
 import { RESOURCE_NAMES, TRADEABLE_RESOURCES, vaultResourceName } from './resourceLabels';
+import { GameIcon, IconText } from '../../ui/icons';
 
 type OffersTab = 'incoming' | 'public' | 'mine' | 'create';
 
@@ -142,7 +143,7 @@ export function DirectOffers() {
       <Panel
         title="Сделки с игроками"
         subtitle="Адресные продажи и обмен ресурс на ресурс"
-        icon={<span>🤝</span>}
+        icon={<span><GameIcon icon="🤝" /></span>}
         actions={
           <button
             type="button"
@@ -163,7 +164,7 @@ export function DirectOffers() {
         {offersError && <Alert tone="danger" title="Ошибка">{offersError}</Alert>}
         {note && (
           <Alert tone={note.tone} onDismiss={() => setNote(null)}>
-            {note.text}
+            <IconText>{note.text}</IconText>
           </Alert>
         )}
 
@@ -354,7 +355,7 @@ function OfferList({
               <Badge tone={offer.kind === 'sale' ? 'accent' : 'info'}>
                 {offer.kind === 'sale' ? 'Продажа' : 'Обмен'}
               </Badge>
-              <Badge tone={status.tone === 'neutral' ? 'neutral' : status.tone}>{status.text}</Badge>
+              <Badge tone={status.tone === 'neutral' ? 'neutral' : status.tone}><IconText>{status.text}</IconText></Badge>
               {offer.isPublic && <Badge>Публичное</Badge>}
               <span className="ml-auto text-3xs text-content-faint">
                 {offer.status === 'open'
@@ -535,14 +536,14 @@ function CreateOfferForm({ onCreated }: { onCreated: () => void }) {
     <div className="space-y-2.5">
       <div className="tabs">
         <button type="button" className={`tab ${kind === 'sale' ? 'tab-active' : ''}`} onClick={() => setKind('sale')}>
-          💰 Продать за кредиты
+          <GameIcon icon="💰" /> Продать за кредиты
         </button>
         <button
           type="button"
           className={`tab ${kind === 'barter' ? 'tab-active' : ''}`}
           onClick={() => setKind('barter')}
         >
-          🔄 Обмен ресурс на ресурс
+          <GameIcon icon="🔄" /> Обмен ресурс на ресурс
         </button>
       </div>
 
@@ -663,7 +664,7 @@ function CreateOfferForm({ onCreated }: { onCreated: () => void }) {
           >
             {DURATIONS.map((d) => (
               <option key={d.hours} value={d.hours}>
-                {d.label}
+                <IconText>{d.label}</IconText>
               </option>
             ))}
           </select>

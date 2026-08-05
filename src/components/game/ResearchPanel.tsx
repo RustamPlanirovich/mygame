@@ -23,6 +23,7 @@ import {
   computeAutoSortTargetRatio,
   productionMatrixUpgradeCost,
 } from '../../core/constants/productionMatrix';
+import { GameIcon } from '../ui/icons';
 
 const ORDER: UpgradeId[] = [
   'kernel_speed',
@@ -129,7 +130,7 @@ export function ResearchPanel() {
           }`}
           onClick={() => setActiveTab('upgrades')}
         >
-          🔬 Базовые
+          <GameIcon icon="🔬" /> Базовые
         </button>
         
         <button
@@ -144,7 +145,7 @@ export function ResearchPanel() {
           disabled={!showRepeatable}
           title={!showRepeatable ? 'Разблокируется после первого Вознесения' : ''}
         >
-          ♾️ Повторяемые {!showRepeatable && '🔒'}
+          <GameIcon icon="♾️" /> Повторяемые {!showRepeatable && '🔒'}
         </button>
       </div>
 
@@ -191,7 +192,7 @@ export function ResearchPanel() {
 
       <div className="mt-3 border-t border-cyber-gray/40 pt-2">
         <div className="flex items-center justify-between mb-1.5">
-          <div className="text-[10px] text-cyber-text-dim">🔷 Произв. матрица</div>
+          <div className="text-[10px] text-cyber-text-dim"><GameIcon icon="🔷" /> Произв. матрица</div>
           <div className="text-[9px] text-cyber-gray-light">тратит чертежи</div>
         </div>
 
@@ -222,7 +223,7 @@ export function ResearchPanel() {
       </div>
 
       <div className="text-[10px] text-cyber-text-dim mt-2">
-        💡 Исследования списывают ресурсы с базы.
+        <GameIcon icon="💡" /> Исследования списывают ресурсы с базы.
       </div>
         </div>
       ) : (
@@ -231,7 +232,7 @@ export function ResearchPanel() {
           <RepeatableResearchList />
         ) : (
           <div className="p-8 text-center space-y-3">
-            <div className="text-4xl">🔒</div>
+            <div className="text-4xl"><GameIcon icon="🔒" /></div>
             <p className="text-gray-300 font-semibold">Повторяемые Исследования</p>
             <p className="text-gray-400 text-sm">
               Разблокируются после первого Вознесения

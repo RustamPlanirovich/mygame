@@ -1,5 +1,6 @@
 import { useGameStore } from '../../features/gameStore';
 import { Zap, Info, History } from 'lucide-react';
+import { IconText } from '../ui/icons';
 
 // Иконки для типов событий
 const EVENT_ICONS: Record<string, string> = {
@@ -70,8 +71,8 @@ export function RandomEventsPanel() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">{EVENT_ICONS[event.type] || '❓'}</span>
-                    <span className="text-gray-300">{event.title}</span>
+                    <span className="text-lg"><IconText>{EVENT_ICONS[event.type] || '❓'}</IconText></span>
+                    <span className="text-gray-300"><IconText>{event.title}</IconText></span>
                   </div>
                   <span className="text-xs text-gray-500">
                     {new Date(event.timestamp).toLocaleTimeString()}

@@ -15,3 +15,4 @@ export {
   type TabItem,
 } from './primitives';
 export { ErrorBoundary, PanelBoundary } from '../ErrorBoundary';
+export { GameIcon, IconText, hasGlyph, type GameIconProps } from './icons';

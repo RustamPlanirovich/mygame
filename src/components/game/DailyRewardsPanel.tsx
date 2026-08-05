@@ -2,6 +2,7 @@ import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
 import { Calendar, Gift, Flame, Clock, Package } from 'lucide-react';
 import { formatRewardDescription, canClaimDailyReward, getTimeUntilNextContainer, formatTimeUntilNext } from '../../utils/dailyRewardsHelpers';
+import { GameIcon } from '../ui/icons';
 
 export function DailyRewardsPanel() {
   const dailyLogin = useGameStore(s => s.retention.dailyLogin);
@@ -147,7 +148,7 @@ export function DailyRewardsPanel() {
                     </span>
                   </div>
                   {container.collected && (
-                    <span className="text-[10px] text-green-400">✓ Собрано</span>
+                    <span className="text-[10px] text-green-400"><GameIcon icon="✓" /> Собрано</span>
                   )}
                 </div>
 
@@ -187,7 +188,7 @@ export function DailyRewardsPanel() {
 
         {timeBasedRewards.containers.length >= timeBasedRewards.maxStoredContainers && (
           <div className="mt-2 text-[10px] text-orange-400 text-center">
-            ⚠️ Максимум контейнеров! Соберите их, чтобы получать новые.
+            <GameIcon icon="⚠️" /> Максимум контейнеров! Соберите их, чтобы получать новые.
           </div>
         )}
       </div>

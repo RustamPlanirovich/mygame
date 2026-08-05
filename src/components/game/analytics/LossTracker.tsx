@@ -11,6 +11,7 @@ import { EmptyState, Panel, Stat } from '../../ui';
 import type { ResourceLoss, LossReason } from '../../../core/gameTypes.analytics';
 import { D, formatNumber } from '../../../core/math/format';
 import { PieChart } from './charts';
+import { GameIcon, IconText } from '../../ui/icons';
 
 /**
  * Иконкам ниже передаётся `style` (цвет причины потери), поэтому тип должен его
@@ -60,11 +61,11 @@ const LossItem = memo(function LossItem({ loss }: LossItemProps) {
                 color: config.color,
               }}
             >
-              {config.label}
+              <IconText>{config.label}</IconText>
             </span>
           </div>
           {loss.details && (
-            <p className="text-xs text-cyber-gray-500">{loss.details}</p>
+            <p className="text-xs text-cyber-gray-500"><IconText>{loss.details}</IconText></p>
           )}
         </div>
       </div>
@@ -152,7 +153,7 @@ export const LossTracker = memo(function LossTracker() {
       >
         {losses.length === 0 ? (
           <EmptyState
-            icon={<span className="text-4xl">✨</span>}
+            icon={<span className="text-4xl"><GameIcon icon="✨" /></span>}
             title={<span className="text-green-400">Потерь не зафиксировано</span>}
             hint="Ресурсы используются эффективно"
           />
@@ -183,7 +184,7 @@ export const LossTracker = memo(function LossTracker() {
                     >
                       <Icon className="h-4 w-4" style={{ color: config.color }} />
                       <div>
-                        <p className="text-xs text-cyber-gray-400">{config.label}</p>
+                        <p className="text-xs text-cyber-gray-400"><IconText>{config.label}</IconText></p>
                         <p className="text-sm font-medium" style={{ color: config.color }}>
                           {formatNumber(D(value))}
                         </p>

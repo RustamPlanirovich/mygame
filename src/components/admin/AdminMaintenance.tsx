@@ -8,6 +8,7 @@ import { AlertTriangle, Clock, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { Alert, Panel } from '../ui';
 import { useAdminActions, useAdminStore, type MaintenanceKind } from '../../features/adminStore';
 import type { AdminRole } from '../../utils/adminApi';
+import { IconText } from '../ui/icons';
 
 interface Task {
   kind: MaintenanceKind;
@@ -83,7 +84,7 @@ export function AdminMaintenance({ viewerRole }: { viewerRole: AdminRole }) {
           return (
             <Panel key={task.kind} title={task.title} icon={<Icon size={14} />}>
               <div className="flex h-full flex-col justify-between gap-3">
-                <p className="text-xs leading-relaxed text-content-muted">{task.description}</p>
+                <p className="text-xs leading-relaxed text-content-muted"><IconText>{task.description}</IconText></p>
 
                 {result && (
                   <Alert tone="accent" title="Результат">

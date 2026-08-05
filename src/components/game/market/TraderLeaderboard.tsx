@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useMarketStore } from '../../../features/marketStore';
 import { formatVolume } from '../../../utils/marketApi';
 import type { TraderBadge } from '../../../core/gameTypes.market';
+import { GameIcon, IconText } from '../../ui/icons';
 
 const BADGE_INFO: Record<TraderBadge, { emoji: string; title: string }> = {
   newcomer: { emoji: '🌱', title: 'Новичок' },
@@ -48,7 +49,7 @@ export function TraderLeaderboard() {
     <div className="bg-gray-800 rounded-lg p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold flex items-center gap-2">
-          <span>🏆</span>
+          <span><GameIcon icon="🏆" /></span>
           <span>Лидерборд трейдеров</span>
         </h3>
 
@@ -99,7 +100,7 @@ export function TraderLeaderboard() {
               <div className="flex items-center gap-3">
                 {/* Ранг */}
                 <div className="text-2xl w-12 text-center">
-                  {getRankEmoji(index)}
+                  <GameIcon icon={getRankEmoji(index)} />
                 </div>
 
                 {/* Информация о трейдере */}
@@ -121,7 +122,7 @@ export function TraderLeaderboard() {
                         title={BADGE_INFO[badge]?.title || badge}
                         className="text-sm"
                       >
-                        {BADGE_INFO[badge]?.emoji || '🏷️'}
+                        <IconText>{BADGE_INFO[badge]?.emoji || '🏷️'}</IconText>
                       </span>
                     ))}
                   </div>
@@ -130,7 +131,7 @@ export function TraderLeaderboard() {
                 {/* Статистика */}
                 <div className="text-right">
                   <div className="text-yellow-400 font-bold">
-                    {formatVolume(trader.totalVolume)} 💳
+                    {formatVolume(trader.totalVolume)} <GameIcon icon="💳" />
                   </div>
                   <div className="text-sm text-gray-400">
                     {trader.totalTrades} сделок

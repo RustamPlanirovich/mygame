@@ -7,6 +7,7 @@ import { useMarketStore } from '../../../features/marketStore';
 import { formatPrice, formatVolume } from '../../../utils/marketApi';
 import { RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
+import { GameIcon } from '../../ui/icons';
 
 export function TradeHistory() {
   // Узкие селекторы вместо подписки на весь стор.
@@ -49,20 +50,20 @@ export function TradeHistory() {
           <div className="text-2xl font-bold text-yellow-400">
             {formatVolume(stats.totalVolume)}
           </div>
-          <div className="text-sm text-gray-400">Общий объём 💳</div>
+          <div className="text-sm text-gray-400">Общий объём <GameIcon icon="💳" /></div>
         </div>
         <div className="bg-gray-800 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-red-400">
             {formatVolume(stats.totalFees)}
           </div>
-          <div className="text-sm text-gray-400">Уплачено комиссий 💳</div>
+          <div className="text-sm text-gray-400">Уплачено комиссий <GameIcon icon="💳" /></div>
         </div>
       </div>
 
       {/* Таблица сделок */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <span>📜</span>
+          <span><GameIcon icon="📜" /></span>
           <span>История сделок</span>
           <span className="text-sm font-normal text-gray-400">
             (показано {tradeHistory.length} из {tradeHistoryTotal})
@@ -111,7 +112,7 @@ export function TradeHistory() {
                       {formatPrice(trade.pricePerUnit)}
                     </td>
                     <td className="py-2 px-2 text-right font-bold text-green-400">
-                      {formatPrice(trade.totalAmount)} 💳
+                      {formatPrice(trade.totalAmount)} <GameIcon icon="💳" />
                     </td>
                     <td className="py-2 px-2 text-right text-red-400">
                       -{formatPrice(trade.fee)}

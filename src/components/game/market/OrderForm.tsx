@@ -15,6 +15,7 @@ import { Alert, Field } from '../../ui';
 import { RESOURCE_NAMES, TRADEABLE_RESOURCES } from './resourceLabels';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
 import { MARKET_CONSTANTS } from '../../../core/gameTypes.market';
+import { GameIcon, IconText } from '../../ui/icons';
 
 const EMPTY_ROW = { available: '0', locked: '0' };
 
@@ -119,14 +120,14 @@ export function OrderForm() {
           onClick={() => setOrderFormType('buy')}
           className={`tab ${!isSell ? 'tab-active' : ''}`}
         >
-          🛒 Купить
+          <GameIcon icon="🛒" /> Купить
         </button>
         <button
           type="button"
           onClick={() => setOrderFormType('sell')}
           className={`tab ${isSell ? 'tab-active' : ''}`}
         >
-          💰 Продать
+          <GameIcon icon="💰" /> Продать
         </button>
       </div>
 
@@ -253,7 +254,7 @@ export function OrderForm() {
           disabled={isLoading || blocked}
           className={`btn btn-block ${isSell ? 'btn-danger' : 'btn-primary'}`}
         >
-          {isLoading ? 'Отправка...' : isSell ? '💰 Выставить продажу' : '🛒 Выставить покупку'}
+          <IconText>{isLoading ? 'Отправка...' : isSell ? '💰 Выставить продажу' : '🛒 Выставить покупку'}</IconText>
         </button>
       </form>
     </div>

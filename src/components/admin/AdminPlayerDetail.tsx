@@ -61,6 +61,7 @@ import {
   truncate,
 } from '../../utils/adminFormat';
 import { BanBadge, JsonBlock, KeyValue, Num, OnlineDot, RoleBadge, Section, When } from './parts';
+import { IconText } from '../ui/icons';
 
 type FormKind =
   | 'ban'
@@ -531,7 +532,7 @@ export function AdminPlayerDetail({
                         >
                           {BAN_PRESETS.map((preset) => (
                             <option key={preset.label} value={preset.value}>
-                              {preset.label}
+                              <IconText>{preset.label}</IconText>
                             </option>
                           ))}
                         </select>
@@ -1085,7 +1086,7 @@ export function AdminPlayerDetail({
                               <span className="block truncate text-content-primary">{slot.name}</span>
                               {slot.description && (
                                 <span className="block truncate text-3xs text-content-faint">
-                                  {slot.description}
+                                  <IconText>{slot.description}</IconText>
                                 </span>
                               )}
                             </td>

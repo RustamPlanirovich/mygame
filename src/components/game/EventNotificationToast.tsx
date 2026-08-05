@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../../features/gameStore';
 import { X, AlertTriangle } from 'lucide-react';
+import { GameIcon, IconText } from '../ui/icons';
 
 interface EventNotification {
   id: string;
@@ -70,7 +71,7 @@ export function EventNotificationToast() {
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-yellow-300 animate-pulse" />
-              <span className="text-2xl">{notif.icon}</span>
+              <span className="text-2xl"><GameIcon icon={notif.icon} /></span>
             </div>
             <button
               onClick={() => dismissNotification(notif.id)}
@@ -81,11 +82,11 @@ export function EventNotificationToast() {
           </div>
           
           <h3 className="font-bold text-lg text-yellow-200 mb-1">
-            {notif.title}
+            <IconText>{notif.title}</IconText>
           </h3>
           
           <p className="text-sm text-gray-200 line-clamp-3">
-            {notif.description}
+            <IconText>{notif.description}</IconText>
           </p>
 
           <div className="mt-2 text-xs text-gray-400">

@@ -9,6 +9,7 @@ import { formatNumber, D } from '../../../core/math/format';
 import { getStockSectorName, FINANCE_CONFIG } from '../../../core/gameTypes.finance';
 import type { Stock, StockSector } from '../../../core/gameTypes.finance';
 import { Alert, EmptyState, Panel, Stat } from '../../ui';
+import { GameIcon, IconText } from '../../ui/icons';
 
 type SortBy = 'symbol' | 'price' | 'change' | 'volume' | 'dividend';
 type SortOrder = 'asc' | 'desc';
@@ -117,7 +118,7 @@ function StockMarketImpl() {
           <div className="space-y-1 max-h-24 overflow-y-auto">
             {marketEvents.slice(-3).reverse().map((event, idx) => (
               <Alert key={idx} tone={event.magnitude > 0 ? 'accent' : 'danger'}>
-                {event.description}
+                <IconText>{event.description}</IconText>
               </Alert>
             ))}
           </div>
@@ -196,7 +197,7 @@ function StockMarketImpl() {
                   >
                     <td>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-base">{stock.emoji}</span>
+                        <span className="text-base"><GameIcon icon={stock.emoji} /></span>
                         <div>
                           <div className="font-mono font-bold text-sm">{stock.symbol}</div>
                           <div className="text-2xs text-slate-400 truncate max-w-[80px]">{stock.name}</div>
@@ -244,7 +245,7 @@ function StockMarketImpl() {
       {/* Панель торговли */}
       {selectedStock && (
         <Panel
-          icon={<span className="text-2xl">{selectedStock.emoji}</span>}
+          icon={<span className="text-2xl"><GameIcon icon={selectedStock.emoji} /></span>}
           title={selectedStock.symbol}
           subtitle={selectedStock.name}
           actions={
@@ -254,12 +255,12 @@ function StockMarketImpl() {
               aria-label="Закрыть"
               className="icon-btn"
             >
-              ✕
+              <GameIcon icon="✕" />
             </button>
           }
           bodyClassName="space-y-3"
         >
-          <p className="text-sm text-slate-300">{selectedStock.description}</p>
+          <p className="text-sm text-slate-300"><IconText>{selectedStock.description}</IconText></p>
 
           {/* Компактные метрики */}
           <div className="grid grid-cols-4 gap-2">
@@ -324,7 +325,7 @@ function StockMarketImpl() {
             {/* Покупка */}
             <div className="card border-green-700/30 bg-green-900/20">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-green-400">📈</span>
+                <span className="text-green-400"><GameIcon icon="📈" /></span>
                 <span className="font-medium text-green-400">Купить</span>
               </div>
               <input
@@ -361,7 +362,7 @@ function StockMarketImpl() {
             {/* Продажа */}
             <div className="card border-red-700/30 bg-red-900/20">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-red-400">📉</span>
+                <span className="text-red-400"><GameIcon icon="📉" /></span>
                 <span className="font-medium text-red-400">Продать</span>
               </div>
               <input

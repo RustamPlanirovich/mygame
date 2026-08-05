@@ -6,6 +6,7 @@ import { useGameStore } from '../../features/gameStore';
 import { SignalStats } from './SignalOverlay';
 import { loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
 import { useConfirmDialog, useAlertDialog } from './ConfirmDialog';
+import { IconText } from '../ui/icons';
 
 export const SettingsPanel: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
@@ -194,7 +195,7 @@ export const SettingsPanel: React.FC = () => {
                 : 'text-cyber-text-dim hover:text-cyber-text'
             }`}
           >
-            {tab.label}
+            <IconText>{tab.label}</IconText>
           </button>
         ))}
       </div>
@@ -540,7 +541,7 @@ export const SettingsPanel: React.FC = () => {
                 ? 'text-cyber-red bg-cyber-red/10'
                 : 'text-cyber-text'
           }`}>
-            {saveStatus}
+            <IconText>{saveStatus}</IconText>
           </div>
         )}
         <div className="flex gap-2">

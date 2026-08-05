@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Book, Search, ChevronRight, Scroll, Cog, Building2 } from 'lucide-react';
 import { Modal, EmptyState } from '../ui';
+import { IconText } from '../ui/icons';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -929,7 +930,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                                 : 'text-cyber-text hover:bg-cyber-dark'
                             }`}
                           >
-                            <span>{topic.title}</span>
+                            <span><IconText>{topic.title}</IconText></span>
                             <ChevronRight
                               size={14}
                               className={`transition-transform ${
@@ -949,13 +950,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                 {selectedTopic ? (
                   <div className="p-6">
                     <h3 className="text-2xl font-bold text-cyber-green mb-2">
-                      {selectedTopic.title}
+                      <IconText>{selectedTopic.title}</IconText>
                     </h3>
                     <div className="inline-block px-2 py-1 bg-cyber-blue/20 text-cyber-blue text-xs rounded mb-4">
                       {selectedTopic.category}
                     </div>
                     <div className="text-cyber-text whitespace-pre-line leading-relaxed">
-                      {selectedTopic.content}
+                      <IconText>{selectedTopic.content}</IconText>
                     </div>
                   </div>
                 ) : (

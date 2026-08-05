@@ -12,6 +12,7 @@ import {
 import type { Artifact, ArtifactRarity } from '../../core/gameTypes';
 import { Sparkles, TrendingUp, Lock, Unlock } from 'lucide-react';
 import { useState } from 'react';
+import { GameIcon, IconText } from '../ui/icons';
 
 type FilterType = 'all' | ArtifactRarity;
 
@@ -88,7 +89,7 @@ export function ArtifactsPanel() {
               {artifact.name}
             </h4>
             {artifact.description && (
-              <p className="text-xs text-gray-400">{artifact.description}</p>
+              <p className="text-xs text-gray-400"><IconText>{artifact.description}</IconText></p>
             )}
           </div>
           <div className="flex items-center gap-1 ml-2">
@@ -175,7 +176,7 @@ export function ArtifactsPanel() {
                 cost.qp ? `, ${formatNumber(cost.qp)} QP` : ''
               }${cost.ap ? `, ${cost.ap.toFixed(0)} AP` : ''}`}
             >
-              ↑ Улучшить
+              <GameIcon icon="↑" /> Улучшить
             </button>
           )}
         </div>
@@ -183,9 +184,9 @@ export function ArtifactsPanel() {
         {/* Стоимость улучшения */}
         {artifact.level < artifact.maxLevel && (
           <div className="mt-2 text-xs text-gray-400 space-y-0.5">
-            <div>💰 {formatNumber(cost.credits)}</div>
-            {cost.qp && <div>⚛️ {formatNumber(cost.qp)} QP</div>}
-            {cost.ap && <div>✨ {cost.ap.toFixed(0)} AP</div>}
+            <div><GameIcon icon="💰" /> {formatNumber(cost.credits)}</div>
+            {cost.qp && <div><GameIcon icon="⚛️" /> {formatNumber(cost.qp)} QP</div>}
+            {cost.ap && <div><GameIcon icon="✨" /> {cost.ap.toFixed(0)} AP</div>}
           </div>
         )}
       </div>
@@ -228,7 +229,7 @@ export function ArtifactsPanel() {
           Доступно слотов: {availableSlots}
         </div>
         <div className="text-xs text-gray-500 mt-1">
-          💡 Получайте +1 слот за каждые 5 вознесений
+          <GameIcon icon="💡" /> Получайте +1 слот за каждые 5 вознесений
         </div>
       </div>
 
@@ -304,7 +305,7 @@ export function ArtifactsPanel() {
       {/* Подсказка */}
       {artifacts.discovered.length === 0 && (
         <div className="p-4 bg-blue-900/30 border border-blue-500/50 rounded-lg">
-          <h4 className="font-bold text-blue-400 mb-2">💡 Как получить артефакты?</h4>
+          <h4 className="font-bold text-blue-400 mb-2"><GameIcon icon="💡" /> Как получить артефакты?</h4>
           <ul className="text-sm text-gray-300 space-y-1">
             <li>• Открывайте процедурные галактики (5-10% шанс)</li>
             <li>• Выполняйте сложные достижения</li>

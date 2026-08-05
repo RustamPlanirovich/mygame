@@ -5,6 +5,7 @@ import type { PrestigeUpgradeId } from '../../core/gameTypes';
 import { RotateCcw, Zap, Star, Info } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Modal } from '../ui';
+import { GameIcon, IconText } from '../ui/icons';
 
 type TabType = 'prestige' | 'ascension';
 
@@ -71,7 +72,7 @@ export function PrestigePanel() {
       >
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <span className="text-xl flex-shrink-0">{upgrade.icon}</span>
+            <span className="text-xl flex-shrink-0"><GameIcon icon={upgrade.icon} /></span>
             <h4 className="text-sm font-bold text-white truncate">{upgrade.name}</h4>
             <Info size={14} className="text-gray-400 flex-shrink-0" />
           </div>
@@ -83,7 +84,7 @@ export function PrestigePanel() {
           )}
         </div>
 
-        <p className="text-[11px] text-gray-400 mb-2 line-clamp-2">{upgrade.description}</p>
+        <p className="text-[11px] text-gray-400 mb-2 line-clamp-2"><IconText>{upgrade.description}</IconText></p>
 
         {/* Кнопки действий */}
         {!maxed ? (
@@ -103,7 +104,7 @@ export function PrestigePanel() {
           </button>
         ) : (
           <div className="text-center py-1.5">
-            <span className="text-green-400 font-bold text-[11px]">✓ Максимальный уровень</span>
+            <span className="text-green-400 font-bold text-[11px]"><GameIcon icon="✓" /> Максимальный уровень</span>
           </div>
         )}
       </div>
@@ -188,25 +189,25 @@ export function PrestigePanel() {
           <h3 className="text-sm font-bold text-white mb-1">Активные Бонусы:</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-[10px]">
             <div className="text-green-400">
-              📦 Производство: x{totalBonuses.productionMultiplier.toFixed(2)}
+              <GameIcon icon="📦" /> Производство: x{totalBonuses.productionMultiplier.toFixed(2)}
             </div>
             <div className="text-purple-400">
-              🔬 Исследования: x{totalBonuses.researchMultiplier.toFixed(2)}
+              <GameIcon icon="🔬" /> Исследования: x{totalBonuses.researchMultiplier.toFixed(2)}
             </div>
             <div className="text-yellow-400">
-              ⚡ Энергия: -{totalBonuses.energyEfficiency.toFixed(0)}%
+              <GameIcon icon="⚡" /> Энергия: -{totalBonuses.energyEfficiency.toFixed(0)}%
             </div>
             <div className="text-cyan-400">
-              🏗️ Стоимость: -{totalBonuses.buildingCostReduction.toFixed(0)}%
+              <GameIcon icon="🏗️" /> Стоимость: -{totalBonuses.buildingCostReduction.toFixed(0)}%
             </div>
             {totalBonuses.gameSpeedMultiplier > 1 && (
               <div className="text-orange-400">
-                ⏩ Скорость: x{totalBonuses.gameSpeedMultiplier.toFixed(1)}
+                <GameIcon icon="⏩" /> Скорость: x{totalBonuses.gameSpeedMultiplier.toFixed(1)}
               </div>
             )}
             {totalBonuses.resourceRetention > 0 && (
               <div className="text-blue-400">
-                💾 Сохранение: {totalBonuses.resourceRetention.toFixed(0)}%
+                <GameIcon icon="💾" /> Сохранение: {totalBonuses.resourceRetention.toFixed(0)}%
               </div>
             )}
           </div>
@@ -241,7 +242,7 @@ export function PrestigePanel() {
                 : 'bg-gray-700 text-gray-500 cursor-not-allowed'
             }`}
           >
-            ✨ ПРЕСТИЖ ✨
+            <GameIcon icon="✨" /> ПРЕСТИЖ <GameIcon icon="✨" />
           </button>
         </div>
       </div>
@@ -314,16 +315,16 @@ export function PrestigePanel() {
               <h3 className="text-sm font-bold text-white mb-1">Бонусы Вознесения:</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-[10px]">
                 <div className="text-cyan-400">
-                  🌀 QP Gain: x{ascension.multipliers.qpGain.toFixed(2)}
+                  <GameIcon icon="🌀" /> QP Gain: x{ascension.multipliers.qpGain.toFixed(2)}
                 </div>
                 <div className="text-green-400">
-                  📦 Производство: x{ascension.multipliers.globalProduction.toFixed(2)}
+                  <GameIcon icon="📦" /> Производство: x{ascension.multipliers.globalProduction.toFixed(2)}
                 </div>
                 <div className="text-purple-400">
-                  🔬 Исследования: x{ascension.multipliers.researchSpeed.toFixed(2)}
+                  <GameIcon icon="🔬" /> Исследования: x{ascension.multipliers.researchSpeed.toFixed(2)}
                 </div>
                 <div className="text-yellow-400">
-                  💰 Стартовые кредиты: +{formatNumber(ascension.multipliers.startingCredits)}
+                  <GameIcon icon="💰" /> Стартовые кредиты: +{formatNumber(ascension.multipliers.startingCredits)}
                 </div>
               </div>
             </div>
@@ -333,13 +334,13 @@ export function PrestigePanel() {
               <h3 className="text-sm font-bold text-white mb-1">Разблокированные Системы:</h3>
               <div className="space-y-0.5 text-[10px]">
                 <div className={ascension.unlocks.infiniteResearch ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.infiniteResearch ? '✓' : '✗'} Бесконечные Исследования (1+ вознесение)
+                  <IconText>{ascension.unlocks.infiniteResearch ? '✓' : '✗'}</IconText> Бесконечные Исследования (1+ вознесение)
                 </div>
                 <div className={ascension.unlocks.buildingEvolution ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.buildingEvolution ? '✓' : '✗'} Эволюция Зданий (2+ вознесений)
+                  <IconText>{ascension.unlocks.buildingEvolution ? '✓' : '✗'}</IconText> Эволюция Зданий (2+ вознесений)
                 </div>
                 <div className={ascension.unlocks.proceduralGalaxies ? 'text-green-400' : 'text-gray-500'}>
-                  {ascension.unlocks.proceduralGalaxies ? '✓' : '✗'} Процедурные Галактики (3+ вознесений)
+                  <IconText>{ascension.unlocks.proceduralGalaxies ? '✓' : '✗'}</IconText> Процедурные Галактики (3+ вознесений)
                 </div>
               </div>
             </div>
@@ -350,13 +351,13 @@ export function PrestigePanel() {
             <h3 className="text-sm font-bold text-white mb-1.5">Требования для Вознесения:</h3>
             <div className="space-y-0.5 text-[10px]">
               <div className={prestige.prestigeCount >= 10 ? 'text-green-400' : 'text-red-400'}>
-                {prestige.prestigeCount >= 10 ? '✓' : '✗'} 10+ Престижей ({prestige.prestigeCount}/10)
+                <IconText>{prestige.prestigeCount >= 10 ? '✓' : '✗'}</IconText> 10+ Престижей ({prestige.prestigeCount}/10)
               </div>
               <div className={prestige.lifetimeQuantumPoints >= 1000000 ? 'text-green-400' : 'text-red-400'}>
-                {prestige.lifetimeQuantumPoints >= 1000000 ? '✓' : '✗'} 1M+ Lifetime QP ({formatNumber(prestige.lifetimeQuantumPoints)}/1M)
+                <IconText>{prestige.lifetimeQuantumPoints >= 1000000 ? '✓' : '✗'}</IconText> 1M+ Lifetime QP ({formatNumber(prestige.lifetimeQuantumPoints)}/1M)
               </div>
               <div className="text-gray-400">
-                ✓ Все мегаструктуры построены (проверка в игре)
+                <GameIcon icon="✓" /> Все мегаструктуры построены (проверка в игре)
               </div>
             </div>
           </div>
@@ -367,7 +368,7 @@ export function PrestigePanel() {
               При вознесении вы получите: <span className="font-bold text-purple-400">{ascensionGain} Ascension Points</span>
             </p>
             <p className="text-[10px] text-red-400 text-center mb-1 font-bold">
-              ⚠️ ПОЛНЫЙ СБРОС! Все престиж-улучшения и прогресс будут потеряны!
+              <GameIcon icon="⚠️" /> ПОЛНЫЙ СБРОС! Все престиж-улучшения и прогресс будут потеряны!
             </p>
             <p className="text-[10px] text-gray-400 text-center mb-2">
               Вы сохраните только Ascension Points и бонусы вознесения
@@ -381,7 +382,7 @@ export function PrestigePanel() {
                   : 'bg-gray-700 text-gray-500 cursor-not-allowed'
               }`}
             >
-              🌟 ВОЗНЕСЕНИЕ 🌟
+              <GameIcon icon="🌟" /> ВОЗНЕСЕНИЕ <GameIcon icon="🌟" />
             </button>
           </div>
         </div>
@@ -401,12 +402,12 @@ export function PrestigePanel() {
               open
               onClose={closeUpgrade}
               size="sm"
-              icon={<span className="text-2xl leading-none">{upgrade.icon}</span>}
+              icon={<span className="text-2xl leading-none"><GameIcon icon={upgrade.icon} /></span>}
               title={upgrade.name}
               subtitle={currentLevel > 0 ? `Уровень ${currentLevel}/${upgrade.maxLevel}` : undefined}
             >
               <div className="p-4">
-                  <p className="text-sm text-gray-300 mb-4">{upgrade.description}</p>
+                  <p className="text-sm text-gray-300 mb-4"><IconText>{upgrade.description}</IconText></p>
 
                   {/* Эффекты */}
                   <div className="mb-4">
@@ -414,37 +415,37 @@ export function PrestigePanel() {
                     <div className="space-y-1.5 text-sm">
                       {upgrade.effects.productionMultiplier && currentLevel > 0 && (
                         <p className="text-green-400">
-                          📦 Производство: +{((Math.pow(upgrade.effects.productionMultiplier, currentLevel) - 1) * 100).toFixed(0)}%
+                          <GameIcon icon="📦" /> Производство: +{((Math.pow(upgrade.effects.productionMultiplier, currentLevel) - 1) * 100).toFixed(0)}%
                         </p>
                       )}
                       {upgrade.effects.researchMultiplier && currentLevel > 0 && (
                         <p className="text-purple-400">
-                          🔬 Исследования: +{((Math.pow(upgrade.effects.researchMultiplier, currentLevel) - 1) * 100).toFixed(0)}%
+                          <GameIcon icon="🔬" /> Исследования: +{((Math.pow(upgrade.effects.researchMultiplier, currentLevel) - 1) * 100).toFixed(0)}%
                         </p>
                       )}
                       {upgrade.effects.energyEfficiency && currentLevel > 0 && (
                         <p className="text-yellow-400">
-                          ⚡ Потребление энергии: -{upgrade.effects.energyEfficiency * currentLevel}%
+                          <GameIcon icon="⚡" /> Потребление энергии: -{upgrade.effects.energyEfficiency * currentLevel}%
                         </p>
                       )}
                       {upgrade.effects.buildingCostReduction && currentLevel > 0 && (
                         <p className="text-cyan-400">
-                          🏗️ Стоимость зданий: -{upgrade.effects.buildingCostReduction * currentLevel}%
+                          <GameIcon icon="🏗️" /> Стоимость зданий: -{upgrade.effects.buildingCostReduction * currentLevel}%
                         </p>
                       )}
                       {upgrade.effects.startingCredits && currentLevel > 0 && (
                         <p className="text-green-400">
-                          💰 Стартовые кредиты: +{formatNumber(upgrade.effects.startingCredits.mul(currentLevel))}
+                          <GameIcon icon="💰" /> Стартовые кредиты: +{formatNumber(upgrade.effects.startingCredits.mul(currentLevel))}
                         </p>
                       )}
                       {upgrade.effects.startingInfluence && currentLevel > 0 && (
                         <p className="text-yellow-400">
-                          👑 Стартовое влияние: +{formatNumber(upgrade.effects.startingInfluence.mul(currentLevel))}
+                          <GameIcon icon="👑" /> Стартовое влияние: +{formatNumber(upgrade.effects.startingInfluence.mul(currentLevel))}
                         </p>
                       )}
                       {upgrade.effects.special && (
                         <p className="text-orange-400 italic">
-                          ✨ {upgrade.effects.special}
+                          <GameIcon icon="✨" /> {upgrade.effects.special}
                         </p>
                       )}
                       {currentLevel === 0 && (
@@ -487,7 +488,7 @@ export function PrestigePanel() {
                     </button>
                   ) : (
                     <div className="text-center py-3 bg-green-900/30 border border-green-500 rounded-lg">
-                      <span className="text-green-400 font-bold text-base">✓ Максимальный уровень достигнут</span>
+                      <span className="text-green-400 font-bold text-base"><GameIcon icon="✓" /> Максимальный уровень достигнут</span>
                     </div>
                   )}
               </div>

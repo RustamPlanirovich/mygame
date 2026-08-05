@@ -8,6 +8,7 @@ import { Alert, EmptyState, Skeleton } from '../ui';
 import { useAdminActions, useAdminStore } from '../../features/adminStore';
 import { AUDIT_ACTIONS, actionLabel } from '../../utils/adminFormat';
 import { JsonBlock, Num, Pagination, When } from './parts';
+import { IconText } from '../ui/icons';
 
 const PAGE_SIZES = [25, 50, 100, 200] as const;
 
@@ -37,7 +38,7 @@ export function AdminAudit() {
             <option value="">Все действия</option>
             {AUDIT_ACTIONS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                <IconText>{option.label}</IconText>
               </option>
             ))}
           </select>

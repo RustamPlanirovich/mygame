@@ -10,6 +10,7 @@ import { formatNumber, D } from '../../../core/math/format';
 import { ADVISOR_PRICES } from '../../../core/gameTypes.ai';
 import type { FinancialAdvisorTier, AdvisorRecommendation } from '../../../core/gameTypes.ai';
 import { Alert, Badge, EmptyState, Field, Panel, Stat } from '../../ui';
+import { GameIcon, IconText } from '../../ui/icons';
 
 // memo: родительская FinancePanel рендерится на каждый тик, пропсов у компонента нет.
 export const AIAdvisor = memo(AIAdvisorImpl);
@@ -218,7 +219,7 @@ function AIAdvisorImpl() {
 
           {!aiEnabled && (
             <Alert tone="warning">
-              ⚠️ DeepSeek AI не подключён. Будут использоваться базовые алгоритмы анализа.
+              <GameIcon icon="⚠️" /> DeepSeek AI не подключён. Будут использоваться базовые алгоритмы анализа.
             </Alert>
           )}
         </Panel>
@@ -228,22 +229,22 @@ function AIAdvisorImpl() {
           {/* Базовый */}
           <div className="card border-2 border-blue-500">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">📊</span>
+              <span className="text-2xl"><GameIcon icon="📊" /></span>
               <h4 className="font-bold">Базовый</h4>
             </div>
-            <p className="text-slate-400 text-sm mb-3">{ADVISOR_PRICES.basic.description}</p>
+            <p className="text-slate-400 text-sm mb-3"><IconText>{ADVISOR_PRICES.basic.description}</IconText></p>
             <ul className="text-sm space-y-1 mb-4">
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Прогнозы рынка
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Прогнозы рынка
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Рекомендации по покупке/продаже
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Рекомендации по покупке/продаже
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Анализ кредитных ставок
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Анализ кредитных ставок
               </li>
               <li className="flex items-center gap-2 text-slate-500">
-                <span>✗</span> Автоматическая торговля
+                <span><GameIcon icon="✗" /></span> Автоматическая торговля
               </li>
             </ul>
             <div className="font-mono text-lg font-bold tabular-nums text-blue-400 mb-2">
@@ -261,23 +262,23 @@ function AIAdvisorImpl() {
           {/* Премиум */}
           <div className="card border-2 border-purple-500">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">🚀</span>
+              <span className="text-2xl"><GameIcon icon="🚀" /></span>
               <h4 className="font-bold">Премиум</h4>
               <Badge className="text-purple-400">РЕКОМЕНДУЕМ</Badge>
             </div>
-            <p className="text-slate-400 text-sm mb-3">{ADVISOR_PRICES.premium.description}</p>
+            <p className="text-slate-400 text-sm mb-3"><IconText>{ADVISOR_PRICES.premium.description}</IconText></p>
             <ul className="text-sm space-y-1 mb-4">
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Всё из базового
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Всё из базового
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Автоматическая торговля
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Автоматическая торговля
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Арбитражные стратегии
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Арбитражные стратегии
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-400">✓</span> Управление кредитами
+                <span className="text-green-400"><GameIcon icon="✓" /></span> Управление кредитами
               </li>
             </ul>
             <div className="font-mono text-lg font-bold tabular-nums text-purple-400 mb-2">
@@ -307,7 +308,7 @@ function AIAdvisorImpl() {
       <Panel
         title={
           <span className="flex items-center gap-2">
-            🤖 AI Советник
+            <GameIcon icon="🤖" /> AI Советник
             <Badge tone={advisor.tier === 'premium' ? 'accent' : 'info'}>
               {advisor.tier === 'premium' ? 'ПРЕМИУМ' : 'БАЗОВЫЙ'}
             </Badge>
@@ -317,7 +318,7 @@ function AIAdvisorImpl() {
           <>
             {advisor.tier === 'basic' && (
               <button type="button" onClick={handleUpgrade} className="btn btn-xs">
-                ⬆️ Апгрейд до Премиум ({formatNumber(D(ADVISOR_PRICES.premium.credits).sub(D(ADVISOR_PRICES.basic.credits)))} ₡)
+                <GameIcon icon="⬆️" /> Апгрейд до Премиум ({formatNumber(D(ADVISOR_PRICES.premium.credits).sub(D(ADVISOR_PRICES.basic.credits)))} ₡)
               </button>
             )}
             {advisor.tier === 'premium' && (
@@ -327,7 +328,7 @@ function AIAdvisorImpl() {
                 aria-expanded={showSettings}
                 className="btn btn-xs"
               >
-                ⚙️ Настройки
+                <GameIcon icon="⚙️" /> Настройки
               </button>
             )}
           </>
@@ -351,7 +352,7 @@ function AIAdvisorImpl() {
             <div className={`text-sm flex items-center gap-2 ${autoTraderStats?.isPaused ? 'text-red-400' : advisor.autoTrading.enabled ? 'text-green-400' : 'text-slate-400'}`}>
               <span className={`w-2 h-2 rounded-full ${autoTraderStats?.isPaused ? 'bg-red-400' : advisor.autoTrading.enabled ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
               {autoTraderStats?.isPaused ? (
-                <>🛑 {autoTraderStats.pauseReason}</>
+                <><GameIcon icon="🛑" /> {autoTraderStats.pauseReason}</>
               ) : advisor.autoTrading.enabled ? (
                 '🤖 Автотрейдер активен'
               ) : (
@@ -391,7 +392,7 @@ function AIAdvisorImpl() {
                 {autoTraderStats.capitalProtectionActive && (
                   <div className="card space-y-1">
                     <div className="stat-label flex items-center gap-1">
-                      🛡️ Защита капитала
+                      <GameIcon icon="🛡️" /> Защита капитала
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
@@ -438,7 +439,7 @@ function AIAdvisorImpl() {
             {/* Кнопка сброса stop-loss */}
             {autoTraderStats?.isPaused && (
               <button type="button" onClick={resetStopLoss} className="btn btn-block">
-                🔄 Сбросить Stop-Loss и продолжить
+                <GameIcon icon="🔄" /> Сбросить Stop-Loss и продолжить
               </button>
             )}
           </div>
@@ -538,7 +539,7 @@ function AIAdvisorImpl() {
             {/* Take-Profit и Stop-Loss */}
             <div className="divider" />
             <div>
-              <h5 className="text-sm font-medium mb-2">📈 Автоматическая фиксация</h5>
+              <h5 className="text-sm font-medium mb-2"><GameIcon icon="📈" /> Автоматическая фиксация</h5>
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Take-Profit (фиксация прибыли)">
@@ -583,14 +584,14 @@ function AIAdvisorImpl() {
         <Panel
           title={
             <span className="flex items-center gap-2">
-              📊 Анализ рынка
-              {isLoadingAnalysis && <span className="animate-spin">⏳</span>}
+              <GameIcon icon="📊" /> Анализ рынка
+              {isLoadingAnalysis && <span className="animate-spin"><GameIcon icon="⏳" /></span>}
             </span>
           }
         >
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="card text-center">
-              <div className="text-2xl mb-1">{getSentimentEmoji(marketAnalysis.overallSentiment)}</div>
+              <div className="text-2xl mb-1"><GameIcon icon={getSentimentEmoji(marketAnalysis.overallSentiment)} /></div>
               <Stat
                 label="Настроение"
                 value={getSentimentText(marketAnalysis.overallSentiment)}
@@ -600,11 +601,11 @@ function AIAdvisorImpl() {
 
             <div className="card text-center">
               <div className="text-2xl mb-1">
-                {marketAnalysis.creditRatePrediction.rateDirection === 'rising'
+                <IconText>{marketAnalysis.creditRatePrediction.rateDirection === 'rising'
                   ? '📈'
                   : marketAnalysis.creditRatePrediction.rateDirection === 'falling'
                     ? '📉'
-                    : '➡️'}
+                    : '➡️'}</IconText>
               </div>
               <Stat
                 label="Ставки"
@@ -614,7 +615,7 @@ function AIAdvisorImpl() {
             </div>
 
             <div className="card text-center">
-              <div className="text-2xl mb-1">🕐</div>
+              <div className="text-2xl mb-1"><GameIcon icon="🕐" /></div>
               <Stat
                 label="Обновлено"
                 value={new Date(marketAnalysis.generatedAt).toLocaleTimeString()}
@@ -628,7 +629,7 @@ function AIAdvisorImpl() {
           {/* Топ рекомендации */}
           <div className="grid grid-cols-2 gap-3 mt-3">
             <div>
-              <div className="text-sm text-green-400 font-medium mb-2">📈 Купить</div>
+              <div className="text-sm text-green-400 font-medium mb-2"><GameIcon icon="📈" /> Купить</div>
               {marketAnalysis.topBuyRecommendations.slice(0, 3).map((rec) => (
                 <div key={rec.stockId} className="flex items-center justify-between text-sm py-1">
                   <span className="font-mono">{rec.symbol}</span>
@@ -637,7 +638,7 @@ function AIAdvisorImpl() {
               ))}
             </div>
             <div>
-              <div className="text-sm text-red-400 font-medium mb-2">📉 Продать</div>
+              <div className="text-sm text-red-400 font-medium mb-2"><GameIcon icon="📉" /> Продать</div>
               {marketAnalysis.topSellRecommendations.slice(0, 3).map((rec) => (
                 <div key={rec.stockId} className="flex items-center justify-between text-sm py-1">
                   <span className="font-mono">{rec.symbol}</span>
@@ -654,7 +655,7 @@ function AIAdvisorImpl() {
         <Panel
           title={
             <span className="flex items-center gap-2">
-              💰 AI Дивиденды
+              <GameIcon icon="💰" /> AI Дивиденды
               <Badge tone={dividendPrediction.source === 'ai' ? 'accent' : 'neutral'}>
                 {dividendPrediction.source === 'ai' ? 'AI' : 'Базовые'}
               </Badge>
@@ -676,8 +677,8 @@ function AIAdvisorImpl() {
                   >
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-blue-400">{stock?.symbol || dividend.stockId}</span>
-                      {dividend.change === 'increased' && <span className="text-green-400">↑</span>}
-                      {dividend.change === 'decreased' && <span className="text-red-400">↓</span>}
+                      {dividend.change === 'increased' && <span className="text-green-400"><GameIcon icon="↑" /></span>}
+                      {dividend.change === 'decreased' && <span className="text-red-400"><GameIcon icon="↓" /></span>}
                     </div>
                     <div className="flex items-center gap-3">
                       <span
@@ -692,7 +693,7 @@ function AIAdvisorImpl() {
                         {(dividend.newYield * 100).toFixed(1)}%
                       </span>
                       <span className="text-xs text-slate-500 max-w-32 truncate" title={dividend.reason}>
-                        {dividend.reason}
+                        <IconText>{dividend.reason}</IconText>
                       </span>
                     </div>
                   </div>
@@ -709,7 +710,7 @@ function AIAdvisorImpl() {
       {/* Рекомендации */}
       <Panel title="💡 Рекомендации">
         {recommendations.length === 0 ? (
-          <EmptyState title="Анализируем рынок..." icon={<span className="animate-spin text-lg">⏳</span>} />
+          <EmptyState title="Анализируем рынок..." icon={<span className="animate-spin text-lg"><GameIcon icon="⏳" /></span>} />
         ) : (
           <div className="space-y-2">
             {recommendations.slice(0, 5).map((rec) => (
@@ -719,7 +720,7 @@ function AIAdvisorImpl() {
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span>{getRecommendationIcon(rec.type)}</span>
+                    <span><GameIcon icon={getRecommendationIcon(rec.type)} /></span>
                     <span className="font-medium">{getRecommendationText(rec.type)}</span>
                     <span className="font-mono text-blue-400">{rec.targetId.toUpperCase()}</span>
                   </div>
@@ -745,7 +746,7 @@ function AIAdvisorImpl() {
                       </button>
                     )}
                     {rec.executed && (
-                      <span className="text-green-400 text-xs">✓ Выполнено</span>
+                      <span className="text-green-400 text-xs"><GameIcon icon="✓" /> Выполнено</span>
                     )}
                   </div>
                 </div>

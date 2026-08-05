@@ -5,6 +5,7 @@ import type { ResourceType, GalaxyId } from '../../core/gameTypes';
 import { RESOURCE_EMOJI } from '../../core/constants/labels';
 import { D } from '../../utils/bigNumber';
 import { notify } from '../../utils/notifications';
+import { GameIcon, IconText } from '../ui/icons';
 
 export const IntergalacticLogisticsPanel: React.FC = () => {
   const {
@@ -121,14 +122,14 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-2 p-2.5 bg-gray-800 text-white rounded-lg max-h-[85vh] overflow-y-auto">
-      <h2 className="text-lg font-bold text-cyan-400">🚛 Межгалакт. Логистика</h2>
+      <h2 className="text-lg font-bold text-cyan-400"><GameIcon icon="🚛" /> Межгалакт. Логистика</h2>
 
       {/* Upgrades Section */}
       <div className="bg-gray-700 p-2 rounded">
-        <h3 className="text-sm font-semibold mb-1.5 text-yellow-400">⚡ Улучшения</h3>
+        <h3 className="text-sm font-semibold mb-1.5 text-yellow-400"><GameIcon icon="⚡" /> Улучшения</h3>
         <div className="space-y-1">
           <div className="bg-gray-600 p-1.5 rounded flex items-center gap-2">
-            <span className="text-lg flex-shrink-0">🚀</span>
+            <span className="text-lg flex-shrink-0"><GameIcon icon="🚀" /></span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 justify-between">
                 <span className="text-[11px] text-gray-300 truncate">Скорость</span>
@@ -145,12 +146,12 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
               }`}
               disabled={currency.credits.lt(getUpgradeCost('speed'))}
             >
-              💰 {formatNumber(getUpgradeCost('speed'))}
+              <GameIcon icon="💰" /> {formatNumber(getUpgradeCost('speed'))}
             </button>
           </div>
 
           <div className="bg-gray-600 p-1.5 rounded flex items-center gap-2">
-            <span className="text-lg flex-shrink-0">📦</span>
+            <span className="text-lg flex-shrink-0"><GameIcon icon="📦" /></span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 justify-between">
                 <span className="text-[11px] text-gray-300 truncate">Вместимость</span>
@@ -167,12 +168,12 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
               }`}
               disabled={currency.credits.lt(getUpgradeCost('capacity'))}
             >
-              💰 {formatNumber(getUpgradeCost('capacity'))}
+              <GameIcon icon="💰" /> {formatNumber(getUpgradeCost('capacity'))}
             </button>
           </div>
 
           <div className="bg-gray-600 p-1.5 rounded flex items-center gap-2">
-            <span className="text-lg flex-shrink-0">🛡️</span>
+            <span className="text-lg flex-shrink-0"><GameIcon icon="🛡️" /></span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 justify-between">
                 <span className="text-[11px] text-gray-300 truncate">Защита</span>
@@ -189,7 +190,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
               }`}
               disabled={currency.credits.lt(getUpgradeCost('defense'))}
             >
-              💰 {formatNumber(getUpgradeCost('defense'))}
+              <GameIcon icon="💰" /> {formatNumber(getUpgradeCost('defense'))}
             </button>
           </div>
         </div>
@@ -197,7 +198,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
 
       {/* Send Caravan Section */}
       <div className="bg-gray-700 p-1.5 rounded">
-        <h3 className="text-sm font-semibold mb-1 text-green-400">📤 Отправить караван</h3>
+        <h3 className="text-sm font-semibold mb-1 text-green-400"><GameIcon icon="📤" /> Отправить караван</h3>
         
         <div className="grid grid-cols-2 gap-1 mb-1">
           <div>
@@ -207,9 +208,9 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
               onChange={(e) => setSelectedFrom(e.target.value)}
               className="w-full bg-gray-600 text-white p-1 rounded text-[11px]"
             >
-              <option value="main_base">🏠 Главная база</option>
+              <option value="main_base"><GameIcon icon="🏠" /> Главная база</option>
               {galaxies.platforms.map(p => (
-                <option key={p.id} value={p.id}>🛰️ {p.name}</option>
+                <option key={p.id} value={p.id}><GameIcon icon="🛰️" /> {p.name}</option>
               ))}
             </select>
           </div>
@@ -236,7 +237,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
               .filter(([_, res]) => res.amount.gt(0))
               .map(([resType, res]) => (
                 <div key={resType} className="flex items-center gap-1 bg-gray-600 p-1 rounded">
-                  <span className="text-xs flex-shrink-0">{RESOURCE_EMOJI[resType as ResourceType] || '📦'}</span>
+                  <span className="text-xs flex-shrink-0"><IconText>{RESOURCE_EMOJI[resType as ResourceType] || '📦'}</IconText></span>
                   <input
                     type="number"
                     min="0"
@@ -262,13 +263,13 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
           onClick={handleSendCaravan}
           className="w-full bg-blue-600 hover:bg-blue-700 py-1.5 px-3 rounded font-semibold text-[11px]"
         >
-          🚀 Отправить караван
+          <GameIcon icon="🚀" /> Отправить караван
         </button>
       </div>
 
       {/* Active Caravans */}
       <div className="bg-gray-700 p-2 rounded">
-        <h3 className="text-sm font-semibold mb-1.5 text-purple-400">🚛 Активные караваны ({intergalacticLogistics.caravans.length})</h3>
+        <h3 className="text-sm font-semibold mb-1.5 text-purple-400"><GameIcon icon="🚛" /> Активные караваны ({intergalacticLogistics.caravans.length})</h3>
         
         {intergalacticLogistics.caravans.length === 0 ? (
           <p className="text-gray-400 text-[11px]">Нет активных караванов</p>
@@ -295,7 +296,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
                 <div key={caravan.id} className="bg-gray-600 p-1.5 rounded">
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-semibold text-[11px] truncate">
-                      {statusEmojis[caravan.status]} {caravan.fromId.slice(0, 8)} → {caravan.toId.slice(0, 8)}
+                      {statusEmojis[caravan.status]} {caravan.fromId.slice(0, 8)} <GameIcon icon="→" /> {caravan.toId.slice(0, 8)}
                     </span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${statusColors[caravan.status]}`}>
                       {caravan.status}
@@ -312,7 +313,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
                   <div className="text-[10px] text-gray-300">
                     Прогресс: {Math.round(caravan.progress * 100)}%
                     {caravan.status === 'under_attack' && (
-                      <span className="text-red-400 ml-1">⚠️ Под атакой!</span>
+                      <span className="text-red-400 ml-1"><GameIcon icon="⚠️" /> Под атакой!</span>
                     )}
                   </div>
                   
@@ -329,7 +330,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
       </div>
 
       <div className="text-[10px] text-gray-400 bg-gray-700 p-1.5 rounded">
-        <p className="font-semibold mb-0.5">💡 Как работает:</p>
+        <p className="font-semibold mb-0.5"><GameIcon icon="💡" /> Как работает:</p>
         <ul className="list-disc list-inside space-y-0.5">
           <li>Караваны перевозят ресурсы между базой и платформами</li>
           <li>Требуется топливо (жидкое топливо или бензин)</li>

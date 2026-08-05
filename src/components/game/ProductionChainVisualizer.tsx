@@ -15,6 +15,7 @@ import {
   getRelatedResources,
 } from '../../utils/productionChainHelpers';
 import { ArrowRight, AlertTriangle, CheckCircle, TrendingUp, Activity } from 'lucide-react';
+import { GameIcon, IconText } from '../ui/icons';
 
 export const ProductionChainVisualizer = () => {
   const buildings = useGameStore(state => state.buildings);
@@ -53,7 +54,7 @@ export const ProductionChainVisualizer = () => {
       {/* Suggestions */}
       {suggestions.length > 0 && (
         <div className="space-y-2">
-          <h4 className="text-sm font-bold text-cyber-blue">💡 Рекомендации</h4>
+          <h4 className="text-sm font-bold text-cyber-blue"><GameIcon icon="💡" /> Рекомендации</h4>
           <div className="space-y-2">
             {suggestions.map((suggestion, i) => (
               <div 
@@ -98,7 +99,7 @@ export const ProductionChainVisualizer = () => {
       {/* Production Chains */}
       {chains.length > 0 ? (
         <div className="space-y-3">
-          <h4 className="text-sm font-bold text-cyber-blue">🔗 Активные цепочки</h4>
+          <h4 className="text-sm font-bold text-cyber-blue"><GameIcon icon="🔗" /> Активные цепочки</h4>
           {chains.map((chain, i) => {
             const status = getChainStatus(chain);
             return (
@@ -119,7 +120,7 @@ export const ProductionChainVisualizer = () => {
 
       {/* Resource Graph */}
       <div className="space-y-2">
-        <h4 className="text-sm font-bold text-cyber-blue">📊 График ресурсов</h4>
+        <h4 className="text-sm font-bold text-cyber-blue"><GameIcon icon="📊" /> График ресурсов</h4>
         <ResourceGraph graph={graph} />
       </div>
     </div>
@@ -156,7 +157,7 @@ const ProductionChainCard = ({
               border: `1px solid ${status.color}50`
             }}
           >
-            {status.label}
+            <IconText>{status.label}</IconText>
           </span>
         </div>
       </div>

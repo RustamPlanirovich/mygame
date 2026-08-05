@@ -9,6 +9,7 @@ import {
 } from '../../core/production/policyEffects';
 import { Landmark, Info, XCircle } from 'lucide-react';
 import { notify } from '../../utils/notifications';
+import { GameIcon, IconText } from '../ui/icons';
 
 const CATEGORY_LABELS: Record<PolicyCategory, string> = {
   production: '🏭 Производственные',
@@ -99,7 +100,7 @@ export function PoliticsPanel() {
       {/* Active Policies */}
       {activePolicies.length > 0 && (
         <div className="p-4 border-b border-slate-700 bg-slate-800/30">
-          <h3 className="text-sm font-bold text-green-400 mb-2">✓ Активные политики</h3>
+          <h3 className="text-sm font-bold text-green-400 mb-2"><GameIcon icon="✓" /> Активные политики</h3>
           <div className="space-y-2">
             {activePolicies.map(policy => (
               <div key={policy.id} className="bg-green-900/20 border border-green-700/50 rounded p-2">
@@ -176,9 +177,9 @@ export function PoliticsPanel() {
                         <h4 className={`font-semibold ${isActive ? 'text-green-300' : 'text-white'}`}>
                           {policy.name}
                         </h4>
-                        {isActive && <span className="text-xs text-green-400">✓</span>}
+                        {isActive && <span className="text-xs text-green-400"><GameIcon icon="✓" /></span>}
                       </div>
-                      <p className="text-sm text-slate-300 mt-1">{policy.description}</p>
+                      <p className="text-sm text-slate-300 mt-1"><IconText>{policy.description}</IconText></p>
                     </div>
                     <button
                       onClick={() => toggleExpand(policy.id)}
@@ -213,7 +214,7 @@ export function PoliticsPanel() {
                                 key={techId}
                                 className={research.technologies[techId] ? 'text-green-400' : 'text-red-400'}
                               >
-                                {research.technologies[techId] ? '✓' : '✗'} {techId}
+                                <IconText>{research.technologies[techId] ? '✓' : '✗'}</IconText> {techId}
                               </div>
                             ))}
                           </div>
@@ -222,7 +223,7 @@ export function PoliticsPanel() {
                       
                       {policy.risks && policy.risks.length > 0 && (
                         <div>
-                          <span className="text-orange-400">⚠ Риски:</span>
+                          <span className="text-orange-400"><GameIcon icon="⚠" /> Риски:</span>
                           <div className="ml-2 mt-1 text-orange-300">
                             {policy.risks.join(', ')}
                           </div>

@@ -5,6 +5,7 @@ import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import type { ResourceType, DepositType } from '../../core/gameTypes';
 import { Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { GameIcon, IconText } from '../ui/icons';
 
 const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
   if (buildingId === 'miner_mk1') return 'ore';
@@ -133,7 +134,7 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
           На этой клетке можно построить специализированные здания с повышенной эффективностью
         </div>
         <div className="text-[10px] text-cyber-green mt-2 italic">
-          ✅ Добытые ресурсы автоматически поступают на базу (склад)
+          <GameIcon icon="✅" /> Добытые ресурсы автоматически поступают на базу (склад)
         </div>
       </div>
 
@@ -166,7 +167,7 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
         </div>
         <div className="flex-1">
           <div className="text-[10px] text-cyber-text-dim uppercase tracking-wide">
-            {showOnlyPositive ? '⚡ Показывать только положительные' : 'Показывать все здания'}
+            <IconText>{showOnlyPositive ? '⚡ Показывать только положительные' : 'Показывать все здания'}</IconText>
           </div>
           <div className="text-xs text-cyber-text-dim mt-0.5">модификаторы плитки</div>
         </div>
@@ -218,7 +219,7 @@ export function DepositBuildPanel({ deposit }: { deposit: DepositType }) {
                       <div className="text-[10px] text-cyber-text-dim mt-1 flex items-center gap-1 flex-wrap">
                         {Object.entries(cost).map(([res, amt]) => (
                           <span key={res} className="flex items-center gap-0.5">
-                            <span>{res === 'energy' ? '⚡' : RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}</span>
+                            <span><IconText>{res === 'energy' ? '⚡' : RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}</IconText></span>
                             <span>{formatNumber(amt)}</span>
                           </span>
                         ))}

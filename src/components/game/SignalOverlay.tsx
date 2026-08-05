@@ -15,6 +15,7 @@ import {
   getSignalRewardDescription 
 } from '../../utils/signalHelpers';
 import { Sparkles } from 'lucide-react';
+import { GameIcon } from '../ui/icons';
 
 export const SignalOverlay = () => {
   const signalInterception = useGameStore(state => state.signalInterception);
@@ -235,7 +236,7 @@ export const SignalStats = () => {
 
       <div className="mt-4 p-3 bg-cyber-accent/10 rounded border border-cyber-accent/30">
         <p className="text-xs text-cyber-text-dim leading-relaxed">
-          💡 <span className="text-cyber-text font-medium">Подсказка:</span> Сигналы появляются каждые 2-5 минут. 
+          <GameIcon icon="💡" /> <span className="text-cyber-text font-medium">Подсказка:</span> Сигналы появляются каждые 2-5 минут. 
           У вас есть 15 секунд, чтобы кликнуть на сигнал и получить награду!
         </p>
       </div>

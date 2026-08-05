@@ -10,6 +10,7 @@ import { formatNumber, D } from '../../../core/math/format';
 import { P2P_LENDING_CONFIG } from '../../../core/gameTypes.ai';
 import type { P2PLoanOffer, P2PLoan } from '../../../core/gameTypes.ai';
 import { EmptyState, Field, Panel, Stat, Tabs, type TabItem } from '../../ui';
+import { GameIcon } from '../../ui/icons';
 
 type P2PTab = 'market' | 'my-offers' | 'as-lender' | 'as-borrower' | 'create';
 
@@ -143,24 +144,24 @@ function P2PLendingImpl() {
   const activeAsBorrowerCount = myLoansAsBorrower.filter((l) => l.status === 'active').length;
 
   const tabs: TabItem<P2PTab>[] = [
-    { id: 'market', label: 'Рынок', icon: <span aria-hidden="true">🏪</span> },
-    { id: 'create', label: 'Создать', icon: <span aria-hidden="true">➕</span> },
+    { id: 'market', label: 'Рынок', icon: <span aria-hidden="true"><GameIcon icon="🏪" /></span> },
+    { id: 'create', label: 'Создать', icon: <span aria-hidden="true"><GameIcon icon="➕" /></span> },
     {
       id: 'my-offers',
       label: 'Мои офферы',
-      icon: <span aria-hidden="true">📋</span>,
+      icon: <span aria-hidden="true"><GameIcon icon="📋" /></span>,
       badge: openOffersCount > 0 ? openOffersCount : undefined,
     },
     {
       id: 'as-lender',
       label: 'Я кредитор',
-      icon: <span aria-hidden="true">💰</span>,
+      icon: <span aria-hidden="true"><GameIcon icon="💰" /></span>,
       badge: activeAsLenderCount > 0 ? activeAsLenderCount : undefined,
     },
     {
       id: 'as-borrower',
       label: 'Я заёмщик',
-      icon: <span aria-hidden="true">📝</span>,
+      icon: <span aria-hidden="true"><GameIcon icon="📝" /></span>,
       badge: activeAsBorrowerCount > 0 ? activeAsBorrowerCount : undefined,
     },
   ];

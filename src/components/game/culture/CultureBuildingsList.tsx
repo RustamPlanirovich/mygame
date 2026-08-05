@@ -3,6 +3,7 @@ import { useCultureStore } from '../../../features/cultureStore';
 import { CULTURE_BUILDINGS, isCultureBuildingAvailable } from '../../../core/constants/cultureBuildings';
 import type { CultureBuilding, CultureBuildingType, CultureBuildingEffect } from '../../../core/gameTypes.culture';
 import { formatNumber } from '../../../core/math/format';
+import { GameIcon, IconText } from '../../ui/icons';
 
 // ==========================================
 // CULTURE BUILDINGS LIST
@@ -103,33 +104,33 @@ const CultureBuildingCard: React.FC<CultureBuildingCardProps> = ({
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{building.emoji}</span>
+        <span className="text-2xl"><GameIcon icon={building.emoji} /></span>
         <div className="flex-1">
           <div className="font-semibold text-white">{building.name}</div>
           <div className="text-xs text-gray-400">Уровень {building.tier}</div>
         </div>
         {!isAvailable && (
           <div className="text-xs text-yellow-500 bg-yellow-500/20 px-2 py-1 rounded">
-            🔒 Ур. {requiredLevel}
+            <GameIcon icon="🔒" /> Ур. {requiredLevel}
           </div>
         )}
       </div>
 
       {/* Description */}
-      <p className="text-xs text-gray-400 mb-2">{building.description}</p>
+      <p className="text-xs text-gray-400 mb-2"><IconText>{building.description}</IconText></p>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-2 text-xs">
         {/* Production */}
         {building.culturePerSecond.gt(0) && (
           <div className="flex items-center gap-1 text-purple-400">
-            <span>🎭</span>
+            <span><GameIcon icon="🎭" /></span>
             <span>+{formatNumber(building.culturePerSecond)}/с</span>
           </div>
         )}
         {building.sciencePerSecond.gt(0) && (
           <div className="flex items-center gap-1 text-blue-400">
-            <span>🔬</span>
+            <span><GameIcon icon="🔬" /></span>
             <span>+{formatNumber(building.sciencePerSecond)}/с</span>
           </div>
         )}
@@ -137,14 +138,14 @@ const CultureBuildingCard: React.FC<CultureBuildingCardProps> = ({
         {/* Happiness */}
         {building.happinessBonus > 0 && (
           <div className="flex items-center gap-1 text-green-400">
-            <span>😊</span>
+            <span><GameIcon icon="😊" /></span>
             <span>+{building.happinessBonus} счастье</span>
           </div>
         )}
 
         {/* Energy */}
         <div className="flex items-center gap-1 text-yellow-400">
-          <span>⚡</span>
+          <span><GameIcon icon="⚡" /></span>
           <span>-{formatNumber(building.energyConsumption)}/с</span>
         </div>
       </div>
@@ -166,7 +167,7 @@ const CultureBuildingCard: React.FC<CultureBuildingCardProps> = ({
         <div className="text-xs text-gray-400 mb-1">Стоимость:</div>
         <div className="flex flex-wrap gap-2 text-xs">
           {building.creditCost.gt(0) && (
-            <span className="text-yellow-400">💰 {formatNumber(building.creditCost)}</span>
+            <span className="text-yellow-400"><GameIcon icon="💰" /> {formatNumber(building.creditCost)}</span>
           )}
           {Object.entries(building.baseCost).map(([resource, amount]) => (
             <span key={resource} className="text-gray-300">

@@ -19,6 +19,7 @@ import {
   computeAegisTurretOverdriveMultiplier,
   computeAegisAutoRepairPerSecond,
 } from '../../core/constants/aegis';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function CombatPanel() {
   const combat = useGameStore((s) => s.combat);
@@ -234,16 +235,16 @@ export function CombatPanel() {
         {baseDamagePenalty > 0 && (
           <div className="mt-1.5 text-[10px] bg-cyber-red/20 border border-cyber-red/40 rounded px-2 py-1">
             <div className="text-cyber-red font-semibold">
-              ⚠️ База повреждена — производство -{baseDamagePenalty}%
+              <GameIcon icon="⚠️" /> База повреждена — производство -{baseDamagePenalty}%
             </div>
             {baseRegen.gt(0) && (
               <div className="text-cyber-text-dim mt-0.5">
-                🔧 Регенерация: +{formatNumber(baseRegen)} HP/с
+                <GameIcon icon="🔧" /> Регенерация: +{formatNumber(baseRegen)} HP/с
               </div>
             )}
             {!baseRegen.gt(0) && combat.enemies.length > 0 && (
               <div className="text-cyber-text-dim mt-0.5">
-                ⏳ Регенерация начнётся после окончания атаки
+                <GameIcon icon="⏳" /> Регенерация начнётся после окончания атаки
               </div>
             )}
           </div>
@@ -260,7 +261,7 @@ export function CombatPanel() {
               onClick={() => emergencyRepairBase()}
               title={`Восстанавливает +${formatNumber(REPAIR_HP)} HP базы. Стоимость: ${formatNumber(REPAIR_COST_ENERGY)}⚡ + ${formatNumber(REPAIR_COST_STEEL)} стали`}
             >
-              🔧 Экстренный ремонт (+{formatNumber(REPAIR_HP)} HP) — {formatNumber(REPAIR_COST_ENERGY)}⚡ + {formatNumber(REPAIR_COST_STEEL)} 🔩
+              <GameIcon icon="🔧" /> Экстренный ремонт (+{formatNumber(REPAIR_HP)} HP) — {formatNumber(REPAIR_COST_ENERGY)}<GameIcon icon="⚡" /> + {formatNumber(REPAIR_COST_STEEL)} <GameIcon icon="🔩" />
             </button>
           </div>
         )}
@@ -269,7 +270,7 @@ export function CombatPanel() {
           {defenseNeed.gt(0) ? (
             <div>
               Оборона: <span className={defenseRatio < 0.5 ? 'text-cyber-red' : defenseRatio < 0.99 ? 'text-cyber-blue' : 'text-cyber-text'}>
-                {formatNumber(defenseUsed)}⚡
+                {formatNumber(defenseUsed)}<GameIcon icon="⚡" />
               </span>
               <span className="text-cyber-gray-light">/{formatNumber(defenseNeed)}</span>
               <span className="text-cyber-gray-light"> ({Math.round(defenseRatio * 100)}%)</span>
@@ -312,8 +313,8 @@ export function CombatPanel() {
               </div>
               {shieldNeed.gt(0) ? (
                 <div>
-                  {formatNumber(shieldUsed)}⚡
-                  <span className="text-cyber-gray-light">/{formatNumber(shieldNeed)}⚡</span>
+                  {formatNumber(shieldUsed)}<GameIcon icon="⚡" />
+                  <span className="text-cyber-gray-light">/{formatNumber(shieldNeed)}<GameIcon icon="⚡" /></span>
                 </div>
               ) : (
                 <div className="text-cyber-gray-light">—</div>
@@ -334,14 +335,14 @@ export function CombatPanel() {
 
         <div className="mt-3 border-t border-cyber-gray/40 pt-2">
           <div className="flex items-center justify-between text-[10px] text-cyber-text-dim mb-1.5">
-            <div className="text-cyber-text-dim">🦠 Нано-Рой</div>
+            <div className="text-cyber-text-dim"><GameIcon icon="🦠" /> Нано-Рой</div>
             <div className="text-cyber-gray-light">Пул: {nanoUi.total}</div>
           </div>
 
           <div className="mt-1.5 grid gap-1.5">
             <div>
               <div className="flex items-center justify-between text-[10px] text-cyber-text-dim">
-                <div>🔴 Атака</div>
+                <div><GameIcon icon="🔴" /> Атака</div>
                 <div className="text-cyber-gray-light">{nanoUi.attackPct}%</div>
               </div>
               <input
@@ -357,7 +358,7 @@ export function CombatPanel() {
 
             <div>
               <div className="flex items-center justify-between text-[10px] text-cyber-text-dim">
-                <div>🟢 Ремонт</div>
+                <div><GameIcon icon="🟢" /> Ремонт</div>
                 <div className="text-cyber-gray-light">{nanoUi.repairPct}%</div>
               </div>
               <input
@@ -373,7 +374,7 @@ export function CombatPanel() {
 
             <div>
               <div className="flex items-center justify-between text-[10px] text-cyber-text-dim">
-                <div>🔵 Буст</div>
+                <div><GameIcon icon="🔵" /> Буст</div>
                 <div className="text-cyber-gray-light">{nanoUi.boostPct}%</div>
               </div>
               <input
@@ -403,11 +404,11 @@ export function CombatPanel() {
 
         <div className="mt-3 border-t border-cyber-gray/40 pt-2">
           <div className="flex items-center justify-between text-[10px] text-cyber-text-dim mb-1.5">
-            <div className="text-cyber-text-dim">🛡️ Эгида</div>
+            <div className="text-cyber-text-dim"><GameIcon icon="🛡️" /> Эгида</div>
             <div className="text-cyber-gray-light">
               Интерф.: {aegisUi.waveActive ? (
                 <>
-                  -{aegisUi.rawPct}% → -{aegisUi.effectivePct}%
+                  -{aegisUi.rawPct}% <GameIcon icon="→" /> -{aegisUi.effectivePct}%
                 </>
               ) : (
                 '—'
@@ -430,7 +431,7 @@ export function CombatPanel() {
                   disabled={aegisUi.smart.atMax || !aegisUi.smart.canBuy}
                   onClick={() => buyAegisUpgrade('smart_targeting')}
                 >
-                  {aegisUi.smart.atMax ? 'МАКС' : '↑'}
+                  <IconText>{aegisUi.smart.atMax ? 'МАКС' : '↑'}</IconText>
                 </button>
               </div>
             </div>
@@ -448,7 +449,7 @@ export function CombatPanel() {
                   disabled={aegisUi.encryption.atMax || !aegisUi.encryption.canBuy}
                   onClick={() => buyAegisUpgrade('encryption')}
                 >
-                  {aegisUi.encryption.atMax ? 'МАКС' : '↑'}
+                  <IconText>{aegisUi.encryption.atMax ? 'МАКС' : '↑'}</IconText>
                 </button>
               </div>
             </div>
@@ -469,7 +470,7 @@ export function CombatPanel() {
                   disabled={aegisUi.shieldBoost.atMax || !aegisUi.shieldBoost.canBuy}
                   onClick={() => buyAegisUpgrade('shield_boost')}
                 >
-                  {aegisUi.shieldBoost.atMax ? 'МАКС' : '↑'}
+                  <IconText>{aegisUi.shieldBoost.atMax ? 'МАКС' : '↑'}</IconText>
                 </button>
               </div>
             </div>
@@ -490,7 +491,7 @@ export function CombatPanel() {
                   disabled={aegisUi.turretOverdrive.atMax || !aegisUi.turretOverdrive.canBuy}
                   onClick={() => buyAegisUpgrade('turret_overdrive')}
                 >
-                  {aegisUi.turretOverdrive.atMax ? 'МАКС' : '↑'}
+                  <IconText>{aegisUi.turretOverdrive.atMax ? 'МАКС' : '↑'}</IconText>
                 </button>
               </div>
             </div>
@@ -511,7 +512,7 @@ export function CombatPanel() {
                   disabled={aegisUi.autoRepair.atMax || !aegisUi.autoRepair.canBuy}
                   onClick={() => buyAegisUpgrade('auto_repair')}
                 >
-                  {aegisUi.autoRepair.atMax ? 'МАКС' : '↑'}
+                  <IconText>{aegisUi.autoRepair.atMax ? 'МАКС' : '↑'}</IconText>
                 </button>
               </div>
             </div>
@@ -541,7 +542,7 @@ export function CombatPanel() {
                     <div className="text-cyber-text-dim">
                       {label} {roleHint}
                     </div>
-                    <div className="text-cyber-text-dim">🎯 {distPct}%</div>
+                    <div className="text-cyber-text-dim"><GameIcon icon="🎯" /> {distPct}%</div>
                   </div>
                   <div className="mt-0.5 h-1.5 bg-cyber-gray/40 rounded overflow-hidden">
                     <div
@@ -563,7 +564,7 @@ export function CombatPanel() {
         )}
 
         <div className="text-[10px] text-cyber-text-dim mt-2">
-          💡 При нехватке ⚡ эффективность турелей падает.
+          <GameIcon icon="💡" /> При нехватке <GameIcon icon="⚡" /> эффективность турелей падает.
         </div>
       </div>
     </div>

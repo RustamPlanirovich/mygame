@@ -10,6 +10,7 @@ import { useAdminActions, useAdminStore } from '../../features/adminStore';
 import type { PlayerSortField, PlayerStatusFilter } from '../../utils/adminApi';
 import { formatAmount, formatDuration, formatInt } from '../../utils/adminFormat';
 import { BanBadge, Num, OnlineDot, Pagination, RoleBadge, When } from './parts';
+import { IconText } from '../ui/icons';
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: PlayerStatusFilter; label: string }> = [
   { value: 'all', label: 'Все' },
@@ -97,7 +98,7 @@ export function AdminPlayers({ viewerId = null }: { viewerId?: number | null }) 
           >
             {STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                <IconText>{option.label}</IconText>
               </option>
             ))}
           </select>
@@ -167,7 +168,7 @@ export function AdminPlayers({ viewerId = null }: { viewerId?: number | null }) 
                         }`}
                         title={`Сортировать по «${column.label}»`}
                       >
-                        {column.label}
+                        <IconText>{column.label}</IconText>
                         {active &&
                           (query.order === 'asc' ? (
                             <ArrowUp size={10} aria-hidden="true" />

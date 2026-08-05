@@ -4,6 +4,7 @@ import type { ResourceType } from '../../core/gameTypes';
 import { MAP_DEFINITIONS } from '../../core/constants/maps';
 import type { MapId } from '../../core/gameTypes.maps';
 import { Modal } from '../ui';
+import { GameIcon } from '../ui/icons';
 
 // Список всех ресурсов по категориям
 const resourceCategories = {
@@ -238,7 +239,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
       <div className="p-6">
         {/* Быстрые действия */}
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-cyan-300 mb-2">⚡ Быстрые действия</h3>
+          <h3 className="text-lg font-semibold text-cyan-300 mb-2"><GameIcon icon="⚡" /> Быстрые действия</h3>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
@@ -272,14 +273,14 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded transition-colors"
               title="Отключает все здания с production, кроме источников энергии (production.energy) и конденсаторов (productionMultipliers.energy)"
             >
-              🧪 Отключить производство
+              <GameIcon icon="🧪" /> Отключить производство
             </button>
             <button
               onClick={() => toggleAllProductionBuildingsExceptPower(false)}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
               title="Включает обратно отключенные чит-кнопкой производственные здания"
             >
-              🧪 Включить производство
+              <GameIcon icon="🧪" /> Включить производство
             </button>
 
             <button
@@ -295,7 +296,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               className={`px-4 py-2 ${traceFlows ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-gray-800 hover:bg-gray-700'} text-white rounded transition-colors`}
               title="Собирает диагностику: расход энергии по категориям + агрегаты логистических переносов (base→тайлы и т.п.)"
             >
-              🧭 Трассировка потоков: {traceFlows ? 'ON' : 'OFF'}
+              <GameIcon icon="🧭" /> Трассировка потоков: {traceFlows ? 'ON' : 'OFF'}
             </button>
 
             <button
@@ -322,7 +323,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded transition-colors"
               title="Печатает диагностику последнего тика в консоль"
             >
-              🧭 Показать последний тик
+              <GameIcon icon="🧭" /> Показать последний тик
             </button>
           </div>
           <div className="mt-2 text-xs text-gray-400">
@@ -332,7 +333,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
 
         {/* Валюты */}
         <div className="mb-6 border border-cyan-700 rounded-lg p-4 bg-gray-800/50">
-          <h3 className="text-lg font-semibold text-cyan-300 mb-3">💰 Валюты</h3>
+          <h3 className="text-lg font-semibold text-cyan-300 mb-3"><GameIcon icon="💰" /> Валюты</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
             <button
               onClick={() => {
@@ -341,7 +342,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               }}
               className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded transition-colors"
             >
-              💵 Кредиты
+              <GameIcon icon="💵" /> Кредиты
             </button>
             <button
               onClick={() => {
@@ -350,7 +351,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               }}
               className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded transition-colors"
             >
-              🔬 Исследования
+              <GameIcon icon="🔬" /> Исследования
             </button>
             <button
               onClick={() => {
@@ -359,7 +360,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               }}
               className="px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded transition-colors"
             >
-              ⭐ Влияние
+              <GameIcon icon="⭐" /> Влияние
             </button>
           </div>
           <input
@@ -388,7 +389,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
 
         {/* Карты */}
         <div className="mb-6 border border-cyan-700 rounded-lg p-4 bg-gray-800/50">
-          <h3 className="text-lg font-semibold text-cyan-300 mb-3">🗺️ Карты (Фаза 4)</h3>
+          <h3 className="text-lg font-semibold text-cyan-300 mb-3"><GameIcon icon="🗺️" /> Карты (Фаза 4)</h3>
           <div className="mb-3 text-sm text-gray-400">
             Текущая карта: <span className="text-cyan-400">{maps?.currentMapId ?? 'не выбрана'}</span>
           </div>
@@ -397,7 +398,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
               onClick={unlockAllMaps}
               className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm transition-colors"
             >
-              🔓 Разблокировать все карты
+              <GameIcon icon="🔓" /> Разблокировать все карты
             </button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -418,7 +419,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
                   title={`${map.name}\n${map.description}\nРазмер: ${map.gridDimensions.width}×${map.gridDimensions.height}\nСетка: ${map.gridType}\nСложность: ${map.difficulty}`}
                 >
                   <div className="flex items-center gap-1">
-                    <span className="text-lg">{map.emoji}</span>
+                    <span className="text-lg"><GameIcon icon={map.emoji} /></span>
                     <div className="min-w-0">
                       <div className="font-medium truncate">{map.name}</div>
                       <div className="text-[10px] text-gray-400">
@@ -426,7 +427,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
                       </div>
                     </div>
                   </div>
-                  {!isUnlocked && <span className="text-[10px] text-yellow-500">🔒</span>}
+                  {!isUnlocked && <span className="text-[10px] text-yellow-500"><GameIcon icon="🔒" /></span>}
                 </button>
               );
             })}
@@ -435,7 +436,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
 
         {/* Выбор ресурса */}
         <div className="mb-4">
-          <h3 className="text-lg font-semibold text-cyan-300 mb-2">📦 Выбор ресурса</h3>
+          <h3 className="text-lg font-semibold text-cyan-300 mb-2"><GameIcon icon="📦" /> Выбор ресурса</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Object.entries(resourceCategories).map(([category, resources]) => (
               <div key={category} className="border border-gray-700 rounded p-3">
@@ -462,7 +463,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
 
         {/* Выбор количества */}
         <div className="mb-4">
-          <h3 className="text-lg font-semibold text-cyan-300 mb-2">🔢 Количество</h3>
+          <h3 className="text-lg font-semibold text-cyan-300 mb-2"><GameIcon icon="🔢" /> Количество</h3>
           <div className="flex flex-wrap gap-2 mb-3">
             {presetAmounts.map((preset) => (
               <button
@@ -493,7 +494,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
             onClick={handleGiveResource}
             className="flex-1 px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded transition-colors"
           >
-            ✅ Выдать {resourceNames[selectedResource]} ({amount})
+            <GameIcon icon="✅" /> Выдать {resourceNames[selectedResource]} ({amount})
           </button>
           <button
             onClick={onClose}
@@ -505,7 +506,7 @@ export const CheatPanel: React.FC<CheatPanelProps> = ({ onClose }) => {
 
         {/* Подсказка */}
         <div className="mt-4 text-xs text-gray-500 border-t border-gray-800 pt-3">
-          💡 Совет: Используйте горячую клавишу <kbd className="px-2 py-1 bg-gray-800 rounded">Ctrl+K</kbd> для быстрого открытия панели
+          <GameIcon icon="💡" /> Совет: Используйте горячую клавишу <kbd className="px-2 py-1 bg-gray-800 rounded">Ctrl+K</kbd> для быстрого открытия панели
         </div>
       </div>
     </Modal>

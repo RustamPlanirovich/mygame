@@ -4,6 +4,7 @@
 
 import type { FC } from 'react';
 import { THEME_COLORS } from '../../core/constants/themeColors';
+import { GameIcon, IconText } from '../ui/icons';
 
 // Конвертер hex числа в CSS строку
 const hexToCSS = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
@@ -84,7 +85,7 @@ export const ProximityWarningModal: FC<ProximityWarningModalProps> = ({
               fontWeight: 'bold',
             }}
           >
-            {quality === 'optimal' && '✨ Оптимальное размещение!'}
+            <IconText>{quality === 'optimal' && '✨ Оптимальное размещение!'}</IconText>
             {quality === 'good' && '✓ Хорошее размещение'}
             {quality === 'neutral' && 'ℹ️ Обычное размещение'}
             {quality === 'warning' && '⚠️ Неоптимальное размещение'}
@@ -146,7 +147,7 @@ export const ProximityWarningModal: FC<ProximityWarningModalProps> = ({
                   borderRadius: '4px',
                 }}
               >
-                <span style={{ fontSize: '18px', flexShrink: 0 }}>{warning.icon}</span>
+                <span style={{ fontSize: '18px', flexShrink: 0 }}><GameIcon icon={warning.icon} /></span>
                 <span
                   style={{
                     color: hexToCSS(THEME_COLORS.cyberText),
@@ -154,7 +155,7 @@ export const ProximityWarningModal: FC<ProximityWarningModalProps> = ({
                     lineHeight: '1.5',
                   }}
                 >
-                  {warning.message}
+                  <IconText>{warning.message}</IconText>
                 </span>
               </div>
             ))}

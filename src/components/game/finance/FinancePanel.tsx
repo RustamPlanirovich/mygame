@@ -17,6 +17,7 @@ import { P2PLending } from './P2PLending';
 import { formatNumber } from '../../../core/math/format';
 import { Stat, Tabs, type TabItem } from '../../ui';
 import Decimal from 'break_eternity.js';
+import { GameIcon } from '../../ui/icons';
 
 type FinanceTab = 'overview' | 'bank' | 'stocks' | 'funds' | 'loans' | 'advisor' | 'p2p';
 
@@ -95,18 +96,18 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
   const loansBadge = activeLoans + activeP2PLoans.length;
 
   const tabs: TabItem<FinanceTab>[] = [
-    { id: 'overview', label: 'Обзор', icon: <span aria-hidden="true">📊</span> },
-    { id: 'bank', label: 'Банк', icon: <span aria-hidden="true">🏦</span> },
-    { id: 'stocks', label: 'Акции', icon: <span aria-hidden="true">📈</span> },
-    { id: 'funds', label: 'Фонды', icon: <span aria-hidden="true">💼</span> },
+    { id: 'overview', label: 'Обзор', icon: <span aria-hidden="true"><GameIcon icon="📊" /></span> },
+    { id: 'bank', label: 'Банк', icon: <span aria-hidden="true"><GameIcon icon="🏦" /></span> },
+    { id: 'stocks', label: 'Акции', icon: <span aria-hidden="true"><GameIcon icon="📈" /></span> },
+    { id: 'funds', label: 'Фонды', icon: <span aria-hidden="true"><GameIcon icon="💼" /></span> },
     {
       id: 'loans',
       label: 'Кредиты',
-      icon: <span aria-hidden="true">💳</span>,
+      icon: <span aria-hidden="true"><GameIcon icon="💳" /></span>,
       badge: loansBadge > 0 ? loansBadge : undefined,
     },
-    { id: 'advisor', label: 'AI', icon: <span aria-hidden="true">🤖</span> },
-    { id: 'p2p', label: 'P2P', icon: <span aria-hidden="true">💱</span> },
+    { id: 'advisor', label: 'AI', icon: <span aria-hidden="true"><GameIcon icon="🤖" /></span> },
+    { id: 'p2p', label: 'P2P', icon: <span aria-hidden="true"><GameIcon icon="💱" /></span> },
   ];
 
   return (
@@ -115,7 +116,7 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
       <div className="p-4 border-b border-slate-700 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xl font-bold flex items-center gap-2">
-            💰 Финансы
+            <GameIcon icon="💰" /> Финансы
           </h2>
           <CreditScore score={creditScore} compact />
         </div>
@@ -169,7 +170,7 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
               {/* Краткая информация о портфеле */}
               <div className="card">
                 <h3 className="font-bold mb-3 flex items-center gap-2">
-                  📊 Портфель
+                  <GameIcon icon="📊" /> Портфель
                 </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
@@ -193,7 +194,7 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
               {/* Краткая информация о кредитах */}
               <div className="card">
                 <h3 className="font-bold mb-3 flex items-center gap-2">
-                  💳 Кредиты
+                  <GameIcon icon="💳" /> Кредиты
                 </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">

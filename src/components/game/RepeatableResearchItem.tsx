@@ -6,6 +6,7 @@ import {
   formatEffectValue,
 } from '../../utils/repeatableResearchHelpers';
 import { formatBigNumber } from '../../utils/bigNumber';
+import { GameIcon, IconText } from '../ui/icons';
 
 interface RepeatableResearchItemProps {
   research: RepeatableResearch;
@@ -46,7 +47,7 @@ export const RepeatableResearchItem: React.FC<RepeatableResearchItemProps> = ({
       {/* Заголовок */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-3xl">{research.icon}</span>
+          <span className="text-3xl"><GameIcon icon={research.icon} /></span>
           <div>
             <h4 className="text-white font-semibold text-lg">{research.name}</h4>
             <span className="text-gray-400 text-sm">
@@ -65,7 +66,7 @@ export const RepeatableResearchItem: React.FC<RepeatableResearchItemProps> = ({
       </div>
       
       {/* Описание */}
-      <p className="text-gray-300 text-sm">{research.description}</p>
+      <p className="text-gray-300 text-sm"><IconText>{research.description}</IconText></p>
       
       {/* Эффекты */}
       <div className="space-y-2">
@@ -132,7 +133,7 @@ export const RepeatableResearchItem: React.FC<RepeatableResearchItemProps> = ({
         disabled={!canAfford || isMaxLevel}
         onClick={onResearch}
       >
-        {isMaxLevel ? '✅ Макс. уровень' : canAfford ? 'Исследовать' : '❌ Недостаточно ресурсов'}
+        <IconText>{isMaxLevel ? '✅ Макс. уровень' : canAfford ? 'Исследовать' : '❌ Недостаточно ресурсов'}</IconText>
       </button>
       
       {/* Статистика */}

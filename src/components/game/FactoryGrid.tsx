@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
 import { THEME_COLORS } from '../../core/constants/themeColors';
 import { useGameStore, getBasePos } from '../../features/gameStore';
-import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
+import {
+  BUILDING_EMOJI,
+  DEPOSIT_EMOJI,
+  getBuildingEmoji,
+  getDepositEmoji,
+} from '../../core/constants/buildingEmoji';
 import type { Building } from '../../core/gameTypes';
 import { getMapDefinition } from '../../core/constants/maps';
 import type { GridType } from '../../core/gameTypes.maps';
@@ -14,6 +19,8 @@ import { getPowerSources } from '../../utils/powerGridHelpers';
 import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
+import { GameIcon } from '../ui/icons';
+import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
 
 // Hexagonal grid constants (flat-top hexagons)
 const HEX_SIZE = 28; // Radius of hexagon
@@ -211,6 +218,23 @@ export function FactoryGrid() {
   
   // ПУЛ ТЕКСТОВЫХ ОБЪЕКТОВ - храним между кадрами
   const textPoolRef = useRef<PIXI.Text[]>([]);
+  // Иконки на канвасе — спрайты из общего набора, тоже пулятся между кадрами
+  const iconPoolRef = useRef<PIXI.Sprite[]>([]);
+
+  // Растеризуем весь набор иконок сетки заранее, иначе они проявлялись бы
+  // по одной по мере первого появления клетки в кадре.
+  useEffect(() => {
+    void preloadIconTextures([
+      ...Object.values(BUILDING_EMOJI),
+      ...Object.values(DEPOSIT_EMOJI),
+      '⚡',
+      '⚠',
+      '⭐',
+      '⏸️',
+      '📦',
+      '🏠',
+    ]);
+  }, []);
 
   const camRef = useRef({
     zoom: 1,
@@ -901,6 +925,38 @@ export function FactoryGrid() {
       return t;
     };
 
+    // ПУЛ ИКОНОК: спрайты из набора GameIcon, растеризованные один раз.
+    const iconPool = iconPoolRef.current;
+    let iconPoolIndex = 0;
+
+    /**
+     * Возвращает спрайт с иконкой по её ключу (эмодзи из данных здания).
+     * null, если текстура ещё не растеризована — кадром позже она появится.
+     */
+    const getIconFromPool = (icon: string, size: number): PIXI.Sprite | null => {
+      const texture = getIconTexture(icon);
+      if (!texture) return null;
+      let sp: PIXI.Sprite;
+      if (iconPoolIndex < iconPool.length) {
+        sp = iconPool[iconPoolIndex];
+        sp.texture = texture;
+        sp.visible = true;
+        if (textLayer && sp.parent !== textLayer) textLayer.addChild(sp);
+      } else {
+        sp = new PIXI.Sprite(texture);
+        iconPool.push(sp);
+        if (textLayer) textLayer.addChild(sp);
+      }
+      sp.anchor.set(0.5, 0.5);
+      sp.width = size;
+      sp.height = size;
+      sp.alpha = 1;
+      sp.tint = 0xffffff;
+      sp.rotation = 0;
+      iconPoolIndex++;
+      return sp;
+    };
+
     // Cells - рисуем только видимые
     const basePos = getBasePos(grid);
 
@@ -1007,11 +1063,12 @@ export function FactoryGrid() {
                       if (isSource && showDetailedText && textLayer) {
                           const centerX = isHex ? px : px + cellHalf;
                           const centerY = isHex ? py : py + cellHalf;
-                          const powerIcon = getTextFromPool('⚡', TEXT_STYLES.base);
-                          powerIcon.anchor.set(0.5, 0.5);
-                          powerIcon.x = centerX;
-                          powerIcon.y = centerY - CELL / 4;
-                          powerIcon.alpha = 0.7;
+                          const powerIcon = getIconFromPool('⚡', 18);
+                          if (powerIcon) {
+                            powerIcon.x = centerX;
+                            powerIcon.y = centerY - CELL / 4;
+                            powerIcon.alpha = 0.75;
+                          }
                       }
                       
                       // Warning Frame (Red) - Unpowered
@@ -1024,11 +1081,11 @@ export function FactoryGrid() {
                            
                            // Warning Icon
                            if (showDetailedText && textLayer) {
-                               const warningIcon = getTextFromPool('⚠', TEXT_STYLES.warning);
-                               warningIcon.anchor.set(0, 0);
-                               warningIcon.x = px + 4;
-                               warningIcon.y = py + 4;
-                               warningIcon.style.fill = 0xef4444;
+                               const warningIcon = getIconFromPool('⚠', 14);
+                               if (warningIcon) {
+                                 warningIcon.x = px + 11;
+                                 warningIcon.y = py + 11;
+                               }
                             }
                       }
                   }
@@ -1038,12 +1095,13 @@ export function FactoryGrid() {
 
         if (textLayer && showText) {
           if (isBase) {
-            const t = getTextFromPool('🏠', TEXT_STYLES.base);
-            t.anchor.set(0.5, 0.5);
             const centerX = isHex ? px : px + cellHalf;
             const centerY = isHex ? py : py + cellHalf;
-            t.x = centerX;
-            t.y = centerY;
+            const t = getIconFromPool('🏠', isHex ? HEX_SIZE : CELL * 0.62);
+            if (t) {
+              t.x = centerX;
+              t.y = centerY;
+            }
           } else if (hasBuilding) {
             const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
             // Optimization: Only compute if needed
@@ -1056,12 +1114,18 @@ export function FactoryGrid() {
             const isDisabled = grid.tileDisabled?.[k] || false;
             
 
-            const t = getTextFromPool(emoji, isDisabled ? TEXT_STYLES.buildingBlocked : TEXT_STYLES.building);
-            t.anchor.set(0.5, 0.5);
             const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
             const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
-            t.x = centerX;
-            t.y = centerY - (isDisabled ? 6 : 0);
+            const t = getIconFromPool(emoji, currentGridMode === 'hex' ? HEX_SIZE : CELL * 0.6);
+            if (t) {
+              t.x = centerX;
+              t.y = centerY - (isDisabled ? 6 : 0);
+              // Отключённое здание гасим и красим в красный, как раньше делал стиль текста.
+              if (isDisabled) {
+                t.tint = 0xef4444;
+                t.alpha = 0.7;
+              }
+            }
             
             // КРУГОВОЙ ИНДИКАТОР ЗАГРУЗКИ для работающих зданий
             // Здание работает если не отключено вручную
@@ -1099,30 +1163,33 @@ export function FactoryGrid() {
             
             // Добавляем звездочку для эволюционированных зданий
             if (evolutionLevel > 0 && showDetailedText) {
-              const star = getTextFromPool('⭐', TEXT_STYLES.warning);
-              star.anchor.set(0.5, 0.5);
-              star.x = centerX + (currentGridMode === 'hex' ? 12 : 18);
-              star.y = centerY - 8;
+              const star = getIconFromPool('⭐', 13);
+              if (star) {
+                star.x = centerX + (currentGridMode === 'hex' ? 12 : 18);
+                star.y = centerY - 8;
+              }
             }
 
             // Иконка паузы когда здание отключено
             if (isDisabled && showDetailedText) {
-              const pauseIcon = getTextFromPool('⏸️', TEXT_STYLES.warning);
-              pauseIcon.anchor.set(0.5, 0.5);
-              pauseIcon.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
-              pauseIcon.y = centerY - 6;
+              const pauseIcon = getIconFromPool('⏸️', 13);
+              if (pauseIcon) {
+                pauseIcon.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
+                pauseIcon.y = centerY - 6;
+              }
             }
           } else {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
             const dep = grid.deposits?.[k];
             if (dep && showDetailedText) {
-              const t = getTextFromPool(getDepositEmoji(dep), TEXT_STYLES.deposit);
-              t.alpha = 0.4;
-              t.anchor.set(0.5, 0.5);
               const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
               const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
-              t.x = centerX;
-              t.y = centerY;
+              const t = getIconFromPool(getDepositEmoji(dep), currentGridMode === 'hex' ? HEX_SIZE * 0.8 : CELL * 0.5);
+              if (t) {
+                t.alpha = 0.5;
+                t.x = centerX;
+                t.y = centerY;
+              }
             }
           }
         }
@@ -1134,6 +1201,13 @@ export function FactoryGrid() {
     for (let i = textPoolIndex; i < textPool.length; i++) {
       if (textPool[i].visible) {
         textPool[i].visible = false;
+      }
+    }
+
+    // То же для пула иконок.
+    for (let i = iconPoolIndex; i < iconPool.length; i++) {
+      if (iconPool[i].visible) {
+        iconPool[i].visible = false;
       }
     }
 
@@ -1191,11 +1265,12 @@ export function FactoryGrid() {
         const centerY = centerPixel.py + CELL / 2;
 
         if (showDetailedText && textLayer) {
-          const logisticsIcon = getTextFromPool('📦', TEXT_STYLES.base);
-          logisticsIcon.anchor.set(0.5, 0.5);
-          logisticsIcon.x = centerX;
-          logisticsIcon.y = centerY - CELL / 4;
-          logisticsIcon.alpha = 0.7;
+          const logisticsIcon = getIconFromPool('📦', 18);
+          if (logisticsIcon) {
+            logisticsIcon.x = centerX;
+            logisticsIcon.y = centerY - CELL / 4;
+            logisticsIcon.alpha = 0.75;
+          }
         }
       }
       
@@ -1374,7 +1449,7 @@ export function FactoryGrid() {
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
           <div className="bg-gradient-to-r from-cyan-900/90 to-blue-900/90 border-2 border-cyan-500 rounded-lg px-4 py-2 shadow-lg shadow-cyan-500/30">
             <div className="flex items-center gap-3">
-              <span className="text-2xl">🛰️</span>
+              <span className="text-2xl"><GameIcon icon="🛰️" /></span>
               <div>
                 <div className="text-sm font-bold text-white">{activePlatform.name}</div>
                 <div className="text-xs text-cyan-300">Управление платформой</div>
@@ -1383,7 +1458,7 @@ export function FactoryGrid() {
                 onClick={() => useGameStore.getState().setActivePlatform(null)}
                 className="ml-2 bg-cyan-600 hover:bg-cyan-700 text-white text-xs px-3 py-1 rounded transition-all"
               >
-                ← На базу
+                <GameIcon icon="←" /> На базу
               </button>
             </div>
           </div>

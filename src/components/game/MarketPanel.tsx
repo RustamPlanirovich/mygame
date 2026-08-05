@@ -7,6 +7,7 @@ import { ArrowLeftRight, TrendingUp, Gift, Globe } from 'lucide-react';
 import { ContractsPanel } from './ContractsPanel';
 import { TradingPanel } from './TradingPanel';
 import { GlobalMarketPanel } from './market/GlobalMarketPanel';
+import { GameIcon } from '../ui/icons';
 
 const TRADEABLE: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
 
@@ -220,7 +221,7 @@ function SpotTradingContent({
       <div className="space-y-3">
         {/* Выбор ресурса */}
         <div className="cyber-panel">
-          <div className="text-xs text-cyber-text-dim mb-2">📦 Ресурсы</div>
+          <div className="text-xs text-cyber-text-dim mb-2"><GameIcon icon="📦" /> Ресурсы</div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {TRADEABLE.map((r) => {
               const isActive = r === selected;
@@ -250,7 +251,7 @@ function SpotTradingContent({
         <div className="flex items-baseline justify-between">
           <div className="text-lg text-cyber-blue font-bold">{TRADE_LABEL[selected as TradeResourceType]}</div>
           <div className="text-xs text-cyber-text-dim">
-            💰 {formatNumber(credits)} кредитов
+            <GameIcon icon="💰" /> {formatNumber(credits)} кредитов
           </div>
         </div>
 
@@ -295,7 +296,7 @@ function SpotTradingContent({
 
         {/* Секция Покупки */}
         <div className="cyber-panel bg-cyber-dark/20">
-          <div className="text-sm text-cyber-blue font-semibold mb-2">💰 Купить</div>
+          <div className="text-sm text-cyber-blue font-semibold mb-2"><GameIcon icon="💰" /> Купить</div>
           <div className="grid grid-cols-2 gap-2 text-xs mb-3">
             <div className="text-cyber-text-dim">
               Цена: <span className="text-cyber-text">{formatNumber(buyUnit)} ₡</span>
@@ -326,7 +327,7 @@ function SpotTradingContent({
 
         {/* Секция Продажи */}
         <div className="cyber-panel bg-cyber-dark/20">
-          <div className="text-sm text-cyber-green font-semibold mb-2">💵 Продать</div>
+          <div className="text-sm text-cyber-green font-semibold mb-2"><GameIcon icon="💵" /> Продать</div>
           <div className="grid grid-cols-2 gap-2 text-xs mb-3">
             <div className="text-cyber-text-dim">
               Цена: <span className="text-cyber-text">{formatNumber(sellUnit)} ₡</span>
@@ -357,7 +358,7 @@ function SpotTradingContent({
 
         {/* График цен */}
         <div className="cyber-panel">
-          <div className="text-xs text-cyber-text-dim mb-2">📊 История цен</div>
+          <div className="text-xs text-cyber-text-dim mb-2"><GameIcon icon="📊" /> История цен</div>
           <PriceChart points={points} />
           {chartStats ? (
             <div className="text-xs text-cyber-gray-light mt-1">

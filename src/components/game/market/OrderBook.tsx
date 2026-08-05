@@ -7,6 +7,7 @@ import { useMarketStore } from '../../../features/marketStore';
 import { formatPrice, formatVolume } from '../../../utils/marketApi';
 import { TRADEABLE_RESOURCES, RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
+import { GameIcon } from '../../ui/icons';
 
 export function OrderBook() {
   // Узкие селекторы: книга перерисовывается только на своих данных.
@@ -46,7 +47,7 @@ export function OrderBook() {
     <div className="bg-gray-800 rounded-lg p-3">
       {/* Заголовок с выбором ресурса */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-sm font-bold">📖</span>
+        <span className="text-sm font-bold"><GameIcon icon="📖" /></span>
         <select
           value={selectedResource || ''}
           onChange={(e) => setSelectedResource(e.target.value as TradeResourceType || null)}
@@ -82,7 +83,7 @@ export function OrderBook() {
           {/* Bids (покупка) */}
           <div>
             <div className="text-xs font-bold text-green-400 mb-1 flex items-center gap-1">
-              <span>🛒</span>
+              <span><GameIcon icon="🛒" /></span>
               <span>Покупка</span>
             </div>
             <div className="space-y-0.5 max-h-32 overflow-y-auto">
@@ -113,7 +114,7 @@ export function OrderBook() {
           {/* Asks (продажа) */}
           <div>
             <div className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1">
-              <span>💰</span>
+              <span><GameIcon icon="💰" /></span>
               <span>Продажа</span>
             </div>
             <div className="space-y-0.5 max-h-32 overflow-y-auto">

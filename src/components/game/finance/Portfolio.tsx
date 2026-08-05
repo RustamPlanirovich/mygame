@@ -9,6 +9,7 @@ import { formatNumber, D } from '../../../core/math/format';
 import { getFundTypeName, getRiskLevelDescription, getRiskLevelColor } from '../../../core/gameTypes.finance';
 import { FUND_DEFINITIONS } from '../../../core/constants/funds';
 import { EmptyState, Panel, Stat, Tabs, type TabItem } from '../../ui';
+import { GameIcon, IconText } from '../../ui/icons';
 
 type PortfolioTab = 'stocks' | 'funds';
 
@@ -189,7 +190,7 @@ function PortfolioImpl() {
                 <div key={position.stockId} className="card">
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-2">
-                      <span className="text-xl">{stock.emoji}</span>
+                      <span className="text-xl"><GameIcon icon={stock.emoji} /></span>
                       <div>
                         <div className="font-mono font-bold text-sm">{stock.symbol}</div>
                         <div className="text-xs text-slate-400">{stock.name}</div>
@@ -236,7 +237,7 @@ function PortfolioImpl() {
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <div className="font-bold text-sm flex items-center gap-1">
-                      {fundDef.emoji} {fundDef.name}
+                      <GameIcon icon={fundDef.emoji} /> {fundDef.name}
                     </div>
                     <div className="text-2xs text-slate-400">
                       {getFundTypeName(fundDef.type)} •
@@ -256,7 +257,7 @@ function PortfolioImpl() {
                 </div>
 
                 <div className="text-xs text-slate-300 mb-2 line-clamp-2">
-                  {fundDef.description}
+                  <IconText>{fundDef.description}</IconText>
                 </div>
 
                 {/* Ваша инвестиция */}

@@ -5,6 +5,7 @@ import { D } from '../../core/math/format';
 import type { Ship, ShipType } from '../../core/gameTypes';
 import { Anchor, Award, Heart, Shield, Sword, Settings, Trash2, Wrench } from 'lucide-react';
 import { notify } from '../../utils/notifications';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function FleetPanel() {
   const ships = useGameStore((s) => s.fleet.ships);
@@ -74,7 +75,7 @@ export function FleetPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-white">🚀 Флот</h2>
+          <h2 className="text-lg font-bold text-white"><GameIcon icon="🚀" /> Флот</h2>
           <p className="text-[10px] text-gray-400">Управление кораблями</p>
         </div>
         <div className="text-right">
@@ -142,17 +143,17 @@ export function FleetPanel() {
                   }
                 `}
               >
-                <span className="text-xl flex-shrink-0">{def.icon}</span>
+                <span className="text-xl flex-shrink-0"><GameIcon icon={def.icon} /></span>
                 <div className="flex-1 text-left min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
                     <span className="text-sm font-semibold text-white truncate">{def.name}</span>
                     <span className="text-[10px] text-gray-400 flex-shrink-0">×{count}</span>
                   </div>
-                  <div className="text-[10px] text-gray-400 truncate">{def.description}</div>
+                  <div className="text-[10px] text-gray-400 truncate"><IconText>{def.description}</IconText></div>
                   <div className="flex gap-2 mt-1 text-[10px] text-gray-300 flex-wrap">
                     {Object.entries(def.buildCost).map(([res, cost]) => (
                       <span key={res} className="whitespace-nowrap">
-                        {res === 'credits' ? '💰' : res}: {formatNumber(cost)}
+                        <IconText>{res === 'credits' ? '💰' : res}</IconText>: {formatNumber(cost)}
                       </span>
                     ))}
                   </div>
@@ -166,7 +167,7 @@ export function FleetPanel() {
       {/* Ships List */}
       {ships.length === 0 ? (
         <div className="bg-gray-800/30 rounded-lg p-6 text-center border border-gray-700">
-          <div className="text-3xl mb-2">🛸</div>
+          <div className="text-3xl mb-2"><GameIcon icon="🛸" /></div>
           <div className="text-gray-400 text-sm mb-1">Флот пуст</div>
           <div className="text-[11px] text-gray-500">
             Постройте первый корабль для защиты баз и атак
@@ -253,7 +254,7 @@ function ShipCard({ ship, canAffordUpgrade, onUpgrade, onAssign, onRepair, onScr
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-xl flex-shrink-0">{def.icon}</span>
+          <span className="text-xl flex-shrink-0"><GameIcon icon={def.icon} /></span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-bold text-white truncate">{ship.name}</h4>
@@ -303,16 +304,16 @@ function ShipCard({ ship, canAffordUpgrade, onUpgrade, onAssign, onRepair, onScr
       {/* Stats - inline badges */}
       <div className="flex gap-1.5 mb-2 text-[10px] flex-wrap">
         <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-white">
-          ❤️ {formatNumber(ship.hp)}/{formatNumber(ship.maxHp)}
+          <GameIcon icon="❤️" /> {formatNumber(ship.hp)}/{formatNumber(ship.maxHp)}
         </span>
         <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-red-400">
-          ⚔️ {formatNumber(ship.dps)}
+          <GameIcon icon="⚔️" /> {formatNumber(ship.dps)}
         </span>
         <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-orange-400">
-          🛡️ {formatNumber(ship.armor)}
+          <GameIcon icon="🛡️" /> {formatNumber(ship.armor)}
         </span>
         <span className="bg-gray-700/50 rounded px-1.5 py-0.5 text-cyan-400">
-          ⚡ {(ship.speed * 100).toFixed(0)}%
+          <GameIcon icon="⚡" /> {(ship.speed * 100).toFixed(0)}%
         </span>
       </div>
 

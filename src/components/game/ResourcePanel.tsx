@@ -6,6 +6,7 @@ import type { ResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { usePinnedResources } from '../../hooks/usePinnedResources';
 import { WarehousePopover } from './WarehousePopover';
+import { GameIcon } from '../ui/icons';
 
 const ICON_BY_RESOURCE: Partial<Record<ResourceType, any>> = {
   energy: Zap,
@@ -48,7 +49,7 @@ export function ResourcePanel() {
       {/* Переполнение склада - компактное предупреждение */}
       {hasFullStorage && (
         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyber-red/10 border border-cyber-red/30">
-          <span className="text-xs text-cyber-red font-bold">⚠️ СКЛАД ПЕРЕПОЛНЕН</span>
+          <span className="text-xs text-cyber-red font-bold"><GameIcon icon="⚠️" /> СКЛАД ПЕРЕПОЛНЕН</span>
         </div>
       )}
       {/* Ресурсы */}

@@ -7,6 +7,7 @@ import { useMarketStore } from '../../../features/marketStore';
 import { formatPrice, formatVolume, formatPriceChange, getPriceChangeColor } from '../../../utils/marketApi';
 import { RESOURCE_NAMES } from './OrderForm';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
+import { GameIcon } from '../../ui/icons';
 
 interface PriceListProps {
   compact?: boolean;
@@ -41,7 +42,7 @@ export function PriceList({ compact = false }: PriceListProps) {
     return (
       <div className="bg-gray-800 rounded-lg p-3">
         <h3 className="text-sm font-bold mb-2 flex items-center gap-1.5">
-          <span>💹</span>
+          <span><GameIcon icon="💹" /></span>
           <span>Топ по объёму</span>
         </h3>
 
@@ -83,7 +84,7 @@ export function PriceList({ compact = false }: PriceListProps) {
   return (
     <div className="bg-gray-800 rounded-lg p-4">
       <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-        <span>💹</span>
+        <span><GameIcon icon="💹" /></span>
         <span>Рыночные цены</span>
         <span className="text-sm font-normal text-gray-400">
           (обновляется каждые 30 сек)

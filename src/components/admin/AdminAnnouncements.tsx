@@ -10,6 +10,7 @@ import { useAdminActions, useAdminStore } from '../../features/adminStore';
 import type { AdminRole, AnnouncementSeverity } from '../../utils/adminApi';
 import { formatFull, formatWhen } from '../../utils/adminFormat';
 import { When } from './parts';
+import { IconText } from '../ui/icons';
 
 const SEVERITIES: ReadonlyArray<{ value: AnnouncementSeverity; label: string }> = [
   { value: 'info', label: 'Информация' },
@@ -114,10 +115,10 @@ export function AdminAnnouncements({ viewerRole }: { viewerRole: AdminRole }) {
                     {!item.active && <Badge tone="neutral">выключено</Badge>}
                   </div>
                   <p className="mt-1 break-words text-sm font-semibold text-content-primary">
-                    {item.title}
+                    <IconText>{item.title}</IconText>
                   </p>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-content-secondary">
-                    {item.body}
+                    <IconText>{item.body}</IconText>
                   </p>
                   <p className="mt-1 text-3xs text-content-faint">
                     {item.created_by_email ?? 'система'} · создано{' '}
@@ -221,7 +222,7 @@ export function AdminAnnouncements({ viewerRole }: { viewerRole: AdminRole }) {
               >
                 {SEVERITIES.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    <IconText>{option.label}</IconText>
                   </option>
                 ))}
               </select>

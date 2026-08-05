@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { IconText } from '../ui/icons';
 
 interface TooltipProps {
   content: React.ReactNode;
@@ -21,7 +22,7 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, position, visible }) 
     >
       <div className="bg-cyber-dark/95 backdrop-blur-sm border-2 border-cyber-green rounded-lg px-3 py-2 shadow-2xl max-w-xs">
         <div className="text-sm text-cyber-text whitespace-pre-line">
-          {content}
+          {typeof content === 'string' ? <IconText>{content}</IconText> : content}
         </div>
       </div>
     </div>,

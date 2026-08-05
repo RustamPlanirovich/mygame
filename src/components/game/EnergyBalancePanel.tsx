@@ -1,5 +1,6 @@
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
+import { GameIcon } from '../ui/icons';
 
 export function EnergyBalancePanel() {
   const energyProduction = useGameStore((s) => s.energyProduction);
@@ -32,7 +33,7 @@ export function EnergyBalancePanel() {
     <div className="bg-cyber-darker/50 backdrop-blur-sm rounded border border-cyber-gray p-2">
       <div className="flex items-center justify-between mb-1.5">
         <h3 className="text-xs font-semibold text-cyber-text flex items-center gap-1.5">
-          ⚡ Энергобаланс
+          <GameIcon icon="⚡" /> Энергобаланс
         </h3>
         <span className={`text-xs font-mono ${getTextColor()}`}>
           {(energyEfficiency * 100).toFixed(0)}%
@@ -72,7 +73,7 @@ export function EnergyBalancePanel() {
       {/* Warning - более компактное */}
       {isDeficit && (
         <div className="mt-2 p-1.5 bg-red-900/20 border border-red-700/30 rounded text-[10px] text-red-300">
-          <span className="font-semibold">⚠️ Дефицит энергии!</span> 
+          <span className="font-semibold"><GameIcon icon="⚠️" /> Дефицит энергии!</span> 
           Производство снижено до {(energyEfficiency * 100).toFixed(0)}%.
           {energyEfficiency < 0.5 && (
             <span className="text-red-400 font-semibold"> Критический!</span>

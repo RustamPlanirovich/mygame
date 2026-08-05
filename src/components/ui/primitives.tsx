@@ -1,5 +1,15 @@
 import { useId, useMemo, type ReactNode } from 'react';
 import { Inbox } from 'lucide-react';
+import { IconText } from './icons';
+
+/**
+ * Titles and labels are handed in as plain strings all over the app, and many
+ * of them still carry an emoji from the data layer. Routing them through
+ * IconText draws those with the icon set instead of the system emoji font.
+ */
+const withIcons = (v: ReactNode): ReactNode =>
+  typeof v === 'string' ? <IconText>{v}</IconText> : v;
+import { GameIcon } from './icons';
 
 /* ==========================================================================
    Panel / Card
@@ -31,10 +41,12 @@ export function Panel({
             <div className="min-w-0">
               {title && (
                 <h3 className="truncate text-xs font-semibold uppercase tracking-wider text-content-secondary">
-                  {title}
+                  {withIcons(title)}
                 </h3>
               )}
-              {subtitle && <p className="truncate text-3xs text-content-faint">{subtitle}</p>}
+              {subtitle && (
+                <p className="truncate text-3xs text-content-faint">{withIcons(subtitle)}</p>
+              )}
             </div>
           </div>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
@@ -90,7 +102,7 @@ export function Tabs<T extends string>({
             }`}
           >
             {item.icon}
-            <span className="truncate">{item.label}</span>
+            <span className="truncate">{withIcons(item.label)}</span>
             {item.badge != null && (
               <span
                 className={`rounded-full px-1.5 text-3xs font-bold tabular-nums ${
@@ -140,7 +152,7 @@ export function Stat({
     <div className={`flex min-w-0 flex-col gap-0.5 ${alignClass}`}>
       <span className="stat-label flex items-center gap-1 truncate">
         {icon}
-        {label}
+        {withIcons(label)}
       </span>
       <span className={`truncate font-mono text-sm font-semibold tabular-nums ${toneClass}`}>
         {value}
@@ -170,7 +182,7 @@ export function Badge({
     warning: 'badge badge-warning',
     danger: 'badge badge-danger',
   }[tone];
-  return <span className={`${cls} ${className}`}>{children}</span>;
+  return <span className={`${cls} ${className}`}>{withIcons(children)}</span>;
 }
 
 /* ==========================================================================
@@ -225,7 +237,7 @@ export function EmptyState({
   return (
     <div className="empty-state">
       <span className="text-content-faint/60">{icon ?? <Inbox size={22} />}</span>
-      <p className="text-xs font-medium text-content-muted">{title}</p>
+      <p className="text-xs font-medium text-content-muted">{withIcons(title)}</p>
       {hint && <p className="max-w-xs text-3xs leading-relaxed text-content-faint">{hint}</p>}
       {action && <div className="mt-1">{action}</div>}
     </div>
@@ -391,7 +403,7 @@ export function Field({
       {label && (
         <span className="flex items-baseline justify-between gap-2">
           <span className="text-2xs font-medium uppercase tracking-wider text-content-faint">
-            {label}
+            {withIcons(label)}
           </span>
           {hint && <span className="text-3xs text-content-faint">{hint}</span>}
         </span>
@@ -427,12 +439,12 @@ export function Alert({
   return (
     <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${styles}`} role="alert">
       <div className="min-w-0 flex-1">
-        {title && <p className="font-semibold">{title}</p>}
-        {children && <div className="text-content-secondary">{children}</div>}
+        {title && <p className="font-semibold">{withIcons(title)}</p>}
+        {children && <div className="text-content-secondary">{withIcons(children)}</div>}
       </div>
       {onDismiss && (
         <button type="button" onClick={onDismiss} className="icon-btn h-5 w-5 shrink-0" aria-label="Скрыть">
-          ✕
+          <GameIcon icon="✕" />
         </button>
       )}
     </div>

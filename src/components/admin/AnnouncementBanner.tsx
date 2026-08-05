@@ -12,6 +12,7 @@ import { Alert } from '../ui';
 import { getPublicAnnouncements, type PublicAnnouncement } from '../../utils/adminApi';
 import { isAuthenticated } from '../../utils/settingsApi';
 import { formatFull, formatWhen } from '../../utils/adminFormat';
+import { IconText } from '../ui/icons';
 
 const STORAGE_KEY = 'mygame.announcements.dismissed';
 
@@ -94,12 +95,12 @@ export function AnnouncementBanner() {
             title={
               <span className="flex items-center gap-1.5">
                 <Megaphone size={13} aria-hidden="true" />
-                {item.title}
+                <IconText>{item.title}</IconText>
               </span>
             }
             onDismiss={() => dismiss(item.id)}
           >
-            <p className="whitespace-pre-wrap break-words">{item.body}</p>
+            <p className="whitespace-pre-wrap break-words"><IconText>{item.body}</IconText></p>
             <p className="mt-1 text-3xs text-content-faint" title={formatFull(item.created_at)}>
               {formatWhen(item.created_at)}
               {item.expires_at ? ` · до ${formatWhen(item.expires_at)}` : ''}

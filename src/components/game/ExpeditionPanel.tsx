@@ -16,6 +16,7 @@ import {
   computeStarChartDurationMultiplier,
   starChartUpgradeCost,
 } from '../../core/constants/starChart';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function ExpeditionPanel() {
   const expedition = useGameStore((s) => s.expedition);
@@ -73,8 +74,8 @@ export function ExpeditionPanel() {
           <span>Экспедиции</span>
         </h2>
         <div className="text-[10px] text-cyber-text-dim">
-          {active ? `🚀 ${secondsLeft}с` : '✓ готово'}
-          <span className="text-cyber-text-dim"> · 📐 {formatNumber(blueprints)}</span>
+          <IconText>{active ? `🚀 ${secondsLeft}с` : '✓ готово'}</IconText>
+          <span className="text-cyber-text-dim"> · <GameIcon icon="📐" /> {formatNumber(blueprints)}</span>
         </div>
       </div>
 
@@ -144,7 +145,7 @@ export function ExpeditionPanel() {
                 >
                   <div className="flex items-center justify-between">
                     <span>Собрать: {def.name}</span>
-                    <span className="text-cyber-text-dim">{formatNumber(e)}⚡, {formatNumber(s)} сталь</span>
+                    <span className="text-cyber-text-dim">{formatNumber(e)}<GameIcon icon="⚡" />, {formatNumber(s)} сталь</span>
                   </div>
                 </button>
               );
@@ -176,7 +177,7 @@ export function ExpeditionPanel() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-cyber-blue font-bold">{def.name}</div>
-                      <div className="text-xs text-cyber-text-dim">{def.description}</div>
+                      <div className="text-xs text-cyber-text-dim"><IconText>{def.description}</IconText></div>
                       <div className="text-xs text-cyber-text-dim mt-1">
                         Уровень: <span className="text-cyber-text">{level}</span>
                         <span className="text-cyber-gray-light"> / {def.maxLevel}</span>
@@ -190,7 +191,7 @@ export function ExpeditionPanel() {
                       onClick={() => buyStarChartUpgrade(id)}
                     >
                       <div className="text-center">{atMax ? 'МАКС' : 'УЛУЧШИТЬ'}</div>
-                      <div className="text-[10px] mt-1 text-cyber-text-dim">{atMax ? '—' : (costText || '—')}</div>
+                      <div className="text-[10px] mt-1 text-cyber-text-dim"><IconText>{atMax ? '—' : costText || '—'}</IconText></div>
                     </button>
                   </div>
                 </div>
@@ -208,7 +209,7 @@ export function ExpeditionPanel() {
             <span>{active ? 'В ПРОЦЕССЕ' : 'СТАРТ: РАЗВЕДКА'}</span>
           </div>
           <div className="text-xs mt-1">
-            Цена: {formatNumber(costEnergy)} ⚡, {formatNumber(costSteel)} сталь
+            Цена: {formatNumber(costEnergy)} <GameIcon icon="⚡" />, {formatNumber(costSteel)} сталь
           </div>
         </button>
 

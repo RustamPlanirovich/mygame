@@ -7,6 +7,7 @@ import {
   getTechnologiesByEra,
   canResearchTechnology,
 } from '../../core/constants/technologies';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function TechTreePanel() {
   const research = useGameStore((s) => s.research);
@@ -80,29 +81,29 @@ export function TechTreePanel() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`font-bold ${unlocked ? 'text-cyber-green' : 'text-cyber-blue'}`}>
-                              {unlocked && '✓ '}{tech.name}
+                              <IconText>{unlocked && '✓ '}</IconText>{tech.name}
                             </span>
                             <span className="text-cyber-text-dim text-[10px]">
                               {tech.cost > 0 ? `${formatNumber(tech.cost)} RP` : 'Базовая'}
                             </span>
                           </div>
-                          <div className="text-cyber-text-dim mt-1 text-[11px]">{tech.description}</div>
+                          <div className="text-cyber-text-dim mt-1 text-[11px]"><IconText>{tech.description}</IconText></div>
                           
                           {tech.unlocks.buildings && tech.unlocks.buildings.length > 0 && (
                             <div className="text-cyber-blue text-[10px] mt-1">
-                              🏗️ Открывает: {tech.unlocks.buildings.length} зданий
+                              <GameIcon icon="🏗️" /> Открывает: {tech.unlocks.buildings.length} зданий
                             </div>
                           )}
                           
                           {!unlocked && missingPrereqs.length > 0 && (
                             <div className="text-cyber-red text-[10px] mt-1">
-                              🔒 Требуется: {missingPrereqs.map(id => TECHNOLOGIES[id].name).join(', ')}
+                              <GameIcon icon="🔒" /> Требуется: {missingPrereqs.map(id => TECHNOLOGIES[id].name).join(', ')}
                             </div>
                           )}
                           
                           {!unlocked && missingPrereqs.length === 0 && !hasRP && (
                             <div className="text-cyber-orange text-[10px] mt-1">
-                              ⚠️ Недостаточно RP (нужно {formatNumber(tech.cost)})
+                              <GameIcon icon="⚠️" /> Недостаточно RP (нужно {formatNumber(tech.cost)})
                             </div>
                           )}
                         </div>

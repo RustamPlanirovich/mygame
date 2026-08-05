@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
+  <!-- Reactor core from the in-game icon set, thickened so it survives 16px. -->
+  <rect width="24" height="24" rx="5" fill="#0b0e15" />
+  <g fill="none" stroke="#4ff0b4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.6 19.2 7.6v8.8L12 20.4 4.8 16.4V7.6z" fill="#0c9a6a" fill-opacity=".3" />
+    <circle cx="12" cy="12" r="2.1" fill="#4ff0b4" stroke="none" />
+    <path d="M12 7.8v2.2M12 14v2.2M8.5 9.9l1.8 1.1M13.7 12.9l1.8 1.1M8.5 14.1l1.8-1.1M13.7 11.1l1.8-1.1" />
+  </g>
+</svg>

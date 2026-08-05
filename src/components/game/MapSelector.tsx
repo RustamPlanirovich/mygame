@@ -8,6 +8,7 @@ import { Modal, EmptyState } from '../ui';
 import { MAP_DEFINITIONS, getUnlockedMaps, getMapDefinition } from '../../core/constants/maps';
 import type { MapDefinition, MapDifficulty, MapSize, GridType } from '../../core/gameTypes.maps';
 import { DIFFICULTY_MULTIPLIERS } from '../../core/gameTypes.maps';
+import { GameIcon, IconText } from '../ui/icons';
 
 interface MapSelectorProps {
   unlockedTechnologies: Set<string>;
@@ -158,7 +159,7 @@ export function MapSelector({
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">{map.emoji}</span>
+                      <span className="text-2xl"><GameIcon icon={map.emoji} /></span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`font-medium ${isUnlocked ? 'text-cyber-text' : 'text-cyber-text-dim'}`}>
@@ -179,7 +180,7 @@ export function MapSelector({
                             {SIZE_NAMES[map.size]}
                           </span>
                           <span className="text-xs text-cyber-text-dim">
-                            {GRID_TYPE_INFO[map.gridType].icon}
+                            <GameIcon icon={GRID_TYPE_INFO[map.gridType].icon} />
                           </span>
                         </div>
                       </div>
@@ -226,10 +227,10 @@ function MapPreview({
     <div className="space-y-4">
       {/* Заголовок */}
       <div className="flex items-center gap-3">
-        <span className="text-4xl">{map.emoji}</span>
+        <span className="text-4xl"><GameIcon icon={map.emoji} /></span>
         <div>
           <h3 className="text-xl font-bold text-cyber-text">{map.name}</h3>
-          <p className="text-sm text-cyber-text-dim">{map.description}</p>
+          <p className="text-sm text-cyber-text-dim"><IconText>{map.description}</IconText></p>
         </div>
       </div>
 
@@ -266,7 +267,7 @@ function MapPreview({
         <div className="p-3 rounded bg-cyber-gray/10">
           <div className="text-xs text-cyber-text-dim mb-1">Тип сетки</div>
           <div className="font-medium text-cyber-text">
-            {GRID_TYPE_INFO[map.gridType].icon} {GRID_TYPE_INFO[map.gridType].name}
+            <GameIcon icon={GRID_TYPE_INFO[map.gridType].icon} /> {GRID_TYPE_INFO[map.gridType].name}
           </div>
         </div>
         <div className="p-3 rounded bg-cyber-gray/10">
@@ -296,7 +297,7 @@ function MapPreview({
             </span>
           ))}
           <span className="px-2 py-1 rounded bg-cyber-yellow/20 text-cyber-yellow text-sm">
-            💰 {map.startingCredits}
+            <GameIcon icon="💰" /> {map.startingCredits}
           </span>
         </div>
       </div>
@@ -339,7 +340,7 @@ function MapPreview({
             {map.bonuses.map((bonus, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
                 <Zap size={12} className="text-cyber-green" />
-                <span className="text-cyber-text">{bonus.description}</span>
+                <span className="text-cyber-text"><IconText>{bonus.description}</IconText></span>
               </div>
             ))}
           </div>
@@ -349,7 +350,7 @@ function MapPreview({
       {/* Спецсобытия */}
       {map.specialEvents && map.specialEvents.length > 0 && (
         <div className="p-3 rounded bg-cyber-orange/10 border border-cyber-orange/30">
-          <div className="text-xs text-cyber-orange mb-2">⚠️ Случайные события</div>
+          <div className="text-xs text-cyber-orange mb-2"><GameIcon icon="⚠️" /> Случайные события</div>
           <div className="space-y-1">
             {map.specialEvents.map(event => (
               <div key={event.id} className="text-sm text-cyber-text-dim">

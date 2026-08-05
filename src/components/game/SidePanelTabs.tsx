@@ -30,6 +30,7 @@ import { CulturePanel } from './culture/CulturePanel';
 import { useFinanceStore } from '../../features/financeStore';
 import type { DepositType } from '../../core/gameTypes';
 import Decimal from 'break_eternity.js';
+import { IconText } from '../ui/icons';
 
 type TabId =
   | 'inspector'
@@ -245,7 +246,7 @@ export function SidePanelTabs() {
                 className="w-full flex items-center gap-3 p-3 rounded transition-all border border-cyber-gray/50 bg-cyber-gray/20 hover:bg-cyber-gray/30 hover:border-cyber-green/50 text-cyber-text relative"
               >
                 <Icon size={20} className="text-cyber-blue" />
-                <span className="text-sm font-medium">{t.label}</span>
+                <span className="text-sm font-medium"><IconText>{t.label}</IconText></span>
                 {showBadge && (
                   <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${
                     hasEventNotification || hasAchievementNotification 

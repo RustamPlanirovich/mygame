@@ -4,6 +4,7 @@ import { formatNumber, D } from '../../core/math/format';
 import type { SpacePlatform } from '../../core/gameTypes';
 import { Shield, Zap, Package, TrendingUp, Trash2, Wrench, Settings } from 'lucide-react';
 import { notify } from '../../utils/notifications';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function PlatformsPanel() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -90,7 +91,7 @@ export function PlatformsPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">🛰️ Платформы</h2>
+          <h2 className="text-xl font-bold text-white"><GameIcon icon="🛰️" /> Платформы</h2>
           <p className="text-xs text-gray-400 mt-0.5">Галактика: {currentGalaxy.name}</p>
         </div>
         <div className="text-right text-xs">
@@ -103,7 +104,7 @@ export function PlatformsPanel() {
       <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="text-2xl">🚀</div>
+            <div className="text-2xl"><GameIcon icon="🚀" /></div>
             <div>
               <div className="font-semibold text-white">Автоматическая транспортировка</div>
               <div className="text-xs text-gray-400">
@@ -145,7 +146,7 @@ export function PlatformsPanel() {
                 }}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-all"
               >
-                ⛽ +100 топлива (1,000💰)
+                <GameIcon icon="⛽" /> +100 топлива (1,000<GameIcon icon="💰" />)
               </button>
               <span className="text-xs text-gray-500">
                 Расход: 0.1/сек за платформу
@@ -160,15 +161,15 @@ export function PlatformsPanel() {
         onClick={handleCreatePlatform}
         className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all flex items-center justify-center gap-2"
       >
-        <span className="text-xl">➕</span>
+        <span className="text-xl"><GameIcon icon="➕" /></span>
         <span>Построить новую платформу</span>
-        <span className="text-xs opacity-75">(50,000 💰 + 1,000 🏛️)</span>
+        <span className="text-xs opacity-75">(50,000 <GameIcon icon="💰" /> + 1,000 <GameIcon icon="🏛️" />)</span>
       </button>
 
       {/* Platforms List */}
       {platformsInCurrentGalaxy.length === 0 ? (
         <div className="bg-gray-800/30 rounded-lg p-8 text-center border border-gray-700">
-          <div className="text-4xl mb-3">🛸</div>
+          <div className="text-4xl mb-3"><GameIcon icon="🛸" /></div>
           <div className="text-gray-400 mb-2">Платформ в этой галактике пока нет</div>
           <div className="text-sm text-gray-500">
             Постройте первую платформу для автономной добычи ресурсов
@@ -255,7 +256,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>🛰️</span>
+            <span><GameIcon icon="🛰️" /></span>
             <span>{platform.name}</span>
             {isActive && (
               <span className="bg-cyan-500 text-white text-[10px] px-1.5 py-0.5 rounded">
@@ -292,7 +293,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
       {/* Platform Resources */}
       {platform.resources && Object.keys(platform.resources).length > 0 && (
         <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
-          <div className="text-xs text-gray-400 mb-2 font-semibold">📦 Ресурсы на платформе:</div>
+          <div className="text-xs text-gray-400 mb-2 font-semibold"><GameIcon icon="📦" /> Ресурсы на платформе:</div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             {Object.entries(platform.resources)
               .filter(([_, res]) => res && res.amount && res.amount.gt(0))
@@ -371,7 +372,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
         <div className="mt-3 pt-3 border-t border-gray-700">
           <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
             <Wrench size={14} />
-            <span>Ремонт (10💰/HP, 5💰/броня, 3💰/щиты)</span>
+            <span>Ремонт (10<GameIcon icon="💰" />/HP, 5<GameIcon icon="💰" />/броня, 3<GameIcon icon="💰" />/щиты)</span>
           </div>
           <div className="grid grid-cols-4 gap-2">
             {hpPercent < 100 && (
@@ -443,7 +444,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
                 <div className="text-sm font-bold text-white">Ур. {level}</div>
                 <div className="text-xs text-cyan-400">
                   <TrendingUp className="inline" size={12} />
-                  {formatNumber(cost)}💰
+                  {formatNumber(cost)}<GameIcon icon="💰" />
                 </div>
               </div>
             </button>
@@ -455,19 +456,19 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
       <div className="mt-4 pt-4 border-t border-gray-700">
         <div className="text-xs text-gray-400 space-y-1">
           <div className="flex items-center justify-between">
-            <span>🛡️ Бонус защиты:</span>
+            <span><GameIcon icon="🛡️" /> Бонус защиты:</span>
             <span className="text-purple-400 font-semibold">
               +{(defenseLevel * 50)}%
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span>⚡ Бонус добычи:</span>
+            <span><GameIcon icon="⚡" /> Бонус добычи:</span>
             <span className="text-green-400 font-semibold">
               +{(miningLevel * 50)}%
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span>📦 Бонус хранилища:</span>
+            <span><GameIcon icon="📦" /> Бонус хранилища:</span>
             <span className="text-blue-400 font-semibold">
               +{(storageLevel * 50)}%
             </span>
@@ -480,7 +481,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
             <div className="flex items-center justify-between">
               <span>Статус:</span>
               <span className={platform.combat.underAttack ? "text-red-400 font-semibold animate-pulse" : "text-green-400"}>
-                {platform.combat.underAttack ? "⚠️ ПОД АТАКОЙ" : "🛡️ В БЕЗОПАСНОСТИ"}
+                <IconText>{platform.combat.underAttack ? "⚠️ ПОД АТАКОЙ" : "🛡️ В БЕЗОПАСНОСТИ"}</IconText>
               </span>
             </div>
             {platform.combat.enemies.length > 0 && (

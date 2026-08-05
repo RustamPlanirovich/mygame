@@ -6,6 +6,7 @@ import { memo, useMemo } from 'react';
 import { useFinanceStore } from '../../../features/financeStore';
 import { formatNumber, D } from '../../../core/math/format';
 import { Sparkline, Stat } from '../../ui';
+import { IconText } from '../../ui/icons';
 
 // memo: родительская FinancePanel рендерится на каждый тик, пропсов у компонента нет.
 // Сам компонент всё равно будет обновляться на каждый пересчёт netWorthHistory — это
@@ -90,7 +91,7 @@ function NetWorthTrackerImpl() {
             historyStats.trend === 'up' ? 'text-green-400' :
             historyStats.trend === 'down' ? 'text-red-400' : 'text-slate-400'
           }`}>
-            {historyStats.trend === 'up' && '↑'}
+            <IconText>{historyStats.trend === 'up' && '↑'}</IconText>
             {historyStats.trend === 'down' && '↓'}
             {historyStats.change24h.gt(0) ? '+' : ''}
             {formatNumber(historyStats.change24h)} ₡

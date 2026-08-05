@@ -6,6 +6,7 @@ import {
   getMaxLevelPerAscension,
   checkCanAffordRepeatable,
 } from '../../utils/repeatableResearchHelpers';
+import { GameIcon } from '../ui/icons';
 
 export const RepeatableResearchList: React.FC = () => {
   const game = useGameStore();
@@ -23,7 +24,7 @@ export const RepeatableResearchList: React.FC = () => {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-2xl font-bold text-white flex items-center gap-2">
-            <span>🔬</span>
+            <span><GameIcon icon="🔬" /></span>
             <span>Повторяемые Исследования</span>
           </h3>
           <div className="text-right">
@@ -60,7 +61,7 @@ export const RepeatableResearchList: React.FC = () => {
       {/* Подсказка */}
       <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
         <div className="flex items-start gap-3">
-          <span className="text-2xl">💡</span>
+          <span className="text-2xl"><GameIcon icon="💡" /></span>
           <div className="text-sm text-gray-300 space-y-1">
             <p className="font-semibold text-blue-300">Совет:</p>
             <p>
@@ -87,7 +88,7 @@ export const RepeatableResearchList: React.FC = () => {
                 className="bg-gray-800/30 border border-gray-700 rounded-lg p-3"
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xl">{research.icon}</span>
+                  <span className="text-xl"><GameIcon icon={research.icon} /></span>
                   <span className="text-sm text-gray-400">{research.name}</span>
                 </div>
                 <div className="text-2xl font-bold text-white">{level}</div>

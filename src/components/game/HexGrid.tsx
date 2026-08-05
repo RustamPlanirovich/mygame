@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { DepositType } from '../../core/gameTypes';
 import { coordKey } from '../../utils/mapGenerator';
 import { BUILDING_EMOJI } from '../../core/constants/buildingEmoji';
+import { GameIcon } from '../ui/icons';
 
 // Размеры гексагона
 const HEX_SIZE = 30; // Радиус
@@ -281,39 +282,30 @@ export function HexGrid({
 
                 {/* Контент клетки */}
                 {tile.type === 'base' && (
-                  <text
-                    x={px}
-                    y={py}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={HEX_SIZE * 0.8}
-                  >
-                    🏠
-                  </text>
+                  <GameIcon
+                    icon="🏠"
+                    size={HEX_SIZE * 0.9}
+                    x={px - HEX_SIZE * 0.45}
+                    y={py - HEX_SIZE * 0.45}
+                  />
                 )}
 
                 {tile.type === 'deposit' && tile.deposit && (
-                  <text
-                    x={px}
-                    y={py}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={HEX_SIZE * 0.6}
-                  >
-                    {DEPOSIT_EMOJI[tile.deposit] ?? '📦'}
-                  </text>
+                  <GameIcon
+                    icon={DEPOSIT_EMOJI[tile.deposit] ?? '📦'}
+                    size={HEX_SIZE * 0.7}
+                    x={px - HEX_SIZE * 0.35}
+                    y={py - HEX_SIZE * 0.35}
+                  />
                 )}
 
                 {tile.type === 'building' && tile.buildingId && (
-                  <text
-                    x={px}
-                    y={py}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={HEX_SIZE * 0.6}
-                  >
-                    {BUILDING_EMOJI[tile.buildingId] ?? '🏭'}
-                  </text>
+                  <GameIcon
+                    icon={BUILDING_EMOJI[tile.buildingId] ?? '🏭'}
+                    size={HEX_SIZE * 0.7}
+                    x={px - HEX_SIZE * 0.35}
+                    y={py - HEX_SIZE * 0.35}
+                  />
                 )}
 
                 {/* Координаты (для отладки) */}
@@ -394,7 +386,7 @@ export function HexGrid({
           Клетка: {hoveredTile.x}, {hoveredTile.y}
           {deposits[coordKey(hoveredTile.x, hoveredTile.y)] && (
             <span className="ml-2 text-cyber-yellow">
-              {DEPOSIT_EMOJI[deposits[coordKey(hoveredTile.x, hoveredTile.y)]]}
+              <GameIcon icon={DEPOSIT_EMOJI[deposits[coordKey(hoveredTile.x, hoveredTile.y)]]} />
               {deposits[coordKey(hoveredTile.x, hoveredTile.y)]}
             </span>
           )}

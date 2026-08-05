@@ -27,6 +27,7 @@ import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { formatNumber } from '../../core/math/format';
 import { usePinnedProductionChains, type FlatChainItem } from '../../hooks/usePinnedProductionChains';
 import Decimal from 'break_eternity.js';
+import { IconText } from '../ui/icons';
 
 // Ключ для сохранения позиции в localStorage
 const POSITION_STORAGE_KEY = 'productionChainOverlayPosition';
@@ -334,7 +335,7 @@ const PinnedChainCard = memo(({
       {minimized && (
         <div className="px-2 py-1 flex items-center justify-between text-[9px]">
           <span className="text-cyber-text-dim">
-            {stats.allComplete ? '✅ Готово' : `⏳ ${stats.producing}/${stats.total}`}
+            <IconText>{stats.allComplete ? '✅ Готово' : `⏳ ${stats.producing}/${stats.total}`}</IconText>
           </span>
           {stats.totalProduction.gt(0) && (
             <span className="text-cyber-blue">

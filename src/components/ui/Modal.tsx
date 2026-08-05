@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { IconText } from './icons';
 
 /**
  * Стек открытых модальных окон в порядке открытия.
@@ -179,10 +180,14 @@ export function Modal({
               {icon && <span className="shrink-0 text-accent">{icon}</span>}
               <div className="min-w-0">
                 {title && (
-                  <h2 className="truncate text-sm font-semibold text-content-primary">{title}</h2>
+                  <h2 className="truncate text-sm font-semibold text-content-primary">
+                    {typeof title === 'string' ? <IconText>{title}</IconText> : title}
+                  </h2>
                 )}
                 {subtitle && (
-                  <p className="truncate text-2xs text-content-faint">{subtitle}</p>
+                  <p className="truncate text-2xs text-content-faint">
+                    {typeof subtitle === 'string' ? <IconText>{subtitle}</IconText> : subtitle}
+                  </p>
                 )}
               </div>
             </div>

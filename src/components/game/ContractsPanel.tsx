@@ -11,6 +11,7 @@ import {
 } from '../../utils/contractHelpers';
 import { useMemo } from 'react';
 import Decimal from 'break_eternity.js';
+import { GameIcon, IconText } from '../ui/icons';
 
 const getTierColor = (tier: string) => {
   switch (tier) {
@@ -44,8 +45,8 @@ function ContractCard({ contract, state, affordable, onComplete }: ContractCardP
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
-          <h4 className="font-semibold text-white text-sm">{contract.title}</h4>
-          <p className="text-xs text-cyber-text-dim">{contract.description}</p>
+          <h4 className="font-semibold text-white text-sm"><IconText>{contract.title}</IconText></h4>
+          <p className="text-xs text-cyber-text-dim"><IconText>{contract.description}</IconText></p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-1 text-xs text-cyber-text-dim">
@@ -65,7 +66,7 @@ function ContractCard({ contract, state, affordable, onComplete }: ContractCardP
       <div className="mb-3 p-2 bg-cyber-bg-dark/50 rounded border border-cyber-border">
         <div className="flex items-center gap-2 mb-2">
           <span className={`text-lg ${getStatusColor(analysis.overallStatus)}`}>
-            {getStatusIcon(analysis.overallStatus)}
+            <GameIcon icon={getStatusIcon(analysis.overallStatus)} />
           </span>
           <span className={`text-xs font-semibold ${getStatusColor(analysis.overallStatus)}`}>
             {analysis.overallStatus === 'ready' && 'ГОТОВО К СДАЧЕ'}
@@ -134,17 +135,17 @@ function ContractCard({ contract, state, affordable, onComplete }: ContractCardP
         <div className="flex gap-3 text-xs flex-wrap">
           {contract.rewards.credits && (
             <span className="text-yellow-400">
-              💰 {formatNumber(contract.rewards.credits)}
+              <GameIcon icon="💰" /> {formatNumber(contract.rewards.credits)}
             </span>
           )}
           {contract.rewards.researchPoints && (
             <span className="text-blue-400">
-              🔬 {formatNumber(contract.rewards.researchPoints)}
+              <GameIcon icon="🔬" /> {formatNumber(contract.rewards.researchPoints)}
             </span>
           )}
           {contract.rewards.influence && (
             <span className="text-purple-400">
-              👑 {formatNumber(contract.rewards.influence)}
+              <GameIcon icon="👑" /> {formatNumber(contract.rewards.influence)}
             </span>
           )}
           {analysis.speedBonus && contract.speedBonus?.credits && (

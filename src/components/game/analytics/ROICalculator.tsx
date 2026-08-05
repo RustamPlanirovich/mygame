@@ -12,6 +12,7 @@ import { EmptyState, Panel, Stat } from '../../ui';
 import type { BuildingROI } from '../../../core/gameTypes.analytics';
 import { D, formatNumber } from '../../../core/math/format';
 import { formatROI, getROIColor, getProfitabilityIcon } from '../../../utils/roiCalculator';
+import { GameIcon } from '../../ui/icons';
 
 type SortField = 'name' | 'count' | 'roi' | 'payback' | 'profit' | 'energy';
 type SortDirection = 'asc' | 'desc';
@@ -48,7 +49,7 @@ const ROITableRow = memo(function ROITableRow({ roi, isExpanded, onToggle }: {
         {/* Название + иконка */}
         <td>
           <div className="flex items-center gap-2">
-            <span className="text-base">{getProfitabilityIcon(roi.profitability)}</span>
+            <span className="text-base"><GameIcon icon={getProfitabilityIcon(roi.profitability)} /></span>
             <div className="min-w-0">
               <div className="max-w-[140px] truncate text-sm text-cyber-gray-200" title={roi.buildingName}>
                 {roi.buildingName}
@@ -223,7 +224,7 @@ export const ROICalculator = memo(function ROICalculator() {
         icon={<TrendingUp className="h-4 w-4" />}
         actions={
           <button onClick={handleRefresh} className="btn btn-xs">
-            ↻ Обновить
+            <GameIcon icon="↻" /> Обновить
           </button>
         }
       >
@@ -267,13 +268,13 @@ export const ROICalculator = memo(function ROICalculator() {
           onClick={() => setFilter('profitable')}
           className={`btn btn-xs ${filter === 'profitable' ? 'btn-primary' : ''}`}
         >
-          ✓ Прибыльные ({stats.profitableCount})
+          <GameIcon icon="✓" /> Прибыльные ({stats.profitableCount})
         </button>
         <button
           onClick={() => setFilter('unprofitable')}
           className={`btn btn-xs ${filter === 'unprofitable' ? 'btn-danger' : ''}`}
         >
-          ✗ Убыточные ({stats.unprofitableCount})
+          <GameIcon icon="✗" /> Убыточные ({stats.unprofitableCount})
         </button>
       </div>
 
@@ -335,7 +336,7 @@ export const ROICalculator = memo(function ROICalculator() {
                     onClick={() => handleSort('energy')}
                   >
                     <div className="flex items-center justify-end gap-1">
-                      ⚡
+                      <GameIcon icon="⚡" />
                       <SortIcon field="energy" sortField={sortField} sortDirection={sortDirection} />
                     </div>
                   </th>

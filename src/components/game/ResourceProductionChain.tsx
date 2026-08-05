@@ -7,6 +7,7 @@ import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { formatNumber } from '../../core/math/format';
 import { usePinnedProductionChains, useDebouncedChain } from '../../hooks/usePinnedProductionChains';
 import Decimal from 'break_eternity.js';
+import { GameIcon } from '../ui/icons';
 
 interface ResourceProductionChainProps {
   resource: ResourceType;
@@ -189,7 +190,7 @@ export function ResourceProductionChain({
                   {/* Здания-производители */}
                   {item.buildings.length > 0 ? (
                     <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                      <span className="text-cyber-text-dim text-[9px]">→</span>
+                      <span className="text-cyber-text-dim text-[9px]"><GameIcon icon="→" /></span>
                       {item.buildings.map((buildingId, bIdx) => {
                         const b = buildings.find(b => b.id === buildingId);
                         if (!b) return null;
@@ -237,7 +238,7 @@ export function ResourceProductionChain({
       {/* Рекомендации по недостающим зданиям */}
       {stats.missing.length > 0 && (
         <div className="mt-2 pt-2 border-t border-cyber-gray/20">
-          <div className="text-[9px] text-orange-400 font-medium mb-1">⚠️ Нужно построить:</div>
+          <div className="text-[9px] text-orange-400 font-medium mb-1"><GameIcon icon="⚠️" /> Нужно построить:</div>
           <div className="space-y-0.5">
             {stats.missing.map((item, idx) => {
               const missingBuildings = item.buildings.filter(bid => {
@@ -251,7 +252,7 @@ export function ResourceProductionChain({
                 <div key={idx} className="flex items-center gap-1 text-[9px]">
                   <span className="text-cyber-text-dim">•</span>
                   <span className="text-red-400">{RESOURCE_LABEL[item.resource]}</span>
-                  <span className="text-cyber-text-dim">→</span>
+                  <span className="text-cyber-text-dim"><GameIcon icon="→" /></span>
                   <span className="text-orange-300">
                     {missingBuildings.map(bid => buildings.find(b => b.id === bid)?.name).join(', ')}
                   </span>
@@ -267,7 +268,7 @@ export function ResourceProductionChain({
         <div className="mt-2 pt-2 border-t border-cyber-gray/20 text-center">
           <div className="text-[9px] text-green-400 flex items-center justify-center gap-1">
             <CheckCircle2 size={10} />
-            <span>✨ Производственная цепочка полностью функционирует!</span>
+            <span><GameIcon icon="✨" /> Производственная цепочка полностью функционирует!</span>
           </div>
         </div>
       )}

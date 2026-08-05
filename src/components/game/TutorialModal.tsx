@@ -3,6 +3,7 @@ import { X, ChevronRight, SkipForward } from 'lucide-react';
 import { Modal } from '../ui';
 import { TUTORIAL_STEPS } from '../../core/constants/tutorial';
 import type { TutorialStepId } from '../../core/gameTypes.tutorial';
+import { IconText } from '../ui/icons';
 
 interface TutorialModalProps {
   currentStep: TutorialStepId;
@@ -64,7 +65,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
       <div className="bg-gradient-to-r from-cyber-green/20 to-cyber-blue/20 px-6 py-4 border-b border-cyber-green/50">
         <div className="flex items-start justify-between">
           <h2 className="text-xl font-bold text-cyber-green">
-            {step.title}
+            <IconText>{step.title}</IconText>
           </h2>
           {step.canSkip && (
             <button
@@ -82,7 +83,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
       {/* Content */}
       <div className="px-6 py-5">
         <div className="text-cyber-text whitespace-pre-line leading-relaxed">
-          {step.description}
+          <IconText>{step.description}</IconText>
         </div>
 
         {/* Action hint */}

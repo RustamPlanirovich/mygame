@@ -7,6 +7,7 @@ import { isBuildingUnlocked, getTechnologyForBuilding } from '../../core/constan
 import { X, Lock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { ResourceProductionChain } from './ResourceProductionChain';
+import { GameIcon, IconText } from '../ui/icons';
 
 type SortBy = 'name' | 'cost' | 'level';
 
@@ -436,12 +437,12 @@ export function BuildingList() {
                 <div className="flex-1 text-left">
                   <div className="text-xs font-medium">{b.name}</div>
                   <div className="text-[10px] text-cyber-text-dim">
-                    {!isUnlocked && requiredTech ? `🔒 ${requiredTech.name}` : `Уровень ${b.count}`}
+                    <IconText>{!isUnlocked && requiredTech ? `🔒 ${requiredTech.name}` : `Уровень ${b.count}`}</IconText>
                   </div>
                   {/* Отображаем количество построенных зданий */}
                   {isUnlocked && placedCount > 0 && (
                     <div className="text-[10px] text-cyber-blue mt-0.5">
-                      📍 Построено: {placedCount}
+                      <GameIcon icon="📍" /> Построено: {placedCount}
                     </div>
                   )}
                 </div>
@@ -463,7 +464,7 @@ export function BuildingList() {
                 <div className="flex gap-1.5 text-[10px]">
                   <span className="text-cyber-text-dim">Цена:</span>
                   <span className={currency.credits.gte(b.creditCost.mul(Math.pow(b.costFactor, b.count))) ? 'text-cyber-yellow' : 'text-red-400'}>
-                    💰 {formatNumber(b.creditCost.mul(Math.pow(b.costFactor, b.count)))}
+                    <GameIcon icon="💰" /> {formatNumber(b.creditCost.mul(Math.pow(b.costFactor, b.count)))}
                   </span>
                 </div>
               )}
@@ -560,7 +561,7 @@ export function BuildingList() {
 
       {filteredBuildings.length === 0 && (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="text-4xl mb-2">🔍</div>
+          <div className="text-4xl mb-2"><GameIcon icon="🔍" /></div>
           <p className="text-cyber-text-dim text-sm">
             Ничего не найдено
           </p>

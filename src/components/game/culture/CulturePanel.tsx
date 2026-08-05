@@ -2,6 +2,7 @@ import React from 'react';
 import { useCultureStore, useCultureLevelInfo, useHappinessTier, useCultureProduction } from '../../../features/cultureStore';
 import { formatNumber } from '../../../core/math/format';
 import type { HappinessState, HappinessFactor } from '../../../core/gameTypes.culture';
+import { GameIcon, IconText } from '../../ui/icons';
 
 // Aggregated effects type (inline since not exported from gameTypes.culture)
 interface AggregatedCultureEffects {
@@ -32,9 +33,9 @@ export const CulturePanel: React.FC = () => {
     <div className="flex flex-col gap-4 p-4 bg-gray-800/50 rounded-lg">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-purple-400">🎭 Культура и Наука</h2>
+        <h2 className="text-xl font-bold text-purple-400"><GameIcon icon="🎭" /> Культура и Наука</h2>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">{tierInfo.icon}</span>
+          <span className="text-2xl"><GameIcon icon={tierInfo.icon} /></span>
           <span style={{ color: tierInfo.color }}>{tierInfo.name}</span>
         </div>
       </div>
@@ -44,7 +45,7 @@ export const CulturePanel: React.FC = () => {
         {/* Culture */}
         <div className="bg-purple-900/30 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">🎭</span>
+            <span className="text-2xl"><GameIcon icon="🎭" /></span>
             <span className="text-purple-300 font-semibold">Культура</span>
           </div>
           <div className="text-2xl font-bold text-white">
@@ -58,7 +59,7 @@ export const CulturePanel: React.FC = () => {
         {/* Science */}
         <div className="bg-blue-900/30 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">🔬</span>
+            <span className="text-2xl"><GameIcon icon="🔬" /></span>
             <span className="text-blue-300 font-semibold">Наука</span>
           </div>
           <div className="text-2xl font-bold text-white">
@@ -130,13 +131,13 @@ const CultureLevelSection: React.FC<CultureLevelSectionProps> = ({ levelInfo }) 
 
       {levelInfo.isMaxLevel && (
         <div className="text-center text-yellow-400 text-sm mt-2">
-          ✨ Максимальный уровень достигнут!
+          <GameIcon icon="✨" /> Максимальный уровень достигнут!
         </div>
       )}
 
       {/* Description */}
       <p className="text-xs text-gray-400 mt-2 italic">
-        {levelInfo.description}
+        <IconText>{levelInfo.description}</IconText>
       </p>
     </div>
   );
@@ -161,7 +162,7 @@ const HappinessSection: React.FC<HappinessSectionProps> = ({ happiness, tierInfo
     <div className="bg-gray-700/50 rounded-lg p-3">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">{tierInfo.icon}</span>
+          <span className="text-2xl"><GameIcon icon={tierInfo.icon} /></span>
           <div>
             <span className="text-gray-400 text-sm">Счастье населения</span>
             <div className="font-bold" style={{ color: tierInfo.color }}>
@@ -258,8 +259,8 @@ const EffectsSection: React.FC<EffectsSectionProps> = ({ effects }) => {
       <div className="grid grid-cols-2 gap-2">
         {effectsList.map((effect, index) => (
           <div key={index} className="flex items-center gap-2 text-sm">
-            <span>{effect.icon}</span>
-            <span className="text-gray-300">{effect.label}</span>
+            <span><GameIcon icon={effect.icon} /></span>
+            <span className="text-gray-300"><IconText>{effect.label}</IconText></span>
             <span className="text-green-400 ml-auto">{effect.value}</span>
           </div>
         ))}

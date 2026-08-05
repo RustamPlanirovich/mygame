@@ -5,6 +5,7 @@ import { GAME_ENDINGS, checkEndingRequirements } from '../../core/constants/mega
 import type { MegastructureId, EndingId } from '../../core/gameTypes';
 import { formatNumber } from '../../core/math/format';
 import Decimal from 'break_eternity.js';
+import { GameIcon, IconText } from '../ui/icons';
 
 export function MegastructuresPanel() {
   const { 
@@ -50,10 +51,10 @@ export function MegastructuresPanel() {
         <div className="flex justify-between items-start mb-1.5">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-white flex items-center gap-1">
-              <span className="text-base">{megastructure.icon}</span>
+              <span className="text-base"><GameIcon icon={megastructure.icon} /></span>
               <span className="truncate">{megastructure.name}</span>
             </h3>
-            <p className="text-[10px] text-gray-300 mt-0.5">{megastructure.description}</p>
+            <p className="text-[10px] text-gray-300 mt-0.5"><IconText>{megastructure.description}</IconText></p>
           </div>
           {isBuilt && (
             <button
@@ -64,7 +65,7 @@ export function MegastructuresPanel() {
                   : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
               }`}
             >
-              {isActive ? '✓ Активна' : '○ Неактивна'}
+              <IconText>{isActive ? '✓ Активна' : '○ Неактивна'}</IconText>
             </button>
           )}
         </div>
@@ -93,32 +94,32 @@ export function MegastructuresPanel() {
           <p className="text-[10px] font-semibold text-gray-300 uppercase">Эффекты:</p>
           {megastructure.effects.energyProduction && (
             <p className="text-[10px] text-green-400">
-              ⚡ +{formatNumber(megastructure.effects.energyProduction)} энергии/сек
+              <GameIcon icon="⚡" /> +{formatNumber(megastructure.effects.energyProduction)} энергии/сек
             </p>
           )}
           {megastructure.effects.productionBonus && (
             <p className="text-[10px] text-blue-400">
-              📦 +{((megastructure.effects.productionBonus - 1) * 100).toFixed(0)}% к производству
+              <GameIcon icon="📦" /> +{((megastructure.effects.productionBonus - 1) * 100).toFixed(0)}% к производству
             </p>
           )}
           {megastructure.effects.researchBonus && (
             <p className="text-[10px] text-purple-400">
-              🔬 +{((megastructure.effects.researchBonus - 1) * 100).toFixed(0)}% к исследованиям
+              <GameIcon icon="🔬" /> +{((megastructure.effects.researchBonus - 1) * 100).toFixed(0)}% к исследованиям
             </p>
           )}
           {megastructure.effects.influenceBonus && (
             <p className="text-[10px] text-yellow-400">
-              👑 +{megastructure.effects.influenceBonus} влияния/сек
+              <GameIcon icon="👑" /> +{megastructure.effects.influenceBonus} влияния/сек
             </p>
           )}
           {megastructure.effects.platformCapacity && (
             <p className="text-[10px] text-cyan-400">
-              🏭 +{megastructure.effects.platformCapacity} слотов платформ
+              <GameIcon icon="🏭" /> +{megastructure.effects.platformCapacity} слотов платформ
             </p>
           )}
           {megastructure.effects.special && (
             <p className="text-[10px] text-orange-400 italic">
-              ✨ {megastructure.effects.special}
+              <GameIcon icon="✨" /> {megastructure.effects.special}
             </p>
           )}
         </div>
@@ -129,13 +130,13 @@ export function MegastructuresPanel() {
             <p className="text-[10px] font-semibold text-gray-300 uppercase mb-1">Требования:</p>
             <div className="grid grid-cols-2 gap-1 text-[10px]">
               <div className={currency.credits.gte(megastructure.buildCost.credits) ? 'text-green-400' : 'text-red-400'}>
-                💰 {formatNumber(megastructure.buildCost.credits)} кредитов RP
+                <GameIcon icon="💰" /> {formatNumber(megastructure.buildCost.credits)} кредитов RP
               </div>
               <div className={currency.researchPoints.gte(megastructure.buildCost.researchPoints) ? 'text-green-400' : 'text-red-400'}>
-                🔬 {formatNumber(megastructure.buildCost.researchPoints)} RP
+                <GameIcon icon="🔬" /> {formatNumber(megastructure.buildCost.researchPoints)} RP
               </div>
               <div className={currency.influence.gte(megastructure.buildCost.influence) ? 'text-green-400' : 'text-red-400'}>
-                👑 {formatNumber(megastructure.buildCost.influence)} влияния
+                <GameIcon icon="👑" /> {formatNumber(megastructure.buildCost.influence)} влияния
               </div>
               {Object.entries(megastructure.buildCost.resources).map(([resType, amount]) => {
                 const available = resources[resType as keyof typeof resources]?.amount || new Decimal(0);
@@ -150,7 +151,7 @@ export function MegastructuresPanel() {
             
             {!research.technologies[megastructure.requiredTechnology] && (
               <p className="text-[10px] text-red-400 mt-1">
-                🔒 Требуется технология: {megastructure.requiredTechnology}
+                <GameIcon icon="🔒" /> Требуется технология: {megastructure.requiredTechnology}
               </p>
             )}
 
@@ -159,7 +160,7 @@ export function MegastructuresPanel() {
                 onClick={() => startMegastructure(id)}
                 className="w-full mt-2 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-lg transition-all text-[11px]"
               >
-                🚀 Начать строительство
+                <GameIcon icon="🚀" /> Начать строительство
               </button>
             ) : (
               <button
@@ -175,7 +176,7 @@ export function MegastructuresPanel() {
         {isBuilt && (
           <div className="mt-2 pt-2 border-t border-green-600">
             <p className="text-[10px] text-green-400 font-semibold">
-              ✓ Построена {new Date(builtInfo.completedAt).toLocaleDateString()}
+              <GameIcon icon="✓" /> Построена {new Date(builtInfo.completedAt).toLocaleDateString()}
             </p>
           </div>
         )}
@@ -205,7 +206,7 @@ export function MegastructuresPanel() {
         }`}
       >
         <h3 className="text-sm font-bold text-white mb-1">{ending.name}</h3>
-        <p className="text-[10px] text-gray-300 mb-2">{ending.description}</p>
+        <p className="text-[10px] text-gray-300 mb-2"><IconText>{ending.description}</IconText></p>
         
         <div className="mb-2">
           <div className="flex justify-between text-[10px] text-gray-300 mb-0.5">
@@ -238,7 +239,7 @@ export function MegastructuresPanel() {
             onClick={() => useGameStore.getState().achieveEnding(id)}
             className="w-full mt-2 px-3 py-1.5 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white font-bold rounded-lg transition-all animate-pulse text-[11px]"
           >
-            🎉 ДОСТИЧЬ КОНЦОВКИ
+            <GameIcon icon="🎉" /> ДОСТИЧЬ КОНЦОВКИ
           </button>
         )}
       </div>
@@ -248,7 +249,7 @@ export function MegastructuresPanel() {
   return (
     <div className="p-3 space-y-3">
       <div>
-        <h2 className="text-lg font-bold text-white mb-1">🏗️ Мегаструктуры</h2>
+        <h2 className="text-lg font-bold text-white mb-1"><GameIcon icon="🏗️" /> Мегаструктуры</h2>
         <p className="text-[10px] text-gray-400">
           Величайшие сооружения галактики. Каждая мегаструктура дает уникальные бонусы и приближает вас к концовке игры.
         </p>
@@ -264,7 +265,7 @@ export function MegastructuresPanel() {
 
       {/* Концовки */}
       <div>
-        <h2 className="text-lg font-bold text-white mb-1">🎯 Концовки Игры</h2>
+        <h2 className="text-lg font-bold text-white mb-1"><GameIcon icon="🎯" /> Концовки Игры</h2>
         <p className="text-[10px] text-gray-400 mb-2">
           Достигните одной из концовок, чтобы завершить игру и получить награды для престижа.
         </p>

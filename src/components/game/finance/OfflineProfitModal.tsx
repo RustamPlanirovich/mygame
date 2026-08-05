@@ -8,6 +8,7 @@ import { useAdvisorStore } from '../../../features/advisorStore';
 import { useFinanceStore } from '../../../features/financeStore';
 import { D, formatNumber } from '../../../core/math/format';
 import { Alert, Modal } from '../../ui';
+import { GameIcon, IconText } from '../../ui/icons';
 
 interface OfflineProfitModalProps {
   onClose: () => void;
@@ -60,7 +61,7 @@ export const OfflineProfitModal: React.FC<OfflineProfitModalProps> = ({ onClose,
       open
       onClose={handleClose}
       size="sm"
-      icon={<span className="text-lg">{isPositive ? '📈' : '📉'}</span>}
+      icon={<span className="text-lg"><IconText>{isPositive ? '📈' : '📉'}</IconText></span>}
       title="С возвращением!"
       subtitle={`Пока вас не было (${offlineProfit.offlineTimeFormatted}), ваш AI-трейдер работал`}
       footer={
@@ -74,7 +75,7 @@ export const OfflineProfitModal: React.FC<OfflineProfitModalProps> = ({ onClose,
             onClick={handleCollect}
             className={`${isPositive ? 'btn-primary' : 'btn'} flex-1`}
           >
-            {isPositive ? '💰 Забрать прибыль' : 'Понятно'}
+            <IconText>{isPositive ? '💰 Забрать прибыль' : 'Понятно'}</IconText>
           </button>
         </div>
       }
@@ -150,7 +151,7 @@ export const OfflineProfitModal: React.FC<OfflineProfitModalProps> = ({ onClose,
 
         {/* Информация */}
         <Alert tone="info">
-          💡 Офлайн-торговля работает с эффективностью{' '}
+          <GameIcon icon="💡" /> Офлайн-торговля работает с эффективностью{' '}
           <span className="font-mono tabular-nums">{offlineProfit.efficiencyPercent}</span>% от
           онлайн.
           <br />

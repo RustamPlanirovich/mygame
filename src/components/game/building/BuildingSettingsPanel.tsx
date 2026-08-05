@@ -19,6 +19,7 @@ import { RESOURCE_LABEL } from '../../../core/constants/labels';
 import { getBuildingIcon } from '../../../core/constants/buildingIcons';
 import type { ResourceType } from '../../../core/gameTypes';
 import { formatNumber, D } from '../../../core/math/format';
+import { GameIcon, IconText } from '../../ui/icons';
 
 interface BuildingSettingsPanelProps {
   tileKey: string;
@@ -119,7 +120,7 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
                 className="btn btn-xs"
                 title={preset.description}
               >
-                {preset.emoji} {preset.name}
+                <GameIcon icon={preset.emoji} /> {preset.name}
               </button>
             ))}
           </div>
@@ -165,7 +166,7 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
             disabled={!canRepair}
             className="btn btn-info btn-xs"
           >
-            🔧 Ремонт ({formatNumber(repairCost)} ₡)
+            <GameIcon icon="🔧" /> Ремонт ({formatNumber(repairCost)} ₡)
           </button>
         )}
       </div>
@@ -258,11 +259,11 @@ function ModeTab({ settings, onModeChange, onEnabledChange }: ModeTabProps) {
                 className="text-2xl w-10 h-10 flex items-center justify-center rounded"
                 style={{ backgroundColor: mode.color + '20' }}
               >
-                {mode.emoji}
+                <GameIcon icon={mode.emoji} />
               </span>
               <div className="flex-1">
                 <p className="font-medium text-cyber-text">{mode.name}</p>
-                <p className="text-sm text-cyber-muted">{mode.description}</p>
+                <p className="text-sm text-cyber-muted"><IconText>{mode.description}</IconText></p>
               </div>
               <div className="text-right text-sm">
                 <p>Производство: <span className={mode.productionMultiplier > 1 ? 'text-green-400' : mode.productionMultiplier < 1 ? 'text-yellow-400' : ''}>{Math.round(mode.productionMultiplier * 100)}%</span></p>
@@ -497,13 +498,13 @@ function ConditionsTab({ settings, tileKey }: ConditionsTabProps) {
                 {condition.type === 'resource_above' && `Когда ${condition.resource} > ${condition.value}%`}
                 {condition.type === 'resource_below' && `Когда ${condition.resource} < ${condition.value}%`}
                 {condition.type === 'energy_available' && `Когда энергии > ${condition.value}%`}
-                → {condition.action === 'enable' ? 'Включить' : condition.action === 'disable' ? 'Выключить' : `Режим: ${condition.targetMode}`}
+                <GameIcon icon="→" /> {condition.action === 'enable' ? 'Включить' : condition.action === 'disable' ? 'Выключить' : `Режим: ${condition.targetMode}`}
               </span>
               <button
                 onClick={() => removeBuildingCondition(tileKey, condition.id)}
                 className="text-red-400 hover:text-red-300"
               >
-                ✕
+                <GameIcon icon="✕" />
               </button>
             </div>
           ))}
