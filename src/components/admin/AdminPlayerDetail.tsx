@@ -317,7 +317,7 @@ export function AdminPlayerDetail({
     <>
       {/* Затемнение под панелью — клик закрывает карточку. */}
       <div
-        className="absolute inset-0 z-30 bg-black/55 backdrop-blur-[2px] animate-fade-in"
+        className="absolute inset-0 z-30 bg-black/55 animate-fade-in"
         onClick={close}
         aria-hidden="true"
       />

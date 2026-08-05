@@ -8,13 +8,13 @@ import { THEME_COLORS } from '../../core/constants/themeColors';
 
 // Цвета для разных типов районов
 const DISTRICT_COLORS = {
-  electronics: 0x00b8ff,    // Синий
-  military: 0xff0055,       // Красный
-  space: 0x9d00ff,          // Фиолетовый
-  research: 0x00ff9d,       // Зеленый
-  energy: 0xffaa00,         // Оранжевый
-  production: 0x888888,     // Серый
-  mining: 0xa0522d,         // Коричневый
+  electronics: THEME_COLORS.cyberBlue,
+  military: THEME_COLORS.cyberRed,
+  space: THEME_COLORS.purple,
+  research: THEME_COLORS.cyberGreen,
+  energy: THEME_COLORS.cyberYellow,
+  production: THEME_COLORS.cyberGray,
+  mining: THEME_COLORS.brown,
 };
 
 /**
@@ -121,7 +121,7 @@ export function createDistrictTooltip(
   
   // Фон tooltip
   const bg = new PIXI.Graphics();
-  bg.beginFill(0x000000, 0.9);
+  bg.beginFill(THEME_COLORS.surface, 0.95);
   bg.lineStyle(2, color, 0.8);
   bg.drawRoundedRect(0, 0, 250, 120, 8);
   bg.endFill();
@@ -145,7 +145,7 @@ export function createDistrictTooltip(
     `Радиус: ${district.radius.toFixed(1)} клеток\n` +
     `Бонус: +${((district.bonus - 1) * 100).toFixed(0)}%`,
     new PIXI.TextStyle({
-      fill: 0xffffff,
+      fill: THEME_COLORS.cyberText,
       fontSize: 11,
       fontFamily: 'Arial, sans-serif',
       lineHeight: 18,
@@ -163,7 +163,7 @@ export function createDistrictTooltip(
   const buildings = new PIXI.Text(
     buildingNames + (district.buildings.length > 3 ? `\n• ...и еще ${district.buildings.length - 3}` : ''),
     new PIXI.TextStyle({
-      fill: 0xcccccc,
+      fill: 0xcbcdd8,
       fontSize: 9,
       fontFamily: 'Arial, sans-serif',
       lineHeight: 14,
@@ -220,7 +220,7 @@ export function visualizeDistrictHeatmap(
       // Рисуем клетку с цветом в зависимости от бонуса
       if (maxBonus > 1.01) {
         const intensity = Math.min((maxBonus - 1) * 2, 1); // 0..1
-        const color = maxBonus >= 1.3 ? 0x00ff00 : maxBonus >= 1.15 ? 0xffaa00 : 0x00ffff;
+        const color = maxBonus >= 1.3 ? THEME_COLORS.cyberGreen : maxBonus >= 1.15 ? THEME_COLORS.cyberYellow : THEME_COLORS.cyberBlue;
         
         graphics.beginFill(color, intensity * 0.15);
         graphics.drawRect(

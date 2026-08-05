@@ -1,6 +1,7 @@
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
 import { RESOURCE_SHORT } from '../../core/constants/labels';
+import { GameIcon } from '../ui';
 
 export const PollutionPanel = () => {
   const pollution = useGameStore((s) => s.pollution);
@@ -22,10 +23,10 @@ export const PollutionPanel = () => {
   const showWarning = pollution.efficiencyMultiplier < 0.9;
 
   return (
-    <div className="bg-cyber-darker/50 backdrop-blur-sm border border-cyber-gray rounded p-2 space-y-1.5">
+    <div className="bg-cyber-darker/50 border border-cyber-gray rounded p-2 space-y-1.5">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold text-cyber-text flex items-center gap-1.5">
-          <span className="text-sm">{RESOURCE_SHORT.waste}</span>
+          <GameIcon icon={RESOURCE_SHORT.waste} />
           Экология
         </h3>
         <span className={`text-xs font-mono ${getEfficiencyColor()}`}>
@@ -37,7 +38,7 @@ export const PollutionPanel = () => {
       <div className="space-y-0.5">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-cyber-text-dim flex items-center gap-1">
-            {RESOURCE_SHORT.waste} Мусор
+            <GameIcon icon={RESOURCE_SHORT.waste} /> Мусор
           </span>
           <span className="text-cyber-text font-mono">{formatNumber(wasteNum)}</span>
         </div>
@@ -54,7 +55,7 @@ export const PollutionPanel = () => {
         <div className="space-y-0.5">
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-cyber-text-dim flex items-center gap-1">
-              {RESOURCE_SHORT.radioactive_waste} Рад. отходы
+              <GameIcon icon={RESOURCE_SHORT.radioactive_waste} /> Рад. отходы
             </span>
             <span className="text-cyber-text font-mono">{formatNumber(radioactiveNum)}</span>
           </div>
@@ -69,15 +70,15 @@ export const PollutionPanel = () => {
 
       {/* Warning Message - компактное */}
       {showWarning && (
-        <div className="text-[10px] text-cyber-text-dim bg-red-900/10 border border-red-700/20 rounded p-1.5\">
-          💡 Постройте Переработчик для снижения загрязнения
+        <div className="text-[10px] text-cyber-text-dim bg-red-900/10 border border-red-700/20 rounded p-1.5">
+          <GameIcon icon="💡" /> Постройте Переработчик для снижения загрязнения
         </div>
       )}
 
       {/* Pollution Zones Info */}
       {pollution.pollutionZones.length > 0 && (
         <div className="text-[10px] text-green-400 bg-green-900/10 border border-green-700/20 rounded p-1.5">
-          ♻️ {pollution.pollutionZones.length} зон переработки
+          <GameIcon icon="♻️" /> {pollution.pollutionZones.length} зон переработки
         </div>
       )}
     </div>

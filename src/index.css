@@ -3,43 +3,50 @@
 @tailwind utilities;
 
 /* ==========================================================================
-   TOKENS
+   TOKENS — Industry Idle dark
    Mirrors tailwind.config.js so raw CSS and inline styles can use the same
-   values instead of the 52 one-off hex/rgba literals that were scattered
-   across components.
+   values instead of one-off hex/rgba literals.
+
+   The scheme follows https://play.industryidle.com: a charcoal base (Dracula
+   #282a36) instead of near-black, panels one step *lighter* than the map,
+   dividers at ~10% of the foreground, 5px radii, and no glow. Depth is read
+   from the surface step, never from a shadow.
    ========================================================================== */
 :root {
   color-scheme: dark;
 
-  --ink-50: #eef1f7;
-  --ink-100: #d7dce7;
-  --ink-200: #b3bccd;
-  --ink-300: #8b96ac;
-  --ink-400: #66718a;
-  --ink-500: #4a5468;
-  --ink-600: #353d4e;
-  --ink-700: #272e3c;
-  --ink-750: #202632;
-  --ink-800: #1a1f29;
-  --ink-850: #141821;
-  --ink-900: #0f131b;
-  --ink-925: #0b0e15;
-  --ink-950: #070910;
+  --ink-50: #f8f8f2;
+  --ink-100: #e4e5ea;
+  --ink-200: #cbcdd8;
+  --ink-300: #a6aabd;
+  --ink-400: #7f849f;
+  --ink-500: #6272a4;
+  --ink-600: #4d5064;
+  --ink-700: #3d3f4e;
+  --ink-750: #383a48;
+  --ink-800: #33353f;
+  --ink-850: #2d2f3a;
+  --ink-900: #282a36;
+  --ink-925: #242630;
+  --ink-950: #1e1f28;
 
-  --accent: #2ce8a5;
-  --accent-hover: #55f5bb;
-  --accent-press: #12cf8c;
-  --info: #3eb2ff;
-  --warning: #ffc94a;
-  --danger: #ff647f;
+  --accent: #3ee07f;
+  --accent-hover: #6aeda1;
+  --accent-press: #2ecc71;
+  --info: #5ed8f2;
+  --warning: #ffb86c;
+  --danger: #ff5555;
+  --special: #bd93f9;
 
   --surface-base: var(--ink-950);
   --surface-1: var(--ink-925);
   --surface-2: var(--ink-850);
   --surface-3: var(--ink-800);
   --surface-4: var(--ink-750);
+  /* The Pixi map sits on Dracula's own background so canvas and DOM agree. */
+  --surface-map: var(--ink-900);
 
-  --edge-subtle: rgb(255 255 255 / 0.06);
+  --edge-subtle: rgb(248 248 242 / 0.07);
   --edge: var(--ink-700);
   --edge-strong: var(--ink-600);
 
@@ -53,10 +60,11 @@
   --text-color: var(--ink-50);
   --accent-color: var(--accent);
 
-  --radius: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.875rem;
+  --radius: 4px;
+  --radius-md: 5px;
+  --radius-lg: 5px;
+  --radius-xl: 6px;
+  --radius-2xl: 10px;
 
   --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 120ms;
@@ -97,18 +105,6 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* A faint vignette gives the page depth without costing a repaint. */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(1200px 600px at 20% -10%, rgb(44 232 165 / 0.05), transparent 70%),
-      radial-gradient(900px 500px at 110% 10%, rgb(62 178 255 / 0.045), transparent 70%);
-  }
-
   #root {
     position: relative;
     z-index: 1;
@@ -121,8 +117,8 @@
   h5,
   h6 {
     font-family: theme('fontFamily.display');
-    font-weight: 650;
-    letter-spacing: -0.011em;
+    font-weight: 600;
+    letter-spacing: 0;
     line-height: 1.25;
   }
 
@@ -182,7 +178,6 @@
   textarea:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgb(44 232 165 / 0.15);
   }
   input::placeholder,
   textarea::placeholder {
@@ -209,7 +204,7 @@
   }
 
   ::selection {
-    background: rgb(44 232 165 / 0.28);
+    background: rgb(62 224 127 / 0.28);
     color: var(--text-primary);
   }
 
@@ -234,29 +229,34 @@
     background-color: var(--surface-3);
   }
 
+  /*
+   * Boxes. Industry Idle's `.box` is the whole vocabulary: a 5px rectangle, a
+   * hairline border at 10% of the foreground, no fill difference from its
+   * parent worth naming, and no shadow. Everything below is that shape at three
+   * elevations.
+   */
+
   /* Legacy class, restyled rather than removed: 37 components use it. */
   .cyber-panel {
-    @apply rounded-lg border p-3;
+    @apply rounded-md border p-3;
     background-color: var(--surface-2);
     border-color: var(--edge);
-    box-shadow: theme('boxShadow.elev-1');
   }
 
   .panel {
-    @apply rounded-xl border;
+    @apply rounded-md border;
     background-color: var(--surface-2);
     border-color: var(--edge);
-    box-shadow: theme('boxShadow.elev-2');
   }
 
   .panel-header {
-    @apply flex items-center justify-between gap-2 rounded-t-xl border-b px-3 py-2;
+    @apply flex items-center justify-between gap-2 rounded-t-md border-b px-3 py-2;
     background-color: var(--surface-3);
     border-color: var(--edge);
   }
 
   .card {
-    @apply rounded-lg border p-3 transition-colors;
+    @apply rounded-md border p-3 transition-colors;
     background-color: var(--surface-3);
     border-color: var(--edge);
     transition-duration: var(--dur);
@@ -271,14 +271,19 @@
     @apply card cursor-pointer;
   }
   .card-interactive:hover {
-    border-color: rgb(44 232 165 / 0.4);
-    box-shadow: theme('boxShadow.elev-2');
+    border-color: rgb(62 224 127 / 0.4);
   }
+  /* The reference presses controls by scaling them down; it reads far better
+     than a colour flash on a flat surface. */
   .card-interactive:active {
-    transform: scale(0.995);
+    transform: scale(0.99);
   }
 
-  /* ---- buttons ---- */
+  /* ----------------------------------------------------------------- buttons
+     Filled buttons in the reference are a top-to-bottom gradient of one hue
+     with a 1px dark text-shadow, and they scale down on press. That gradient is
+     the single piece of dimensionality the whole UI allows itself, so it is
+     worth keeping exactly. */
   .btn {
     @apply inline-flex select-none items-center justify-center gap-1.5 rounded-md border
            px-3 py-1.5 text-sm font-semibold transition-all;
@@ -294,7 +299,7 @@
     border-color: var(--edge-strong);
   }
   .btn:active:not(:disabled) {
-    transform: translateY(0.5px) scale(0.99);
+    transform: scale(0.96);
   }
   .btn:disabled {
     opacity: 0.45;
@@ -302,33 +307,38 @@
 
   .btn-primary {
     @apply btn;
-    background-color: var(--accent);
-    border-color: var(--accent);
+    background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent-press) 100%);
+    border-color: transparent;
     color: var(--ink-950);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(44 232 165 / 0.5);
+    text-shadow: 0 1px rgb(0 0 0 / 0.2);
   }
   .btn-primary:hover:not(:disabled) {
-    background-color: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-  .btn-primary:active:not(:disabled) {
-    background-color: var(--accent-press);
+    background: linear-gradient(180deg, #8bf3b7 0%, var(--accent) 100%);
+    border-color: transparent;
   }
 
   .btn-info {
     @apply btn;
-    background-color: var(--info);
-    border-color: var(--info);
+    background: linear-gradient(180deg, #8be9fd 0%, #3dc5de 100%);
+    border-color: transparent;
     color: var(--ink-950);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(62 178 255 / 0.5);
+    text-shadow: 0 1px rgb(0 0 0 / 0.2);
+  }
+  .btn-info:hover:not(:disabled) {
+    background: linear-gradient(180deg, #a7f0ff 0%, var(--info) 100%);
+    border-color: transparent;
   }
 
   .btn-danger {
     @apply btn;
-    background-color: var(--danger);
-    border-color: var(--danger);
+    background: linear-gradient(180deg, #ff8080 0%, #e74c3c 100%);
+    border-color: transparent;
     color: var(--ink-950);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 16px -4px rgb(255 100 127 / 0.45);
+    text-shadow: 0 1px rgb(0 0 0 / 0.2);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: linear-gradient(180deg, #ffa0a0 0%, var(--danger) 100%);
+    border-color: transparent;
   }
 
   .btn-ghost {
@@ -338,19 +348,19 @@
     color: var(--text-muted);
   }
   .btn-ghost:hover:not(:disabled) {
-    background-color: rgb(255 255 255 / 0.05);
+    background-color: rgb(248 248 242 / 0.06);
     border-color: transparent;
     color: var(--text-primary);
   }
 
   .btn-outline-accent {
     @apply btn;
-    background-color: rgb(44 232 165 / 0.08);
-    border-color: rgb(44 232 165 / 0.4);
+    background-color: transparent;
+    border-color: var(--accent);
     color: var(--accent);
   }
   .btn-outline-accent:hover:not(:disabled) {
-    background-color: rgb(44 232 165 / 0.16);
+    background-color: rgb(62 224 127 / 0.12);
     border-color: var(--accent);
   }
 
@@ -368,7 +378,7 @@
 
   /* Legacy class, kept because 37 components use it. Restyled, not removed. */
   .cyber-button {
-    @apply btn-outline-accent uppercase tracking-wide;
+    @apply btn-outline-accent;
   }
 
   /* ---- icon button: many icon-only buttons had no hit area ---- */
@@ -380,57 +390,59 @@
     transition-duration: var(--dur-fast);
   }
   .icon-btn:hover:not(:disabled) {
-    background-color: rgb(255 255 255 / 0.06);
+    background-color: rgb(248 248 242 / 0.07);
     color: var(--text-primary);
   }
 
-  /* ---- tabs ---- */
+  /* ---- tabs ----
+     Text-only with an underline on the active item, the way the reference does
+     it: a row of pills competes with the boxes stacked underneath it. */
   .tabs {
-    @apply flex gap-1 rounded-lg border p-1;
-    background-color: var(--surface-1);
+    @apply flex gap-0 border-b;
     border-color: var(--edge);
   }
   .tab {
-    @apply flex-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all;
-    color: var(--text-muted);
+    @apply flex-1 whitespace-nowrap px-2.5 py-2 text-xs font-semibold transition-colors;
+    color: var(--text-faint);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
     transition-duration: var(--dur-fast);
-    transition-timing-function: var(--ease-snap);
   }
   .tab:hover:not(.tab-active) {
-    background-color: rgb(255 255 255 / 0.04);
     color: var(--text-primary);
   }
   .tab-active {
-    background-color: var(--surface-4);
     color: var(--accent);
-    box-shadow: theme('boxShadow.elev-1'), inset 0 0 0 1px rgb(44 232 165 / 0.25);
+    border-bottom-color: var(--accent);
   }
 
-  /* ---- badges / chips ---- */
+  /* ---- badges / chips ----
+     The reference's `.banner`: colour at 10% behind, 15% on the border, full
+     strength on the text. Same recipe here, at 5px instead of a pill. */
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-semibold;
+    @apply inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs font-semibold;
     border-color: var(--edge);
     background-color: var(--surface-3);
     color: var(--text-secondary);
   }
   .badge-accent {
-    border-color: rgb(44 232 165 / 0.35);
-    background-color: rgb(44 232 165 / 0.1);
+    border-color: rgb(62 224 127 / 0.2);
+    background-color: rgb(62 224 127 / 0.1);
     color: var(--accent);
   }
   .badge-info {
-    border-color: rgb(62 178 255 / 0.35);
-    background-color: rgb(62 178 255 / 0.1);
+    border-color: rgb(94 216 242 / 0.2);
+    background-color: rgb(94 216 242 / 0.1);
     color: var(--info);
   }
   .badge-warning {
-    border-color: rgb(255 201 74 / 0.35);
-    background-color: rgb(255 201 74 / 0.1);
+    border-color: rgb(255 184 108 / 0.2);
+    background-color: rgb(255 184 108 / 0.1);
     color: var(--warning);
   }
   .badge-danger {
-    border-color: rgb(255 100 127 / 0.35);
-    background-color: rgb(255 100 127 / 0.1);
+    border-color: rgb(255 85 85 / 0.2);
+    background-color: rgb(255 85 85 / 0.1);
     color: var(--danger);
   }
 
@@ -444,16 +456,17 @@
     color: var(--text-primary);
   }
 
-  /* ---- modal shell: every modal reimplemented this by hand ---- */
+  /* ---- modal shell: every modal reimplemented this by hand ----
+     Plain 50% black, no blur — the reference's `.alert` backdrop. */
   .modal-backdrop {
     @apply fixed inset-0 z-40;
-    background-color: rgb(3 5 9 / 0.72);
-    backdrop-filter: blur(6px) saturate(120%);
+    background-color: rgb(0 0 0 / 0.5);
     animation: fade-in var(--dur) var(--ease-snap) both;
   }
   .modal-shell {
     @apply fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-full flex-col
-           overflow-hidden rounded-2xl border;
+           overflow-hidden border;
+    border-radius: var(--radius-2xl);
     /*
      * Центрируем отдельным свойством `translate`, а не transform-утилитами Tailwind.
      * `scale-in` ниже анимирует `transform`, анимация в каскаде сильнее обычного
@@ -478,13 +491,7 @@
   /* ---- labelled divider ---- */
   .divider {
     @apply my-3 h-px w-full;
-    background: linear-gradient(
-      to right,
-      transparent,
-      var(--edge) 15%,
-      var(--edge) 85%,
-      transparent
-    );
+    background: var(--edge);
   }
 
   /* ---- table ---- */
@@ -502,36 +509,36 @@
     border-bottom: 1px solid var(--edge-subtle);
   }
   .data-table tbody tr:hover td {
-    background-color: rgb(255 255 255 / 0.03);
+    background-color: rgb(248 248 242 / 0.04);
   }
 
   /* ---- skeleton loader ---- */
   .skeleton {
-    @apply relative overflow-hidden rounded-md;
+    @apply relative overflow-hidden rounded;
     background-color: var(--surface-3);
   }
   .skeleton::after {
     content: '';
     @apply absolute inset-0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+    background: linear-gradient(90deg, transparent, rgb(248 248 242 / 0.06), transparent);
     animation: shimmer 1.4s infinite;
   }
 
   /* ---- progress / meter ---- */
   .meter {
-    @apply h-1.5 w-full overflow-hidden rounded-full;
-    background-color: var(--surface-4);
+    @apply h-1.5 w-full overflow-hidden rounded-sm;
+    background-color: rgb(0 0 0 / 0.25);
   }
   .meter-fill {
-    @apply h-full rounded-full;
+    @apply h-full rounded-sm;
     background-color: var(--accent);
     transition: width var(--dur-slow) var(--ease-snap);
   }
 
   /* ---- empty state ---- */
   .empty-state {
-    @apply flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed
+    @apply flex flex-col items-center justify-center gap-2 rounded-md border border-dashed
            px-4 py-8 text-center text-xs;
     border-color: var(--edge);
     color: var(--text-faint);
@@ -547,9 +554,10 @@
     font-feature-settings: 'tnum' 1;
   }
 
+  /* Overlays that sit on top of the map. Opaque rather than blurred: the
+     reference never blurs, and a solid panel over a busy grid is easier to read. */
   .glass {
-    background-color: rgb(20 24 33 / 0.72);
-    backdrop-filter: blur(12px) saturate(140%);
+    background-color: var(--surface-2);
   }
 
   /* Fades scrolled content at the container edges instead of cutting it dead. */
@@ -680,10 +688,10 @@
 @keyframes pulse-glow {
   0%,
   100% {
-    box-shadow: 0 0 0 1px rgb(44 232 165 / 0.25);
+    box-shadow: 0 0 0 1px rgb(62 224 127 / 0.25);
   }
   50% {
-    box-shadow: 0 0 0 1px rgb(44 232 165 / 0.5), 0 0 20px -2px rgb(44 232 165 / 0.45);
+    box-shadow: 0 0 0 1px rgb(62 224 127 / 0.7);
   }
 }
 
@@ -754,9 +762,6 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  body::before {
-    display: none;
-  }
 }
 
 @media (prefers-contrast: more) {
@@ -769,23 +774,12 @@
 
 /* ==========================================================================
    GAME ICONS
-   The hand-drawn futuristic set that replaced the emoji. Icons are duotone:
-   `color` carries the line work, `--gi-2` the accent fill. Both are set per
-   glyph by <GameIcon>, so all this layer owns is metrics and the optional halo.
+   Material Icons (filled) — the set Industry Idle draws its UI with. Glyphs are
+   solid silhouettes painted with `fill: currentColor`, so they take the colour
+   of whatever they sit in and this layer only owns metrics.
    ========================================================================== */
 .game-icon {
   display: inline-block;
   flex: none;
   vertical-align: -0.15em;
-  overflow: visible;
-}
-
-.game-icon--glow {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 55%, transparent));
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .game-icon--glow {
-    filter: none;
-  }
 }

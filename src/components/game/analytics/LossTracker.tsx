@@ -24,11 +24,11 @@ const LOSS_REASON_CONFIG: Record<LossReason, {
   icon: LossIcon;
   color: string;
 }> = {
-  overflow: { label: 'Переполнение', icon: Trash2, color: '#f59e0b' },
-  decay: { label: 'Распад', icon: Flame, color: '#ef4444' },
-  combat: { label: 'Бой', icon: Swords, color: '#8b5cf6' },
-  event: { label: 'Событие', icon: Sparkles, color: '#3b82f6' },
-  conversion: { label: 'Конвертация', icon: RefreshCw, color: '#22c55e' },
+  overflow: { label: 'Переполнение', icon: Trash2, color: '#ffb86c' },
+  decay: { label: 'Распад', icon: Flame, color: '#ff5555' },
+  combat: { label: 'Бой', icon: Swords, color: '#bd93f9' },
+  event: { label: 'Событие', icon: Sparkles, color: '#8be9fd' },
+  conversion: { label: 'Конвертация', icon: RefreshCw, color: '#3ee07f' },
 };
 
 interface LossItemProps {

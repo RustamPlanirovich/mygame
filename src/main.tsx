@@ -26,7 +26,7 @@ if (!rootElement) {
   // Nothing to mount into: report without touching document.body.innerHTML, which would
   // destroy anything already rendered.
   const msg = document.createElement('pre');
-  msg.style.cssText = 'color:#ff647f;padding:20px;font:12px ui-monospace,monospace';
+  msg.style.cssText = 'color:#ff5555;padding:20px;font:12px ui-monospace,monospace';
   msg.textContent = 'Root element #root not found — не удалось запустить приложение.';
   document.body.appendChild(msg);
   hideBootSplash();

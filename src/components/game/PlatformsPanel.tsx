@@ -197,7 +197,7 @@ export function PlatformsPanel() {
       {/* Info */}
       <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
         <div className="text-sm text-blue-300">
-          <div className="font-semibold mb-2">ℹ️ Информация о платформах</div>
+          <div className="font-semibold mb-2"><GameIcon icon="ℹ️" /> Информация о платформах</div>
           <ul className="space-y-1 text-xs text-blue-200/80">
             <li>• Нажмите кнопку <Settings className="inline" size={12} /> чтобы начать управлять платформой</li>
             <li>• На платформах можно строить здания так же, как на главной базе</li>
@@ -250,7 +250,7 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
 
   return (
     <div className={`bg-gradient-to-br from-gray-800/80 to-gray-900/80 rounded-lg p-5 border transition-all ${
-      isActive ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' : 'border-gray-700 hover:border-gray-600'
+      isActive ? 'border-cyan-500 shadow-elev-3 shadow-cyan-500/20' : 'border-gray-700 hover:border-gray-600'
     }`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">

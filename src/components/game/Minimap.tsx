@@ -19,34 +19,34 @@ export const Minimap = () => {
   const getBuildingColor = (buildingId: string) => {
     // Energy buildings
     if (buildingId.includes('power') || buildingId.includes('solar') || buildingId.includes('energy')) {
-      return '#fbbf24'; // yellow
+      return '#ffb86c'; // yellow
     }
     // Mining
     if (buildingId.includes('mine') || buildingId.includes('well') || buildingId.includes('quarry')) {
-      return '#78716c'; // stone
+      return '#7f849f'; // stone
     }
     // Processing
     if (buildingId.includes('refinery') || buildingId.includes('mill') || buildingId.includes('plant')) {
-      return '#f97316'; // orange
+      return '#f39c12'; // orange
     }
     // Manufacturing
     if (buildingId.includes('factory') || buildingId.includes('assembly')) {
-      return '#3b82f6'; // blue
+      return '#8be9fd'; // blue
     }
     // Research
     if (buildingId.includes('lab') || buildingId.includes('research') || buildingId.includes('computer')) {
-      return '#8b5cf6'; // purple
+      return '#bd93f9'; // purple
     }
     // Defense
     if (buildingId.includes('turret') || buildingId.includes('radar') || buildingId.includes('shield')) {
-      return '#ef4444'; // red
+      return '#ff5555'; // red
     }
     // Storage
     if (buildingId.includes('warehouse') || buildingId.includes('storage')) {
-      return '#10b981'; // green
+      return '#2ecc71'; // green
     }
     // Special
-    return '#06b6d4'; // cyan
+    return '#3dc5de'; // cyan
   };
 
   // Генерируем клетки мини-карты
@@ -81,9 +81,9 @@ export const Minimap = () => {
 
   return (
     <div className="absolute bottom-4 right-4 z-10 animate-scale-in">
-      <div className="bg-cyber-dark/90 backdrop-blur-sm border-2 border-cyber-green rounded-lg p-3 shadow-2xl">
+      <div className="glass rounded-md border border-edge p-3 shadow-elev-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-cyber-green font-bold">МИНИ-КАРТА</span>
+          <span className="stat-label">Мини-карта</span>
           <div className="flex gap-1">
             <button
               onClick={() => gameEvents.emit(GAME_EVENTS.GO_TO_BASE)}
@@ -177,27 +177,27 @@ export const Minimap = () => {
           <div className="mt-2 pt-2 border-t border-cyber-gray/50">
             <div className="grid grid-cols-2 gap-1 text-[9px]">
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#fbbf24' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#ffb86c' }} />
                 <span>Энергия</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#78716c' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#7f849f' }} />
                 <span>Добыча</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#f97316' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#f39c12' }} />
                 <span>Переработка</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#3b82f6' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#8be9fd' }} />
                 <span>Производство</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#8b5cf6' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#bd93f9' }} />
                 <span>Наука</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2" style={{ backgroundColor: '#ef4444' }} />
+                <div className="w-2 h-2" style={{ backgroundColor: '#ff5555' }} />
                 <span>Оборона</span>
               </div>
             </div>

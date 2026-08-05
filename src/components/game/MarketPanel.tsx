@@ -315,7 +315,7 @@ function SpotTradingContent({
           <button
             className={`w-full py-3 rounded-lg font-semibold transition-all ${
               canBuy 
-                ? 'bg-cyber-blue hover:bg-cyber-blue/90 text-white shadow-lg shadow-cyber-blue/20' 
+                ? 'bg-cyber-blue hover:bg-cyber-blue/90 text-white shadow-elev-3 shadow-cyber-blue/20' 
                 : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
             }`}
             disabled={!canBuy}
@@ -346,7 +346,7 @@ function SpotTradingContent({
           <button
             className={`w-full py-3 rounded-lg font-semibold transition-all ${
               canSell 
-                ? 'bg-cyber-green hover:bg-cyber-green/90 text-white shadow-lg shadow-cyber-green/20' 
+                ? 'bg-cyber-green hover:bg-cyber-green/90 text-white shadow-elev-3 shadow-cyber-green/20' 
                 : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
             }`}
             disabled={!canSell}

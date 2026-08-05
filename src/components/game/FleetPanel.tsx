@@ -197,7 +197,7 @@ export function FleetPanel() {
       {/* Info */}
       <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-2.5">
         <div className="text-sm text-blue-300">
-          <div className="font-semibold mb-1.5 text-[11px]">ℹ️ Информация о флоте</div>
+          <div className="font-semibold mb-1.5 text-[11px]"><GameIcon icon="ℹ️" /> Информация о флоте</div>
           <ul className="space-y-0.5 text-[10px] text-blue-200/80">
             <li>• Корабли защищают базы от вражеских атак</li>
             <li>• Автозащита автоматически направляет корабли на защиту атакуемых платформ</li>

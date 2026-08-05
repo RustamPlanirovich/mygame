@@ -90,7 +90,7 @@ export const SignalOverlay = () => {
         
         {/* Основной сигнал */}
         <div
-          className="relative w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-2xl border-4 transition-transform hover:scale-110"
+          className="relative w-20 h-20 rounded-full flex flex-col items-center justify-center shadow-elev-3 border-4 transition-transform hover:scale-110"
           style={{ 
             backgroundColor: color,
             borderColor: 'rgba(255,255,255,0.5)',
@@ -115,7 +115,7 @@ export const SignalOverlay = () => {
 
         {/* Подсказка */}
         <div 
-          className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/90 text-white px-3 py-2 rounded-lg text-sm whitespace-nowrap shadow-xl border border-gray-600 pointer-events-none"
+          className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-black/90 text-white px-3 py-2 rounded-lg text-sm whitespace-nowrap shadow-elev-3 border border-gray-600 pointer-events-none"
         >
           <div className="font-bold mb-1">{getBoostTypeName(activeSignal.type)}</div>
           <div className="text-xs text-gray-300">
@@ -154,7 +154,7 @@ const BoostIndicator = ({ boost }: { boost: import('../../core/gameTypes').Activ
   const progress = ((boost.expiresAt - Date.now()) / (boost.expiresAt - boost.startedAt)) * 100;
 
   return (
-    <div className="bg-cyber-bg-dark border-2 border-cyber-green rounded-lg p-3 shadow-xl min-w-[200px] backdrop-blur-sm animate-slide-in-right">
+    <div className="glass rounded-md border border-edge p-3 shadow-elev-3 min-w-[200px] animate-slide-in-right">
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-cyber-green" />

@@ -47,11 +47,11 @@ const ScoreBar = memo(function ScoreBar({ label, value, icon, color }: ScoreBarP
 });
 
 function getScoreColor(score: number) {
-  if (score >= 80) return '#22c55e';
-  if (score >= 60) return '#84cc16';
-  if (score >= 40) return '#eab308';
-  if (score >= 20) return '#f97316';
-  return '#ef4444';
+  if (score >= 80) return '#3ee07f';
+  if (score >= 60) return '#a1e245';
+  if (score >= 40) return '#f1fa8c';
+  if (score >= 20) return '#f39c12';
+  return '#ff5555';
 }
 
 function getScoreLabel(score: number) {
@@ -75,7 +75,7 @@ export const EfficiencyScore = memo(function EfficiencyScore() {
         <div className="flex flex-col items-center">
           <div className="relative h-48 w-48">
             <svg className="h-full w-full -rotate-90 transform">
-              <circle cx="96" cy="96" r="80" fill="none" stroke="#1f2937" strokeWidth="16" />
+              <circle cx="96" cy="96" r="80" fill="none" stroke="#2d2f3a" strokeWidth="16" />
               <circle
                 cx="96"
                 cy="96"

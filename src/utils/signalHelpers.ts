@@ -321,16 +321,16 @@ export function getSignalIcon(type: SignalType): string {
  */
 export function getSignalColor(type: SignalType): string {
   const colors: Record<SignalType, string> = {
-    resource_cache: '#4ade80',      // green
-    production_boost: '#fbbf24',    // amber
-    research_burst: '#60a5fa',      // blue
-    energy_surge: '#a78bfa',        // purple
-    lucky_find: '#f472b6',          // pink
+    resource_cache: '#6aeda1',      // green
+    production_boost: '#ffb86c',    // amber
+    research_burst: '#a7f0ff',      // blue
+    energy_surge: '#cdaefb',        // purple
+    lucky_find: '#ff9ed6',          // pink
     time_warp: '#38bdf8',           // cyan
-    golden_comet: '#fbbf24',        // gold
+    golden_comet: '#ffb86c',        // gold
   };
   
-  return colors[type] || '#6b7280';
+  return colors[type] || '#7f849f';
 }
 
 /**

@@ -51,7 +51,7 @@ export const BUILDING_MODES: Record<BuildingMode, BuildingModeConfig> = {
     consumptionMultiplier: 1.0,
     energyMultiplier: 1.0,
     healthChangePerHour: 0,
-    color: '#3b82f6', // blue
+    color: '#8be9fd', // blue
   },
   overclock: {
     id: 'overclock',
@@ -62,7 +62,7 @@ export const BUILDING_MODES: Record<BuildingMode, BuildingModeConfig> = {
     consumptionMultiplier: 2.0,
     energyMultiplier: 1.3,
     healthChangePerHour: -10,
-    color: '#ef4444', // red
+    color: '#ff5555', // red
   },
   economy: {
     id: 'economy',
@@ -73,7 +73,7 @@ export const BUILDING_MODES: Record<BuildingMode, BuildingModeConfig> = {
     consumptionMultiplier: 0.5,
     energyMultiplier: 0.6,
     healthChangePerHour: 5,
-    color: '#22c55e', // green
+    color: '#3ee07f', // green
   },
   idle: {
     id: 'idle',
@@ -84,7 +84,7 @@ export const BUILDING_MODES: Record<BuildingMode, BuildingModeConfig> = {
     consumptionMultiplier: 0.1,
     energyMultiplier: 0.1,
     healthChangePerHour: 0,
-    color: '#6b7280', // gray
+    color: '#7f849f', // gray
   },
   maintenance: {
     id: 'maintenance',
@@ -95,7 +95,7 @@ export const BUILDING_MODES: Record<BuildingMode, BuildingModeConfig> = {
     consumptionMultiplier: 0,
     energyMultiplier: 0,
     healthChangePerHour: -1,
-    color: '#f59e0b', // amber
+    color: '#ffb86c', // amber
   },
 };
 
@@ -112,11 +112,11 @@ export type ResourcePriority = 1 | 2 | 3 | 4 | 5;
  * Описание приоритетов
  */
 export const PRIORITY_LABELS: Record<ResourcePriority, { name: string; color: string }> = {
-  1: { name: 'Очень низкий', color: '#6b7280' },
-  2: { name: 'Низкий', color: '#3b82f6' },
-  3: { name: 'Средний', color: '#22c55e' },
-  4: { name: 'Высокий', color: '#f59e0b' },
-  5: { name: 'Критический', color: '#ef4444' },
+  1: { name: 'Очень низкий', color: '#7f849f' },
+  2: { name: 'Низкий', color: '#8be9fd' },
+  3: { name: 'Средний', color: '#3ee07f' },
+  4: { name: 'Высокий', color: '#ffb86c' },
+  5: { name: 'Критический', color: '#ff5555' },
 };
 
 // ═══════════════════════════════════════════════════════════════

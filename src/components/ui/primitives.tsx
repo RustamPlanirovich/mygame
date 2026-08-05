@@ -349,7 +349,7 @@ export function Sparkline({
   }
 
   const resolved = tone ?? (geometry.rising ? 'accent' : 'danger');
-  const stroke = { accent: '#2ce8a5', danger: '#ff647f', info: '#3eb2ff' }[resolved];
+  const stroke = { accent: '#3ee07f', danger: '#ff5555', info: '#5ed8f2' }[resolved];
 
   return (
     <svg

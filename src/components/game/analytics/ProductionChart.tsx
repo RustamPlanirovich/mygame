@@ -19,18 +19,18 @@ interface ProductionChartProps {
 }
 
 const RESOURCE_COLORS: Partial<Record<ResourceType, string>> = {
-  ore: '#f59e0b',
-  ice: '#06b6d4',
-  carbon: '#6b7280',
-  steel: '#3b82f6',
-  energy: '#eab308',
-  dark_matter: '#8b5cf6',
-  natural_gas: '#22c55e',
-  oil: '#1f2937',
-  plastic: '#ec4899',
-  uranium: '#22c55e',
-  copper: '#f97316',
-  computer: '#6366f1',
+  ore: '#ffb86c',
+  ice: '#3dc5de',
+  carbon: '#7f849f',
+  steel: '#8be9fd',
+  energy: '#f1fa8c',
+  dark_matter: '#bd93f9',
+  natural_gas: '#3ee07f',
+  oil: '#2d2f3a',
+  plastic: '#ff79c6',
+  uranium: '#3ee07f',
+  copper: '#f39c12',
+  computer: '#a370ef',
 };
 
 /**
@@ -51,7 +51,7 @@ export const ProductionChart = memo(function ProductionChart({
     return toRechartsData(filtered);
   }, [resource, getFilteredHistory, history]);
 
-  const color = RESOURCE_COLORS[resource] || '#22c55e';
+  const color = RESOURCE_COLORS[resource] || '#3ee07f';
   const label = resource.replace(/_/g, ' ');
 
   if (!history || history.data.length === 0) {

@@ -1,16 +1,19 @@
-import { P } from './svgKit';
+import { P } from './palette';
 
 /**
- * Maps every emoji the game data still stores to a glyph from the futuristic
- * icon set. The emoji strings stay in the data files as stable identifiers —
- * only the *rendering* changed, so nothing about balance or saves moves.
+ * Maps every emoji the game data still stores to a Material Icons glyph.
  *
- * A value is either a glyph id, or a glyph id plus a colour override (used for
- * the coloured status dots, which share one hex-node glyph).
+ * The emoji strings stay in the data files as stable identifiers — only the
+ * *rendering* changed, so nothing about balance or saves moves.
+ *
+ * A value is either a glyph name (a Material Icons name, or one of the legacy
+ * aliases in glyphs.ts) or a glyph name plus a fixed colour. Fixed colours are
+ * reserved for marks where the colour is the message; everything else inherits
+ * the surrounding text colour, which is how the reference game does it.
  */
-export type EmojiEntry = string | { g: string; a: string; b: string };
+export type EmojiEntry = string | { g: string; c: string };
 
-const dot = (a: string, b: string) => ({ g: 'node', a, b });
+const dot = (c: string) => ({ g: 'circle', c });
 
 export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   /* ---------------------------------------------------------------- energy */
@@ -34,7 +37,7 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '🧊': 'ice',
   '🌿': 'leaf',
   '🌱': 'leaf',
-  '🌳': 'leaf',
+  '🌳': 'forest',
   '🔩': 'nut',
   '🔧': 'wrench',
   '⚙': 'gear',
@@ -51,7 +54,7 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   /* ----------------------------------------------------------- electronics */
   '💾': 'wafer',
   '💻': 'cpu',
-  '🖥': 'cpu',
+  '🖥': 'display',
   '📺': 'display',
   '📡': 'radar',
   '🧬': 'dna',
@@ -85,8 +88,8 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '🔫': 'weapon',
   '💣': 'bomb',
   '💥': 'blast',
-  '🚨': 'siren',
-  '🆘': 'siren',
+  '🚨': { g: 'siren', c: P.red },
+  '🆘': { g: 'siren', c: P.red },
 
   /* ----------------------------------------------------------------- space */
   '🚀': 'rocket',
@@ -104,7 +107,7 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '💫': 'sparkle',
   '🌟': 'starburst',
   '⭐': 'starburst',
-  '🎉': 'starburst',
+  '🎉': 'celebration',
 
   /* ------------------------------------------------------------- creatures */
   '👾': 'bug',
@@ -118,8 +121,8 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '🏴': 'skull',
   '👑': 'crown',
   '👤': 'person',
-  '🐂': 'bull',
-  '🐻': 'bear',
+  '🐂': { g: 'bull', c: P.green },
+  '🐻': { g: 'bear', c: P.red },
   '🐋': 'whale',
 
   /* --------------------------------------------------------------- economy */
@@ -127,9 +130,9 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '💵': 'cash',
   '💳': 'card',
   '💎': 'gem',
-  '💹': 'chartUp',
-  '📈': 'chartUp',
-  '📉': 'chartDown',
+  '💹': { g: 'chartUp', c: P.green },
+  '📈': { g: 'chartUp', c: P.green },
+  '📉': { g: 'chartDown', c: P.red },
   '📊': 'chartBars',
   '💱': 'exchange',
   '⚖': 'scale',
@@ -165,7 +168,7 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '📜': 'scroll',
   '📰': 'news',
   '📋': 'clipboard',
-  '📝': 'clipboard',
+  '📝': 'edit',
   '📐': 'ruler',
   '🔢': 'numbers',
   '🎓': 'graduate',
@@ -183,14 +186,14 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '🎩': 'garment',
   '👓': 'glasses',
   '🥽': 'vr',
-  '🏆': 'trophy',
-  '🥇': 'medal',
-  '🥈': 'medal',
-  '🥉': 'medal',
+  '🏆': { g: 'trophy', c: P.orange },
+  '🥇': { g: 'medal', c: P.yellow },
+  '🥈': { g: 'medal', c: P.grey },
+  '🥉': { g: 'medal', c: P.orange },
   '🎁': 'gift',
-  '❤': 'heart',
+  '❤': { g: 'heart', c: P.red },
   '☮': 'peace',
-  '🍀': 'clover',
+  '🍀': { g: 'clover', c: P.green },
   '⚜': 'fleur',
   '♾': 'infinity',
 
@@ -216,15 +219,16 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '💤': 'sleep',
 
   /* ---------------------------------------------------------------- status */
-  '✅': 'check',
-  '✓': 'check',
-  '❌': 'cross',
-  '✗': 'cross',
-  '✕': 'cross',
-  '⚠': 'warning',
-  '🚫': 'ban',
-  '🛑': 'stop',
+  '✅': { g: 'check', c: P.green },
+  '✓': { g: 'check', c: P.green },
+  '❌': { g: 'cross', c: P.red },
+  '✗': { g: 'cross', c: P.red },
+  '✕': 'close',
+  '⚠': { g: 'warning', c: P.orange },
+  '🚫': { g: 'ban', c: P.red },
+  '🛑': { g: 'stop', c: P.red },
   '❓': 'question',
+  'ℹ': 'info',
   '⏸': 'pause',
   '▶': 'play',
   '⏩': 'fastForward',
@@ -243,29 +247,30 @@ export const EMOJI_GLYPH: Record<string, EmojiEntry> = {
   '↑': 'arrowUp',
   '⬆': 'arrowUp',
   '↓': 'arrowDown',
-  '▲': 'triangleUp',
-  '▼': 'triangleDown',
+  '▲': { g: 'triangleUp', c: P.green },
+  '▼': { g: 'triangleDown', c: P.red },
   '➕': 'plus',
 
   /* --------------------------------------------- coloured status indicators */
-  '🟢': dot(P.mint, P.mintDeep),
-  '🔴': dot(P.rose, P.roseDeep),
-  '🟡': dot(P.gold, P.goldDeep),
-  '🟠': dot(P.amber, P.amberDeep),
-  '🔵': dot(P.azure, P.azureDeep),
-  '🔹': dot(P.azure, P.azureDeep),
-  '🔷': dot(P.azure, P.azureDeep),
-  '🔶': dot(P.amber, P.amberDeep),
-  '⚪': dot(P.steel, P.steelDeep),
-  '⚫': dot(P.inkDeep, P.ink),
-  '⬜': dot(P.steel, P.steelDeep),
+  '🟢': dot(P.green),
+  '🔴': dot(P.red),
+  '🟡': dot(P.yellow),
+  '🟠': dot(P.orange),
+  '🔵': dot(P.blue),
+  '🔹': dot(P.blue),
+  '🔷': dot(P.blue),
+  '🔶': dot(P.orange),
+  '⚪': dot(P.white),
+  '⚫': dot(P.dark),
+  '⬜': dot(P.grey),
   '⬡': 'hex',
   '○': 'hex',
 };
 
 /**
  * Semantic aliases so new code can ask for an icon by name instead of pasting
- * an emoji: <GameIcon icon="energy" />.
+ * an emoji: <GameIcon icon="energy" />. Any Material Icons name from glyphs.ts
+ * also works directly.
  */
 export const NAMED_GLYPH: Record<string, string> = {
   energy: 'bolt',

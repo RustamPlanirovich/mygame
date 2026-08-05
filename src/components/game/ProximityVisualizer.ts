@@ -10,11 +10,11 @@ import { evaluatePlacementQuality } from '../../utils/proximityHelpers';
 
 // Цвета для разных качеств размещения
 const QUALITY_COLORS = {
-  optimal: 0x00ff00,    // Ярко-зеленый
-  good: 0x90ee90,       // Светло-зеленый
-  neutral: 0xaaaaaa,    // Серый
-  warning: 0xffaa00,    // Оранжевый
-  critical: 0xff0000,   // Красный
+  optimal: THEME_COLORS.cyberGreen,
+  good: 0x9bf4c0,
+  neutral: 0xa6aabd,
+  warning: THEME_COLORS.cyberYellow,
+  critical: THEME_COLORS.cyberRed,
 };
 
 const QUALITY_ALPHA = {
@@ -34,7 +34,7 @@ export function drawProximityRadius(
   y: number,
   radius: number,
   cellSize: number,
-  color: number = 0x00ffff,
+  color: number = THEME_COLORS.cyberBlue,
   alpha: number = 0.2
 ) {
   graphics.lineStyle(2, color, alpha * 1.5);
@@ -182,16 +182,16 @@ export function visualizeAllProximityRadii(
     const centerY = y * (cellSize + gap) + cellSize / 2;
     
     // Разные цвета для разных типов правил
-    let color = 0x00ffff; // Cyan по умолчанию
+    let color: number = THEME_COLORS.cyberBlue;
     const hasBonuses = building.proximityRules.some(r => r.type === 'bonus');
     const hasPenalties = building.proximityRules.some(r => r.type === 'penalty');
     
     if (hasBonuses && !hasPenalties) {
-      color = 0x00ff00; // Зеленый для бонусов
+      color = THEME_COLORS.cyberGreen;
     } else if (hasPenalties && !hasBonuses) {
-      color = 0xff0000; // Красный для штрафов
+      color = THEME_COLORS.cyberRed;
     } else if (hasBonuses && hasPenalties) {
-      color = 0xffaa00; // Оранжевый для смешанных
+      color = THEME_COLORS.cyberYellow;
     }
     
     drawProximityRadius(graphics, centerX, centerY, maxRadius, cellSize, color, 0.15);
@@ -218,7 +218,7 @@ export function createProximityTooltip(
   
   // Фон tooltip
   const bg = new PIXI.Graphics();
-  bg.beginFill(0x000000, 0.8);
+  bg.beginFill(THEME_COLORS.surface, 0.95);
   bg.drawRoundedRect(0, 0, 200, 100, 5);
   bg.endFill();
   
@@ -228,7 +228,7 @@ export function createProximityTooltip(
     `Множитель: ${(evaluation.multiplier * 100).toFixed(0)}%\n` +
     evaluation.warnings.join('\n'),
     new PIXI.TextStyle({
-      fill: 0xffffff,
+      fill: THEME_COLORS.cyberText,
       fontSize: 10,
       fontFamily: 'Arial, sans-serif',
       wordWrap: true,

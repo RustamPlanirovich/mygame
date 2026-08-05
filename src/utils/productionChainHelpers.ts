@@ -326,10 +326,10 @@ function getResourceName(resource: ResourceType): string {
  * Получает цвет для визуализации эффективности
  */
 export function getEfficiencyColor(efficiency: number): string {
-  if (efficiency >= 0.9) return '#4ade80'; // green
-  if (efficiency >= 0.7) return '#fbbf24'; // amber
-  if (efficiency >= 0.5) return '#fb923c'; // orange
-  return '#ef4444'; // red
+  if (efficiency >= 0.9) return '#6aeda1'; // green
+  if (efficiency >= 0.7) return '#ffb86c'; // amber
+  if (efficiency >= 0.5) return '#fca62f'; // orange
+  return '#ff5555'; // red
 }
 
 /**
@@ -349,15 +349,15 @@ export function getChainStatus(chain: ProductionChain): {
   color: string;
 } {
   if (chain.efficiency >= 0.9) {
-    return { label: 'Отлично', color: '#4ade80' };
+    return { label: 'Отлично', color: '#6aeda1' };
   }
   if (chain.efficiency >= 0.7) {
-    return { label: 'Хорошо', color: '#fbbf24' };
+    return { label: 'Хорошо', color: '#ffb86c' };
   }
   if (chain.efficiency >= 0.5) {
-    return { label: 'Удовлетворительно', color: '#fb923c' };
+    return { label: 'Удовлетворительно', color: '#fca62f' };
   }
-  return { label: 'Плохо', color: '#ef4444' };
+  return { label: 'Плохо', color: '#ff5555' };
 }
 
 /**

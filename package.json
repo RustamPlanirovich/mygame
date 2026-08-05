@@ -33,6 +33,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@material-design-icons/svg": "^0.14.15",
     "@types/node": "^25.0.3",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",

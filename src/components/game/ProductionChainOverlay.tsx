@@ -240,7 +240,7 @@ const PinnedChainCard = memo(({
   return (
     <div 
       className={`
-        bg-cyber-dark/95 backdrop-blur-sm border rounded-lg shadow-lg flex flex-col flex-1 min-h-0
+        bg-cyber-dark/95 border rounded-lg shadow-elev-3 flex flex-col flex-1 min-h-0
         ${stats.allComplete ? 'border-green-500/50' : 'border-cyber-blue/50'}
         transition-all duration-200
       `}
@@ -580,7 +580,7 @@ export function ProductionChainOverlay({ buildings }: ProductionChainOverlayProp
       }}
     >
       {/* Заголовок оверлея с хендлером для перетаскивания */}
-      <div className="flex items-center justify-between bg-cyber-dark/90 backdrop-blur-sm border border-cyber-gray/50 rounded-t-lg px-2 py-1">
+      <div className="flex items-center justify-between bg-cyber-dark/90 border border-cyber-gray/50 rounded-t-lg px-2 py-1">
         {/* Хендлер перетаскивания */}
         <div 
           className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing select-none"
@@ -625,7 +625,7 @@ export function ProductionChainOverlay({ buildings }: ProductionChainOverlayProp
       {/* Список закреплённых цепочек */}
       {!isCollapsed && (
         <div 
-          className="flex flex-col gap-2 bg-cyber-dark/80 backdrop-blur-sm border-x border-b border-cyber-gray/50 rounded-b-lg p-2 overflow-hidden"
+          className="flex flex-col gap-2 bg-cyber-dark/80 border-x border-b border-cyber-gray/50 rounded-b-lg p-2 overflow-hidden"
           style={{ height: size.height, minHeight: MIN_HEIGHT }}
         >
           {pinnedChains.map((pinned) => {

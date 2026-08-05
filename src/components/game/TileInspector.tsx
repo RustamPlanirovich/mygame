@@ -386,7 +386,7 @@ export function TileInspector() {
             </div>
 
             <div className="bg-cyber-dark/60 p-2 rounded border border-cyber-blue/30">
-              <div className="text-xs text-cyber-text-dim mb-1">ℹ️ Что это такое?</div>
+              <div className="text-xs text-cyber-text-dim mb-1"><GameIcon icon="ℹ️" /> Что это такое?</div>
               <div className="text-[10px] text-cyber-gray-light leading-relaxed">
                 <strong className="text-cyber-text">База</strong> — центральное хранилище всех ресурсов.<br/>
                 • Все произведённые ресурсы стекаются сюда<br/>
@@ -1042,7 +1042,7 @@ export function TileInspector() {
             <div className="pt-2 border-t border-cyber-gray/50">
                 <div className="text-xs text-cyber-text-dim mb-2">Локальный буфер клетки</div>
                 <div className="text-[10px] text-cyber-gray-light mb-2 italic">
-                  ℹ️ Все ресурсы автоматически отправляются на базу<br/>
+                  <GameIcon icon="ℹ️" /> Все ресурсы автоматически отправляются на базу<br/>
                   <GameIcon icon="🔄" /> Здесь показан рабочий буфер (10 секунд производства)
                 </div>
                 <div className="space-y-1.5">

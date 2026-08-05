@@ -1,56 +1,25 @@
 import * as PIXI from 'pixi.js';
-import { isValidElement, type ReactNode } from 'react';
 import { resolveGlyph } from './GameIcon';
 
 /* ==========================================================================
    The factory grid draws on a PixiJS canvas, so it cannot mount <GameIcon>.
-   Rather than keep a second copy of the artwork, the glyphs (plain React
-   elements over intrinsic SVG tags) are serialised back to SVG markup and
-   rasterised once into a texture cache.
+   Rather than keep a second copy of the artwork, the glyph path is wrapped in
+   a standalone SVG document and rasterised once into a texture cache.
+
+   Textures are rasterised WHITE so callers can recolour them with `sprite.tint`
+   (a tint multiplies, so any baked-in colour would fight it).
    ========================================================================== */
 
 /** Rasterisation size. Tiles draw at ~24-32px, so 96 stays crisp when zoomed. */
 const RASTER = 96;
 
-const camelToKebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-
-const escapeAttr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-
-/** Serialises a glyph's React element tree into SVG markup. */
-function serialize(node: ReactNode, a: string, b: string): string {
-  if (node == null || node === false || node === true) return '';
-  if (Array.isArray(node)) return node.map((n) => serialize(n, a, b)).join('');
-  if (!isValidElement(node)) return '';
-
-  const props = node.props as Record<string, unknown>;
-  const children = serialize(props.children as ReactNode, a, b);
-
-  // Fragments and anything non-intrinsic contribute only their children.
-  if (typeof node.type !== 'string') return children;
-
-  const attrs: string[] = [];
-  for (const [key, raw] of Object.entries(props)) {
-    if (key === 'children' || raw == null) continue;
-    let value = String(raw);
-    // Data-URI SVG has no CSS cascade, so the duotone slots are baked in.
-    value = value.replace(/currentColor/g, a).replace(/var\(--gi-2\)/g, b);
-    attrs.push(`${camelToKebab(key)}="${escapeAttr(value)}"`);
-  }
-
-  const open = `<${node.type}${attrs.length ? ' ' + attrs.join(' ') : ''}`;
-  return children ? `${open}>${children}</${node.type}>` : `${open}/>`;
-}
-
-/** Full standalone SVG document for one icon. */
+/** Full standalone SVG document for one icon, painted white. */
 export function glyphToSvg(icon: string): string | null {
   const resolved = resolveGlyph(icon);
   if (!resolved) return null;
-  const { def, a, b } = resolved;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${RASTER}" height="${RASTER}" ` +
-    `fill="none" stroke="${a}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
-    serialize(def.d, a, b) +
-    '</svg>'
+    `fill="#ffffff"><path d="${resolved.d}"/></svg>`
   );
 }
 

@@ -72,46 +72,42 @@ export const AuthForm = () => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg p-8 max-w-md w-full mx-4">
-        <h2 className="text-2xl font-bold text-cyan-400 mb-6 text-center">
+    <div className="modal-backdrop z-50 flex items-center justify-center">
+      <div className="panel z-50 mx-4 w-full max-w-sm p-6">
+        <h2 className="mb-5 text-center text-lg font-semibold">
           {mode === 'login' ? 'Вход' : 'Регистрация'}
         </h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-gray-300 mb-2">Email</label>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <label className="block">
+            <span className="stat-label mb-1 block">Email</span>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
+              className="w-full px-2.5 py-1.5 text-sm"
               required
             />
-          </div>
+          </label>
 
-          <div>
-            <label className="block text-gray-300 mb-2">Пароль</label>
+          <label className="block">
+            <span className="stat-label mb-1 block">Пароль</span>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
+              className="w-full px-2.5 py-1.5 text-sm"
               required
             />
-          </div>
+          </label>
 
           {error && (
-            <div className="bg-red-900/50 border border-red-500 text-red-200 px-3 py-2 rounded">
+            <div className="rounded border border-danger/20 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">
               {error}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors"
-          >
+          <button type="submit" disabled={loading} className="btn-primary btn-block mt-1">
             {loading ? 'Загрузка...' : mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
           </button>
 
@@ -121,7 +117,7 @@ export const AuthForm = () => {
               setMode(mode === 'login' ? 'register' : 'login');
               setError('');
             }}
-            className="w-full text-cyan-400 hover:text-cyan-300 text-sm"
+            className="w-full text-xs text-content-muted transition-colors hover:text-content-primary"
           >
             {mode === 'login' ? 'Нет аккаунта? Зарегистрируйтесь' : 'Уже есть аккаунт? Войдите'}
           </button>

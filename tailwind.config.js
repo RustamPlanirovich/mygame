@@ -1,112 +1,121 @@
 /** @type {import('tailwindcss').Config} */
 
 /*
- * DESIGN SYSTEM
- * -------------
+ * DESIGN SYSTEM — Industry Idle dark
+ * ----------------------------------
+ * Modelled on https://play.industryidle.com (Dracula/Monokai themes): a soft
+ * charcoal base rather than near-black, panels that sit *lighter* than the map,
+ * hairline borders at ~10% of the foreground, 5px radii, and no glow anywhere.
+ * Depth is read from the surface step alone — that is what keeps a dense idle-game
+ * UI legible instead of noisy.
+ *
  * The codebase mixes two palettes: ~1500 uses of `cyber-*` tokens and ~2450 uses of
  * stock Tailwind families (730 gray, 346 slate, plus 14 more). Rather than rewrite
  * every component by hand, the stock families are retuned to one harmonised ramp so
  * existing markup lands inside the design system automatically.
  *
  * Rules:
- *  - `gray`/`slate`/`zinc`/`neutral`/`stone` all alias one blue-shifted neutral ramp (`ink`).
- *  - accent families keep their Tailwind names but are retuned to a consistent
- *    saturation/lightness curve so nothing clashes.
- *  - every `cyber-*` name that appears anywhere in src/ is defined here, including the
- *    four that were referenced but never defined (border/muted/accent/bg-dark).
+ *  - `gray`/`slate`/`zinc`/`neutral`/`stone` all alias one neutral ramp (`ink`).
+ *  - accent families keep their Tailwind names but are retuned to Dracula hues plus
+ *    the flat red/green/orange Industry Idle uses for its own states.
+ *  - every `cyber-*` name that appears anywhere in src/ is defined here.
  */
 
-// Neutral ink ramp — cool, slightly blue, never pure black (pure black crushes detail
-// and makes elevation impossible to read).
+// Neutral ink ramp. Built around Dracula's #282a36 background and #f8f8f2
+// foreground — the palette Industry Idle's dark themes ship with. Never pure
+// black: pure black crushes detail and makes elevation impossible to read.
 const ink = {
-  50: '#eef1f7',
-  100: '#d7dce7',
-  200: '#b3bccd',
-  300: '#8b96ac',
-  400: '#66718a',
-  500: '#4a5468',
-  600: '#353d4e',
-  700: '#272e3c',
-  750: '#202632',
-  800: '#1a1f29',
-  850: '#141821',
-  900: '#0f131b',
-  925: '#0b0e15',
-  950: '#070910',
+  50: '#f8f8f2', // foreground
+  100: '#e4e5ea',
+  200: '#cbcdd8', // secondary text
+  300: '#a6aabd', // muted text
+  400: '#7f849f', // faint text
+  500: '#6272a4', // Dracula "comment"
+  600: '#4d5064', // strong edge
+  700: '#3d3f4e', // edge / raised
+  750: '#383a48', // surface 4 (hover)
+  800: '#33353f', // surface 3 (card)
+  850: '#2d2f3a', // surface 2 (panel)
+  900: '#282a36', // Dracula background — the map surface
+  925: '#242630', // surface 1
+  950: '#1e1f28', // page backdrop
 };
 
-// Mint-emerald primary. Toned down from the original acid #00ff9d, which reads as a
-// 1999 terminal rather than a modern game UI.
+// Primary accent. Dracula green softened towards Industry Idle's own #2ecc71 so
+// it holds up as a fill colour behind dark text.
 const mint = {
-  50: '#e6fff5',
-  100: '#c2ffe8',
-  200: '#8dfdd3',
-  300: '#55f5bb',
-  400: '#2ce8a5',
-  500: '#12cf8c',
-  600: '#06a771',
-  700: '#07835b',
-  800: '#0a6749',
-  900: '#0a553d',
-  950: '#01301f',
+  50: '#eafdf1',
+  100: '#c9fadd',
+  200: '#9bf4c0',
+  300: '#6aeda1',
+  400: '#3ee07f',
+  500: '#2ecc71',
+  600: '#22a75c',
+  700: '#1c8449',
+  800: '#19693c',
+  900: '#165633',
+  950: '#07301a',
 };
 
-// Sky/azure secondary.
+// Informational cyan — Dracula #8be9fd, plus the #3dc5de the reference game uses
+// for its own loading bar.
 const azure = {
-  50: '#ecf7ff',
-  100: '#d3edff',
-  200: '#b0e0ff',
-  300: '#7bceff',
-  400: '#3eb2ff',
-  500: '#1691f5',
-  600: '#0872d2',
-  700: '#0a5aa9',
-  800: '#0e4c8b',
-  900: '#124073',
-  950: '#0c2849',
+  50: '#effcff',
+  100: '#d6f7ff',
+  200: '#b3f0ff',
+  300: '#8be9fd',
+  400: '#5ed8f2',
+  500: '#3dc5de',
+  600: '#249fb9',
+  700: '#1e7e93',
+  800: '#1d6678',
+  900: '#1c5563',
+  950: '#0b3341',
 };
 
-// Rose danger (replaces the fully-saturated #ff0055).
+// Danger — Dracula #ff5555 over Industry Idle's #e74c3c.
 const rose = {
-  50: '#fff1f3',
-  100: '#ffe0e5',
-  200: '#ffc6cf',
-  300: '#ff9dad',
-  400: '#ff647f',
-  500: '#f93b5c',
-  600: '#e61a43',
-  700: '#c11038',
-  800: '#a11136',
-  900: '#8a1134',
-  950: '#4d0417',
+  50: '#fff1f0',
+  100: '#ffdedb',
+  200: '#ffc0bc',
+  300: '#ff918c',
+  400: '#ff5555',
+  500: '#e74c3c',
+  600: '#c93a2c',
+  700: '#a53025',
+  800: '#872a22',
+  900: '#702622',
+  950: '#3d100c',
 };
 
+// Warning — Dracula #ffb86c over Industry Idle's #f39c12.
 const amber = {
-  50: '#fffaeb',
-  100: '#fff1c6',
-  200: '#ffe088',
-  300: '#ffc94a',
-  400: '#ffb31f',
-  500: '#f99207',
-  600: '#dd6b02',
-  700: '#b74b06',
-  800: '#943a0c',
-  900: '#7a300d',
-  950: '#461702',
+  50: '#fff9ee',
+  100: '#ffefd2',
+  200: '#ffdda5',
+  300: '#ffb86c',
+  400: '#fca62f',
+  500: '#f39c12',
+  600: '#d17f0b',
+  700: '#a8610c',
+  800: '#894e11',
+  900: '#714111',
+  950: '#412106',
 };
 
+// Special / prestige — Dracula purple #bd93f9.
 const violet = {
-  50: '#f4f2ff',
-  100: '#ebe7ff',
-  200: '#d9d2ff',
-  300: '#bdaeff',
-  400: '#9d80ff',
-  500: '#8250fc',
-  600: '#742ef3',
-  700: '#651cdf',
-  800: '#5419bb',
-  900: '#471899',
-  950: '#2a0c68',
+  50: '#f7f2ff',
+  100: '#efe5ff',
+  200: '#dfcdff',
+  300: '#cdaefb',
+  400: '#bd93f9',
+  500: '#a370ef',
+  600: '#8b4fe0',
+  700: '#743cc4',
+  800: '#6033a0',
+  900: '#4f2d81',
+  950: '#301656',
 };
 
 export default {
@@ -199,11 +208,13 @@ export default {
           4: ink[750],
           raised: ink[700],
         },
+        // Industry Idle draws every divider as `rgba(foreground, 0.1)`; these are
+        // the opaque equivalents over the panel surfaces plus the raw alpha form.
         edge: {
-          subtle: 'rgb(255 255 255 / 0.06)',
+          subtle: 'rgb(248 248 242 / 0.07)',
           DEFAULT: ink[700],
           strong: ink[600],
-          accent: 'rgb(44 232 165 / 0.35)',
+          accent: 'rgb(62 224 127 / 0.35)',
         },
         content: {
           primary: ink[50],
@@ -216,12 +227,12 @@ export default {
           DEFAULT: mint[400],
           hover: mint[300],
           press: mint[500],
-          soft: 'rgb(44 232 165 / 0.12)',
+          soft: 'rgb(62 224 127 / 0.12)',
         },
-        info: { DEFAULT: azure[400], soft: 'rgb(62 178 255 / 0.12)' },
-        success: { DEFAULT: mint[400], soft: 'rgb(44 232 165 / 0.12)' },
-        warning: { DEFAULT: amber[300], soft: 'rgb(255 201 74 / 0.12)' },
-        danger: { DEFAULT: rose[400], soft: 'rgb(255 100 127 / 0.12)' },
+        info: { DEFAULT: azure[400], soft: 'rgb(94 216 242 / 0.12)' },
+        success: { DEFAULT: mint[400], soft: 'rgb(62 224 127 / 0.12)' },
+        warning: { DEFAULT: amber[300], soft: 'rgb(255 184 108 / 0.12)' },
+        danger: { DEFAULT: rose[400], soft: 'rgb(255 85 85 / 0.12)' },
       },
 
       fontFamily: {
@@ -271,35 +282,37 @@ export default {
         base: ['0.9375rem', { lineHeight: '1.5rem' }], // 15px
       },
 
+      // Industry Idle rounds boxes and buttons at 5px and dialogs at 10px. Small,
+      // consistent radii are a large part of why its dense panels read as one sheet
+      // rather than a pile of pills.
       borderRadius: {
-        DEFAULT: '0.375rem',
-        md: '0.5rem',
-        lg: '0.625rem',
-        xl: '0.875rem',
-        '2xl': '1.125rem',
+        DEFAULT: '4px',
+        md: '5px',
+        lg: '5px',
+        xl: '6px',
+        '2xl': '10px',
       },
 
       boxShadow: {
-        // Depth comes from a layered ambient shadow plus a 1px inner top highlight,
-        // which is what makes a dark UI feel physical rather than flat.
-        'elev-1': '0 1px 2px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.04)',
-        'elev-2':
-          '0 2px 6px rgb(0 0 0 / 0.4), 0 1px 2px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05)',
-        'elev-3':
-          '0 8px 24px -6px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.06)',
-        'elev-4':
-          '0 20px 48px -12px rgb(0 0 0 / 0.7), 0 4px 12px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.07)',
-        'glow-accent': '0 0 0 1px rgb(44 232 165 / 0.35), 0 0 18px -2px rgb(44 232 165 / 0.35)',
-        'glow-info': '0 0 0 1px rgb(62 178 255 / 0.35), 0 0 18px -2px rgb(62 178 255 / 0.35)',
-        'glow-danger': '0 0 0 1px rgb(255 100 127 / 0.35), 0 0 18px -2px rgb(255 100 127 / 0.35)',
-        'inner-top': 'inset 0 1px 0 rgb(255 255 255 / 0.06)',
+        // The reference UI is flat: panels separate by surface step and hairline
+        // border, not by shadow. Only things that genuinely float — the side panel,
+        // dialogs, popovers — cast one, and it is a plain ambient drop with no
+        // inner highlight.
+        'elev-1': 'none',
+        'elev-2': 'none',
+        'elev-3': '0 0 10px rgb(0 0 0 / 0.5)',
+        'elev-4': '0 0 24px rgb(0 0 0 / 0.6)',
+        // Kept as names so old markup still compiles, but reduced to a flat ring.
+        'glow-accent': '0 0 0 1px rgb(62 224 127 / 0.45)',
+        'glow-info': '0 0 0 1px rgb(94 216 242 / 0.45)',
+        'glow-danger': '0 0 0 1px rgb(255 85 85 / 0.45)',
+        'inner-top': 'none',
       },
 
       backgroundImage: {
-        'grid-fade': 'linear-gradient(to bottom, rgb(255 255 255 / 0.03), transparent 60%)',
-        'accent-sheen':
-          'linear-gradient(135deg, rgb(44 232 165 / 0.16), rgb(62 178 255 / 0.08) 55%, transparent)',
-        'danger-sheen': 'linear-gradient(135deg, rgb(255 100 127 / 0.16), transparent)',
+        'grid-fade': 'linear-gradient(to bottom, rgb(248 248 242 / 0.03), transparent 60%)',
+        'accent-sheen': 'linear-gradient(180deg, rgb(62 224 127 / 0.14), rgb(62 224 127 / 0.06))',
+        'danger-sheen': 'linear-gradient(180deg, rgb(255 85 85 / 0.14), rgb(255 85 85 / 0.06))',
       },
 
       transitionTimingFunction: {
@@ -322,10 +335,8 @@ export default {
           to: { opacity: '1', transform: 'scale(1)' },
         },
         'pulse-glow': {
-          '0%, 100%': { boxShadow: '0 0 0 1px rgb(44 232 165 / 0.25)' },
-          '50%': {
-            boxShadow: '0 0 0 1px rgb(44 232 165 / 0.5), 0 0 20px -2px rgb(44 232 165 / 0.45)',
-          },
+          '0%, 100%': { boxShadow: '0 0 0 1px rgb(62 224 127 / 0.25)' },
+          '50%': { boxShadow: '0 0 0 1px rgb(62 224 127 / 0.7)' },
         },
         shimmer: { '100%': { transform: 'translateX(100%)' } },
         countdown: { from: { width: '100%' }, to: { width: '0%' } },

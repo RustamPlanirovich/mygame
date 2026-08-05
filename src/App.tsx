@@ -30,7 +30,7 @@ import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
 import { isAuthenticated, getCurrentSession, getCurrentSlotId, loadSettingsFromServer } from './utils/settingsApi';
 import type { GameSettings } from './core/gameTypes.settings';
 import { AdminPanel, AnnouncementBanner } from './components/admin';
-import { Modal, PanelBoundary } from './components/ui';
+import { GameIcon, Modal, PanelBoundary } from './components/ui';
 import type { AdminRole } from './utils/adminApi';
 import { Menu, X, ChevronLeft, ChevronRight, Map, Shield } from 'lucide-react';
 
@@ -397,7 +397,7 @@ function App() {
             }`}>
             <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
               <div>
-                <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
+                <h1 className="flex items-center gap-1.5 text-base font-bold text-cyber-green"><GameIcon icon="🏭" /> Фабрика</h1>
                 <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
               </div>
               <div className="flex items-center gap-2">
@@ -443,7 +443,7 @@ function App() {
         <aside className="w-[420px] shrink-0 border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden">
           <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
             <div>
-              <h1 className="text-base font-bold text-cyber-green">🏭 Фабрика</h1>
+              <h1 className="flex items-center gap-1.5 text-base font-bold text-cyber-green"><GameIcon icon="🏭" /> Фабрика</h1>
               <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
             </div>
             <div className="flex items-center gap-1">

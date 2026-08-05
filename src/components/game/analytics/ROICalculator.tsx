@@ -40,7 +40,7 @@ const ROITableRow = memo(function ROITableRow({ roi, isExpanded, onToggle }: {
   onToggle: () => void;
 }) {
   const roiColor = getROIColor(roi.currentROI);
-  const profitColor = D(roi.netProfitPerSec).gte(0) ? '#22c55e' : '#ef4444';
+  const profitColor = D(roi.netProfitPerSec).gte(0) ? '#3ee07f' : '#ff5555';
   const energyVal = D(roi.energyConsumption);
 
   return (

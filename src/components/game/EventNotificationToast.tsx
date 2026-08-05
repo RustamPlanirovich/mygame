@@ -66,7 +66,7 @@ export function EventNotificationToast() {
       {notifications.map(notif => (
         <div
           key={notif.id}
-          className="bg-gradient-to-r from-yellow-900/90 to-orange-900/90 backdrop-blur-sm border-2 border-yellow-500 rounded-lg shadow-2xl p-4 animate-slide-in-right"
+          className="glass rounded-md border-l-2 border-warning border-y border-r border-y-edge border-r-edge shadow-elev-3 p-4 animate-slide-in-right"
         >
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">

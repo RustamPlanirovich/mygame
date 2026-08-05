@@ -227,7 +227,7 @@ function AIAdvisorImpl() {
         {/* Тарифы */}
         <div className="grid grid-cols-2 gap-4">
           {/* Базовый */}
-          <div className="card border-2 border-blue-500">
+          <div className="card border border-blue-500">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl"><GameIcon icon="📊" /></span>
               <h4 className="font-bold">Базовый</h4>
@@ -260,7 +260,7 @@ function AIAdvisorImpl() {
           </div>
 
           {/* Премиум */}
-          <div className="card border-2 border-purple-500">
+          <div className="card border border-purple-500">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl"><GameIcon icon="🚀" /></span>
               <h4 className="font-bold">Премиум</h4>

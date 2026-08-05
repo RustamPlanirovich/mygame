@@ -152,7 +152,7 @@ export function MapSelector({
                     onClick={() => setSelectedMapId(map.id)}
                     className={`p-3 rounded-lg text-left transition-all ${
                       isSelected
-                        ? 'bg-cyber-blue/20 border-2 border-cyber-blue'
+                        ? 'bg-cyber-blue/20 border border-cyber-blue'
                         : isUnlocked
                         ? 'bg-cyber-gray/10 border border-cyber-gray/30 hover:border-cyber-blue/50'
                         : 'bg-cyber-gray/5 border border-cyber-gray/20 opacity-60'

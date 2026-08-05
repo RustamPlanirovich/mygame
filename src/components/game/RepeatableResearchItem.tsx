@@ -36,11 +36,11 @@ export const RepeatableResearchItem: React.FC<RepeatableResearchItemProps> = ({
     <div
       className={`
         repeatable-research-item
-        bg-gray-800/50 backdrop-blur-sm
+        bg-gray-800/50
         border border-gray-700
         rounded-lg p-4 space-y-3
         transition-all duration-200
-        ${canAfford && !isMaxLevel ? 'hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/20' : ''}
+        ${canAfford && !isMaxLevel ? 'hover:border-cyan-500 hover:shadow-elev-3 hover:shadow-cyan-500/20' : ''}
         ${isMaxLevel ? 'opacity-75' : ''}
       `}
     >
@@ -126,7 +126,7 @@ export const RepeatableResearchItem: React.FC<RepeatableResearchItemProps> = ({
           ${isMaxLevel
             ? 'bg-green-600/50 text-green-200 cursor-not-allowed'
             : canAfford
-            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 hover:shadow-lg'
+            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 hover:shadow-elev-3'
             : 'bg-gray-700 text-gray-400 cursor-not-allowed'
           }
         `}

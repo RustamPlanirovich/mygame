@@ -132,7 +132,7 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
         <div className="flex items-center gap-2">
           <span
             className="h-3 w-3 rounded-full"
-            style={{ backgroundColor: settings.enabled ? currentMode.color : '#6b7280' }}
+            style={{ backgroundColor: settings.enabled ? currentMode.color : '#7f849f' }}
           />
           <span className="text-sm">
             {settings.enabled ? currentMode.name : 'Отключено'}
@@ -153,7 +153,7 @@ export function BuildingSettingsPanel({ tileKey, onClose }: BuildingSettingsPane
               className="meter-fill"
               style={{
                 width: `${settings.health}%`,
-                backgroundColor: settings.health > 70 ? '#22c55e' : settings.health > 30 ? '#f59e0b' : '#ef4444'
+                backgroundColor: settings.health > 70 ? '#3ee07f' : settings.health > 30 ? '#ffb86c' : '#ff5555'
               }}
             />
           </div>
@@ -309,7 +309,7 @@ function PriorityTab({
               onClick={() => onOutputPriorityChange(p)}
               className={`flex-1 py-3 rounded-lg border transition-all ${
                 settings.outputPriority === p
-                  ? 'border-2'
+                  ? 'border'
                   : 'border-cyber-border hover:border-cyber-blue/50'
               }`}
               style={{ 

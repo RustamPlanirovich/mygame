@@ -283,7 +283,7 @@ const ResourceNode = ({
           <div className="text-cyber-text-dim">Баланс</div>
           <div 
             className="font-medium"
-            style={{ color: node.balance.gte(0) ? '#4ade80' : '#ef4444' }}
+            style={{ color: node.balance.gte(0) ? '#6aeda1' : '#ff5555' }}
           >
             {formatBalance(node.balance)}
           </div>

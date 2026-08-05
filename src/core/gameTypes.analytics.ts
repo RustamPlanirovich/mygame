@@ -313,10 +313,10 @@ export interface AnalyticsReport {
  */
 export function getSeverityColor(severity: BottleneckSeverity): string {
   switch (severity) {
-    case 'low': return '#22c55e';      // green-500
-    case 'medium': return '#eab308';   // yellow-500
-    case 'high': return '#f97316';     // orange-500
-    case 'critical': return '#ef4444'; // red-500
+    case 'low': return '#3ee07f';      // green-500
+    case 'medium': return '#f1fa8c';   // yellow-500
+    case 'high': return '#f39c12';     // orange-500
+    case 'critical': return '#ff5555'; // red-500
   }
 }
 
@@ -325,11 +325,11 @@ export function getSeverityColor(severity: BottleneckSeverity): string {
  */
 export function getProfitabilityColor(level: ProfitabilityLevel): string {
   switch (level) {
-    case 'excellent': return '#22c55e';  // green-500
-    case 'good': return '#84cc16';       // lime-500
-    case 'average': return '#eab308';    // yellow-500
-    case 'poor': return '#f97316';       // orange-500
-    case 'negative': return '#ef4444';   // red-500
+    case 'excellent': return '#3ee07f';  // green-500
+    case 'good': return '#a1e245';       // lime-500
+    case 'average': return '#f1fa8c';    // yellow-500
+    case 'poor': return '#f39c12';       // orange-500
+    case 'negative': return '#ff5555';   // red-500
   }
 }
 

@@ -214,7 +214,7 @@ export const QuestsPanel: React.FC<QuestsPanelProps> = ({ quests, onClaimReward 
                   key={quest.id}
                   className={`rounded-lg p-3 transition-colors animate-slide-up ${
                     quest.isCompleted
-                      ? 'bg-cyber-dark border-2 border-cyber-green hover:border-cyber-green/80'
+                      ? 'bg-cyber-dark border border-cyber-green hover:border-cyber-green/80'
                       : 'bg-cyber-dark border border-cyber-gray hover:border-cyber-green'
                   }`}
                 >

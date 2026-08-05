@@ -67,7 +67,7 @@ export const MultiLineChart = memo(function MultiLineChart({
     () => (value: string) => {
       const line = lines.find(l => l.key === value);
       return (
-        <span style={{ color: '#e5e7eb', fontSize: '12px' }}>{line?.name || value}</span>
+        <span style={{ color: '#cbcdd8', fontSize: '12px' }}>{line?.name || value}</span>
       );
     },
     [lines],

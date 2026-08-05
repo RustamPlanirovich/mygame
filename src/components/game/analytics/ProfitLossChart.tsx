@@ -38,7 +38,7 @@ export const ProfitLossChart = memo(function ProfitLossChart() {
   }, [profitLossHistory, timeRange]);
 
   const isProfit = netProfitLoss.gte(0);
-  const color = isProfit ? '#22c55e' : '#ef4444';
+  const color = isProfit ? '#3ee07f' : '#ff5555';
 
   return (
     <Panel title="Прибыль и убытки" icon={<DollarSign className="h-5 w-5" />}>

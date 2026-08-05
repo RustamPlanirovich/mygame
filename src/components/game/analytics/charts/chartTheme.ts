@@ -10,31 +10,35 @@
 export const CHART_MARGIN = { top: 5, right: 30, left: 20, bottom: 5 } as const;
 
 export const TOOLTIP_CONTENT_STYLE = {
-  backgroundColor: '#1f2937',
-  border: '1px solid #374151',
-  borderRadius: '8px',
-  color: '#e5e7eb',
+  backgroundColor: '#2d2f3a',
+  border: '1px solid #3d3f4e',
+  borderRadius: '5px',
+  color: '#cbcdd8',
 } as const;
 
-export const TOOLTIP_LABEL_STYLE = { color: '#9ca3af' } as const;
+export const TOOLTIP_LABEL_STYLE = { color: '#a6aabd' } as const;
 
-export const AXIS_STROKE = '#9ca3af';
-export const GRID_STROKE = '#374151';
+export const AXIS_STROKE = '#7f849f';
+export const GRID_STROKE = '#3d3f4e';
 
-export const DEFAULT_SERIES_COLOR = '#22c55e';
+export const DEFAULT_SERIES_COLOR = '#3ee07f';
 
-/** Палитра по умолчанию для круговых диаграмм. */
+/**
+ * Палитра по умолчанию для круговых диаграмм — набор Dracula, тот же, что и во
+ * всём остальном тёмном оформлении. Оттенки идут через колесо, а не по яркости,
+ * поэтому соседние сектора различимы даже когда их десять.
+ */
 export const DEFAULT_PIE_COLORS = [
-  '#22c55e', // green
-  '#3b82f6', // blue
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#8b5cf6', // violet
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#84cc16', // lime
-  '#f97316', // orange
-  '#6366f1', // indigo
+  '#3ee07f', // green
+  '#8be9fd', // cyan
+  '#ffb86c', // orange
+  '#ff5555', // red
+  '#bd93f9', // purple
+  '#f1fa8c', // yellow
+  '#ff79c6', // pink
+  '#a1e245', // lime
+  '#3dc5de', // teal
+  '#a370ef', // indigo
 ];
 
 /**

@@ -100,7 +100,7 @@ export const HAPPINESS_TIERS: HappinessTierInfo[] = [
     minHappiness: 0,
     maxHappiness: 20,
     productivityMultiplier: 0.7,
-    color: '#ef4444', // red-500
+    color: '#ff5555', // red-500
     icon: '😢',
   },
   {
@@ -109,7 +109,7 @@ export const HAPPINESS_TIERS: HappinessTierInfo[] = [
     minHappiness: 21,
     maxHappiness: 40,
     productivityMultiplier: 0.85,
-    color: '#f97316', // orange-500
+    color: '#f39c12', // orange-500
     icon: '😕',
   },
   {
@@ -118,7 +118,7 @@ export const HAPPINESS_TIERS: HappinessTierInfo[] = [
     minHappiness: 41,
     maxHappiness: 60,
     productivityMultiplier: 1.0,
-    color: '#eab308', // yellow-500
+    color: '#f1fa8c', // yellow-500
     icon: '😐',
   },
   {
@@ -127,7 +127,7 @@ export const HAPPINESS_TIERS: HappinessTierInfo[] = [
     minHappiness: 61,
     maxHappiness: 80,
     productivityMultiplier: 1.15,
-    color: '#22c55e', // green-500
+    color: '#3ee07f', // green-500
     icon: '🙂',
   },
   {
@@ -136,7 +136,7 @@ export const HAPPINESS_TIERS: HappinessTierInfo[] = [
     minHappiness: 81,
     maxHappiness: 100,
     productivityMultiplier: 1.3,
-    color: '#3b82f6', // blue-500
+    color: '#8be9fd', // blue-500
     icon: '😄',
   },
 ];

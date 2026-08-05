@@ -416,11 +416,11 @@ export function formatROI(roi: number): string {
  * Получает цвет для ROI
  */
 export function getROIColor(roi: number): string {
-  if (roi >= 50) return '#22c55e';  // green
-  if (roi >= 20) return '#84cc16';  // lime
-  if (roi >= 5) return '#eab308';   // yellow
-  if (roi > 0) return '#f97316';    // orange
-  return '#ef4444';                  // red
+  if (roi >= 50) return '#3ee07f';  // green
+  if (roi >= 20) return '#a1e245';  // lime
+  if (roi >= 5) return '#f1fa8c';   // yellow
+  if (roi > 0) return '#f39c12';    // orange
+  return '#ff5555';                  // red
 }
 
 /**

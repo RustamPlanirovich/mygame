@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
-import { THEME_COLORS } from '../../core/constants/themeColors';
+import { THEME_COLORS, hexToCss } from '../../core/constants/themeColors';
 import { useGameStore, getBasePos } from '../../features/gameStore';
 import {
   BUILDING_EMOJI,
@@ -371,7 +371,7 @@ export function FactoryGrid() {
       await app.init({
         width: Math.max(1, Math.floor(rect.width)),
         height: Math.max(1, Math.floor(rect.height)),
-        backgroundColor: 0x000510,
+        backgroundColor: THEME_COLORS.cyberBlack,
         antialias: true,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true,
@@ -419,7 +419,7 @@ export function FactoryGrid() {
         const y = Math.random() * (worldSize.h * 2);
         const size = Math.random() * 1.5 + 0.5;
         const brightness = Math.random() * 0.6 + 0.4;
-        const color = Math.random() > 0.8 ? 0x6ba3ff : 0xffffff;
+        const color = Math.random() > 0.8 ? THEME_COLORS.cyberBlue : THEME_COLORS.cyberText;
         stars.circle(x, y, size).fill({ color, alpha: brightness });
       }
       world.addChild(stars);
@@ -863,7 +863,7 @@ export function FactoryGrid() {
     // НЕ удаляем детей - пул текстов управляется через visible
 
     // Grid background - темнее, как в Industry Idle
-    g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: 0x0a0e1a, alpha: 1.0 });
+    g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: THEME_COLORS.cyberDark, alpha: 1.0 });
 
     // Draw hexagon helper
     const drawHexagon = (g: PIXI.Graphics, cx: number, cy: number, radius: number) => {
@@ -951,7 +951,9 @@ export function FactoryGrid() {
       sp.width = size;
       sp.height = size;
       sp.alpha = 1;
-      sp.tint = 0xffffff;
+      // Textures rasterise white so the tint is the only thing colouring them;
+      // the default is the map foreground, matching the reference's buildings.
+      sp.tint = THEME_COLORS.cyberText;
       sp.rotation = 0;
       iconPoolIndex++;
       return sp;
@@ -1049,7 +1051,7 @@ export function FactoryGrid() {
              if (isPowered) {
                   // Only draw if square for now for optimization
                   if (typeof g.rect === 'function') { 
-                      g.rect(px, py, CELL, CELL).fill({ color: 0x22c55e, alpha: 0.08 });
+                      g.rect(px, py, CELL, CELL).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.08 });
                   }
              }
              
@@ -1076,7 +1078,7 @@ export function FactoryGrid() {
                            const pulse = (Math.sin(Date.now() / 500) * 0.2) + 0.6;
                            if (isSquare) {
                                g.roundRect(px + 2, py + 2, CELL - 4, CELL - 4, 2)
-                                .stroke({ color: 0xef4444, width: 2, alpha: pulse });
+                                .stroke({ color: THEME_COLORS.cyberRed, width: 2, alpha: pulse });
                            }
                            
                            // Warning Icon
@@ -1122,7 +1124,7 @@ export function FactoryGrid() {
               t.y = centerY - (isDisabled ? 6 : 0);
               // Отключённое здание гасим и красим в красный, как раньше делал стиль текста.
               if (isDisabled) {
-                t.tint = 0xef4444;
+                t.tint = THEME_COLORS.cyberRed;
                 t.alpha = 0.7;
               }
             }
@@ -1250,7 +1252,7 @@ export function FactoryGrid() {
         const centerX = centerPixel.px + CELL / 2;
         const centerY = centerPixel.py + CELL / 2;
         
-        g.setStrokeStyle({ color: 0x3b82f6, width: 1.5, alpha: 0.25 })
+        g.setStrokeStyle({ color: THEME_COLORS.cyberBlue, width: 1.5, alpha: 0.25 })
          .moveTo(centerX, centerY - radius * (CELL + GAP))
          .lineTo(centerX + radius * (CELL + GAP), centerY)
          .lineTo(centerX, centerY + radius * (CELL + GAP))
@@ -1278,7 +1280,7 @@ export function FactoryGrid() {
       for (const key of coveredTiles) {
          const [x, y] = key.split(',').map(Number);
          const { px, py } = gridToPixel(x, y);
-         g.rect(px, py, CELL, CELL).fill({ color: 0x3b82f6, alpha: 0.06 });
+         g.rect(px, py, CELL, CELL).fill({ color: THEME_COLORS.cyberBlue, alpha: 0.06 });
       }
 
       // Подсвечиваем здания с логистическим штрафом оранжевой рамкой
@@ -1309,7 +1311,7 @@ export function FactoryGrid() {
             
             // Оранжевая рамка для зданий с штрафом
             g.roundRect(px + 1, py + 1, CELL - 2, CELL - 2, 2)
-             .stroke({ color: 0xf59e0b, width: 1.5, alpha: 0.5 });
+             .stroke({ color: THEME_COLORS.cyberYellow, width: 1.5, alpha: 0.5 });
 
             // Текст со штрафом
             if (textLayer) {
@@ -1317,7 +1319,7 @@ export function FactoryGrid() {
               penaltyText.anchor.set(1, 0);
               penaltyText.x = px + CELL - 4;
               penaltyText.y = py + 4;
-              penaltyText.style.fill = 0xf59e0b;
+              penaltyText.style.fill = THEME_COLORS.cyberYellow;
             }
           }
         }
@@ -1441,13 +1443,13 @@ export function FactoryGrid() {
   );
 
   return (
-    <div className="h-full w-full relative" style={{ background: 'radial-gradient(ellipse at center, #001020 0%, #000510 70%, #000208 100%)' }}>
+    <div className="h-full w-full relative" style={{ background: hexToCss(THEME_COLORS.cyberBlack) }}>
       <div ref={containerRef} className="w-full h-full" />
       
       {/* Platform indicator */}
       {activePlatform && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-          <div className="bg-gradient-to-r from-cyan-900/90 to-blue-900/90 border-2 border-cyan-500 rounded-lg px-4 py-2 shadow-lg shadow-cyan-500/30">
+          <div className="glass rounded-md border border-info/30 px-4 py-2 shadow-elev-3">
             <div className="flex items-center gap-3">
               <span className="text-2xl"><GameIcon icon="🛰️" /></span>
               <div>

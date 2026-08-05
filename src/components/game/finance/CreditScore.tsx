@@ -65,14 +65,14 @@ function CreditScoreImpl({ score, compact = false }: CreditScoreProps) {
         <div
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(to right, #ef4444, #f97316, #eab308, #84cc16, #22c55e)',
+            background: 'linear-gradient(to right, #ff5555, #f39c12, #f1fa8c, #a1e245, #3ee07f)',
             opacity: 0.3,
           }}
         />
 
         {/* Индикатор */}
         <div
-          className="absolute top-0 h-full w-1 bg-white shadow-lg"
+          className="absolute top-0 h-full w-1 bg-white shadow-elev-3"
           style={{
             left: `${normalizedScore}%`,
             transform: 'translateX(-50%)',

@@ -30,7 +30,7 @@ export function EnergyBalancePanel() {
   const isDeficit = energyEfficiency < 1.0;
 
   return (
-    <div className="bg-cyber-darker/50 backdrop-blur-sm rounded border border-cyber-gray p-2">
+    <div className="bg-cyber-darker/50 rounded border border-cyber-gray p-2">
       <div className="flex items-center justify-between mb-1.5">
         <h3 className="text-xs font-semibold text-cyber-text flex items-center gap-1.5">
           <GameIcon icon="⚡" /> Энергобаланс
@@ -46,7 +46,7 @@ export function EnergyBalancePanel() {
           className={`h-full ${getStatusColor()} transition-all duration-300`}
           style={{ width: `${percentage}%` }}
         />
-        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-white drop-shadow-md">
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-white drop-shadow-elev-3">
           {formatNumber(energyProduction)} / {formatNumber(energyConsumption)}
         </div>
       </div>

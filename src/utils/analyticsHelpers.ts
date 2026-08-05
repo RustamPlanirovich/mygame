@@ -426,8 +426,8 @@ export function createResourceDistributionData(
   
   // Генерируем цвета
   const colors = [
-    '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
-    '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
+    '#3ee07f', '#8be9fd', '#ffb86c', '#ff5555', '#bd93f9',
+    '#3dc5de', '#ff79c6', '#a1e245', '#f39c12', '#a370ef',
   ];
   
   return entries.map((e, i) => ({
@@ -463,8 +463,8 @@ export function createEnergyConsumptionData(
     .slice(0, 10);
   
   const colors = [
-    '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
-    '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
+    '#ff5555', '#f39c12', '#ffb86c', '#f1fa8c', '#a1e245',
+    '#3ee07f', '#3dc5de', '#8be9fd', '#bd93f9', '#ff79c6',
   ];
   
   return entries.map(([name, value], i) => ({

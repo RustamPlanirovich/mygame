@@ -462,11 +462,11 @@ export function getCreditScoreCategoryName(category: CreditScoreCategory): strin
  */
 export function getCreditScoreColor(category: CreditScoreCategory): string {
   const colors: Record<CreditScoreCategory, string> = {
-    excellent: '#22c55e',
-    very_good: '#84cc16',
-    good: '#eab308',
-    fair: '#f97316',
-    poor: '#ef4444',
+    excellent: '#3ee07f',
+    very_good: '#a1e245',
+    good: '#f1fa8c',
+    fair: '#f39c12',
+    poor: '#ff5555',
   };
   return colors[category];
 }
@@ -521,11 +521,11 @@ export function getRiskLevelDescription(level: RiskLevel): string {
  */
 export function getRiskLevelColor(level: RiskLevel): string {
   const colors: Record<RiskLevel, string> = {
-    1: '#22c55e',
-    2: '#84cc16',
-    3: '#eab308',
-    4: '#f97316',
-    5: '#ef4444',
+    1: '#3ee07f',
+    2: '#a1e245',
+    3: '#f1fa8c',
+    4: '#f39c12',
+    5: '#ff5555',
   };
   return colors[level];
 }

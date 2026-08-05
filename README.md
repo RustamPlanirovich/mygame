@@ -83,3 +83,21 @@
 
 ## 🚀 Игра Готова!
 Цель достигнута: из игры на 8-10 часов создана игра с **бесконечным** контентом и прогрессией!
+
+## 🎨 Оформление
+Тёмная схема и иконки повторяют [Industry Idle](https://play.industryidle.com):
+палитра Dracula (`#282a36` фон, `#f8f8f2` текст), плоские панели с волосяными
+границами, радиусы 5px, без свечения.
+
+Иконки — **Material Icons (filled)** от Google, [Apache License 2.0](https://github.com/google/material-design-icons/blob/master/LICENSE),
+тот же набор, что использует Industry Idle. Контуры лежат в
+[src/components/ui/icons/glyphs.ts](src/components/ui/icons/glyphs.ts) — это
+сгенерированный файл, править его руками не нужно:
+
+```bash
+node tools/gen-glyphs.mjs   # берёт SVG из @material-design-icons/svg (devDependency)
+```
+
+Чтобы добавить иконку, впишите её в `MAP` (старое имя → имя Material) или в
+`EXTRA` (имя Material как есть) в [tools/gen-glyphs.mjs](tools/gen-glyphs.mjs) и
+перегенерируйте.

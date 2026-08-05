@@ -36,13 +36,13 @@ interface PieChartProps {
   formatValue?: (value: number) => string;
 }
 
-const LABEL_LINE = { stroke: '#6b7280' };
+const LABEL_LINE = { stroke: '#7f849f' };
 
 const renderSliceLabel = ({ name, percent }: { name?: string; percent?: number }) =>
   `${name} ${((percent ?? 0) * 100).toFixed(0)}%`;
 
 const renderLegendLabel = (value: string) => (
-  <span style={{ color: '#e5e7eb', fontSize: '12px' }}>{value}</span>
+  <span style={{ color: '#cbcdd8', fontSize: '12px' }}>{value}</span>
 );
 
 /** Мемоизирован по той же причине, что и AreaChart. */

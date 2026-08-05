@@ -76,7 +76,7 @@ export function ArtifactsPanel() {
     return (
       <div
         key={artifact.id}
-        className="p-4 rounded-lg border-2 transition-all hover:scale-105"
+        className="p-4 rounded-lg border transition-all hover:scale-105"
         style={{ 
           borderColor: config.color,
           backgroundColor: `${config.color}15`,

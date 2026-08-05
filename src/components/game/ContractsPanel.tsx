@@ -163,7 +163,7 @@ function ContractCard({ contract, state, affordable, onComplete }: ContractCardP
         disabled={!affordable}
         className={`w-full py-2 rounded-lg text-sm font-semibold transition-all ${
           affordable
-            ? 'bg-cyber-green hover:bg-cyber-green/90 text-white shadow-lg shadow-cyber-green/20'
+            ? 'bg-cyber-green hover:bg-cyber-green/90 text-white shadow-elev-3 shadow-cyber-green/20'
             : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
         }`}
       >

@@ -47,7 +47,7 @@ export const NotificationToast = () => {
         return (
           <div
             key={notification.id}
-            className={`${styles.bg} ${styles.border} border rounded-lg p-3 shadow-lg backdrop-blur-sm animate-slide-in-right flex items-start gap-3`}
+            className={`${styles.bg} ${styles.border} border rounded-lg p-3 shadow-elev-3 animate-slide-in-right flex items-start gap-3`}
           >
             {styles.icon}
             <p className="flex-1 text-sm text-white">

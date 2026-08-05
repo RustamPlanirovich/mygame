@@ -1,23 +1,20 @@
-import { Fragment, memo, type CSSProperties, type ReactNode } from 'react';
-import { CORE_GLYPHS } from './glyphs.core';
-import { WORLD_GLYPHS } from './glyphs.world';
-import { UI_GLYPHS } from './glyphs.ui';
+import { memo, type CSSProperties, type ReactNode } from 'react';
+import { GLYPH_ALIASES, GLYPH_PATHS } from './glyphs';
 import { EMOJI_GLYPH, NAMED_GLYPH } from './emojiMap';
-import type { GlyphDef } from './svgKit';
 
-export const GLYPHS: Record<string, GlyphDef> = {
-  ...CORE_GLYPHS,
-  ...WORLD_GLYPHS,
-  ...UI_GLYPHS,
-};
+export { GLYPH_PATHS as GLYPHS };
 
-/* Variation selectors and skin-tone/ZWJ joiners are noise for lookup: the data
+/* Variation selectors and keycap/ZWJ joiners are noise for lookup: the data
    files write '⛏️' and '⛏' interchangeably. */
 const stripVariation = (s: string) => s.replace(/[︎️]/g, '');
 
-export type Resolved = { def: GlyphDef; a: string; b: string } | null;
+export type Resolved = { d: string; color?: string } | null;
 
-const resolve = (raw: string): Resolved => {
+/* Resolution walks four tables and runs for every character IconText scans, so
+   the answer is memoised. The tables are static — the cache can never go stale. */
+const cache = new Map<string, Resolved>();
+
+function lookup(raw: string): Resolved {
   const key = stripVariation(raw).trim();
   if (!key) return null;
 
@@ -27,16 +24,23 @@ const resolve = (raw: string): Resolved => {
     EMOJI_GLYPH[key] ??
     EMOJI_GLYPH[[...key][0] ?? ''] ??
     NAMED_GLYPH[key] ??
-    (GLYPHS[key] ? key : undefined);
+    (GLYPH_ALIASES[key] || (GLYPH_PATHS[key] ? key : undefined));
   if (!entry) return null;
 
-  if (typeof entry === 'string') {
-    const def = GLYPHS[entry];
-    return def ? { def, a: def.a, b: def.b } : null;
-  }
-  const def = GLYPHS[entry.g];
-  return def ? { def, a: entry.a, b: entry.b } : null;
-};
+  const name = typeof entry === 'string' ? entry : entry.g;
+  const d = GLYPH_PATHS[GLYPH_ALIASES[name] ?? name];
+  if (!d) return null;
+
+  return typeof entry === 'string' ? { d } : { d, color: entry.c };
+}
+
+function resolve(raw: string): Resolved {
+  const hit = cache.get(raw);
+  if (hit !== undefined) return hit;
+  const found = lookup(raw);
+  cache.set(raw, found);
+  return found;
+}
 
 /** True when the string can be drawn by the icon set. */
 export const hasGlyph = (raw: string) => resolve(raw) !== null;
@@ -45,15 +49,15 @@ export const hasGlyph = (raw: string) => resolve(raw) !== null;
 export const resolveGlyph = resolve;
 
 export interface GameIconProps {
-  /** An emoji from the game data, a semantic name, or a glyph id. */
+  /** An emoji from the game data, a semantic name, or a Material Icons name. */
   icon: string | undefined | null;
   /** Rendered box in px. Defaults to 1.15em so it tracks the surrounding text. */
   size?: number | string;
   className?: string;
   style?: CSSProperties;
-  /** Adds a soft coloured halo — for hero/heading icons. */
+  /** @deprecated The flat set has no halo; kept so old call sites still compile. */
   glow?: boolean;
-  /** Drops the built-in colours and inherits the parent's `color`. */
+  /** Drops a glyph's fixed colour so it inherits the parent's `color`. */
   mono?: boolean;
   title?: string;
   /** Shown when the string has no glyph (defaults to the string itself). */
@@ -64,19 +68,19 @@ export interface GameIconProps {
 }
 
 /**
- * Renders one icon from the futuristic set.
+ * Renders one icon from the Material Icons set — the same family Industry Idle
+ * uses, so the whole UI reads as a single flat, dark, solid-silhouette system.
  *
- * Icons are duotone: the line work uses the glyph's `a` colour via
- * `currentColor`, and fills use `b` through the `--gi-2` custom property. In
- * `mono` mode both collapse onto the inherited text colour so the icon can sit
- * inside a coloured button or a hover state without fighting it.
+ * Glyphs are painted with `fill: currentColor`, i.e. they take the colour of
+ * whatever they sit in. The handful of marks whose colour *is* the information
+ * (status dots, ✅/❌, ▲/▼) carry a fixed colour from the palette; `mono` drops
+ * it so those can still sit inside a coloured button or a hover state.
  */
 export const GameIcon = memo(function GameIcon({
   icon,
   size,
   className = '',
   style,
-  glow = false,
   mono = false,
   title,
   fallback,
@@ -90,7 +94,6 @@ export const GameIcon = memo(function GameIcon({
     return <>{fallback ?? icon ?? null}</>;
   }
 
-  const { def, a, b } = resolved;
   const box = size ?? '1.15em';
 
   return (
@@ -100,26 +103,16 @@ export const GameIcon = memo(function GameIcon({
       y={y}
       width={box}
       height={box}
-      className={`game-icon${glow ? ' game-icon--glow' : ''} ${className}`}
-      style={
-        {
-          color: mono ? undefined : a,
-          '--gi-2': mono ? 'currentColor' : b,
-          ...style,
-        } as CSSProperties
-      }
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      className={`game-icon ${className}`}
+      style={mono || !resolved.color ? style : { color: resolved.color, ...style }}
+      fill="currentColor"
       role={title ? 'img' : 'presentation'}
       aria-hidden={title ? undefined : true}
       aria-label={title}
       focusable="false"
     >
       {title ? <title>{title}</title> : null}
-      <Fragment>{def.d}</Fragment>
+      <path d={resolved.d} />
     </svg>
   );
 });

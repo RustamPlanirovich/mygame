@@ -60,13 +60,13 @@ export function GalaxyMap() {
 
   const getDangerColor = (level: string) => {
     switch (level) {
-      case 'very_low': return '#4ade80';
-      case 'low': return '#84cc16';
-      case 'medium': return '#facc15';
-      case 'high': return '#fb923c';
-      case 'very_high': return '#f87171';
-      case 'extreme': return '#dc2626';
-      default: return '#6b7280';
+      case 'very_low': return '#6aeda1';
+      case 'low': return '#a1e245';
+      case 'medium': return '#f1fa8c';
+      case 'high': return '#fca62f';
+      case 'very_high': return '#ff8080';
+      case 'extreme': return '#e74c3c';
+      default: return '#7f849f';
     }
   };
 
@@ -115,9 +115,9 @@ export function GalaxyMap() {
               onClick={() => handleGalaxyClick(galaxyId)}
               disabled={!isUnlocked && !canUnlock}
               className={`
-                w-full p-3 rounded-lg border-2 text-left transition-all
+                w-full p-3 rounded-lg border text-left transition-all
                 ${isCurrent 
-                  ? 'border-cyan-400 bg-cyan-900/30 shadow-lg shadow-cyan-500/20' 
+                  ? 'border-cyan-400 bg-cyan-900/30 shadow-elev-3 shadow-cyan-500/20' 
                   : isUnlocked
                   ? 'border-gray-600 bg-gray-800/50 hover:border-gray-500 hover:bg-gray-800/70'
                   : canUnlock
@@ -276,7 +276,7 @@ export function GalaxyMap() {
                   <div
                     key={galaxy.galaxyNumber}
                     className={`
-                      p-3 rounded-lg border-2 transition-all
+                      p-3 rounded-lg border transition-all
                       ${isDiscovered
                         ? 'border-purple-500 bg-purple-900/20'
                         : 'border-gray-700 bg-gray-800/30'

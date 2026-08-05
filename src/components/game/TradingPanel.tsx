@@ -146,8 +146,8 @@ export function TradingPanel() {
         className={`w-full py-3 rounded-lg font-semibold transition-all ${
           canPlace
             ? orderType === 'buy'
-              ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-500/20'
-              : 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20'
+              ? 'bg-green-500 hover:bg-green-600 text-white shadow-elev-3 shadow-green-500/20'
+              : 'bg-red-500 hover:bg-red-600 text-white shadow-elev-3 shadow-red-500/20'
             : 'bg-cyber-gray/20 text-cyber-gray-light cursor-not-allowed'
         }`}
       >
