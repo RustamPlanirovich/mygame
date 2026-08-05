@@ -7,7 +7,7 @@
     "dev": "concurrently -n web,api -c green,blue \"vite\" \"node server/index.js\"",
     "dev:web": "vite",
     "dev:api": "node server/index.js",
-    "build": "vite build",
+    "build": "vite build && node tools/stash-sourcemaps.mjs",
     "start": "NODE_ENV=production node server/index.js",
     "deploy:pm2": "npm run build && pm2 startOrReload ecosystem.config.cjs --env production",
     "typecheck": "tsc -b",

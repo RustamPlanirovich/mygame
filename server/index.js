@@ -1210,6 +1210,21 @@ createChatRoutes(app, pool, authMiddleware);
 createAdminRoutes(app, pool, authMiddleware);
 
 if (isProduction) {
+  /*
+   * Карты кода (.map) не раздаём (bigplan.md, пункт 34).
+   *
+   * Собирать их полезно: без них присланный игроком стектрейс нечитаем, и разобрать его локально
+   * больше нечем (серверного сбора ошибок в проекте нет). Но раздавать наружу — значит выкладывать
+   * полные исходники проекта: любой запрос вида /assets/index-*.js.map отдавал 2.8 МБ кода.
+   *
+   * Поэтому: vite собирает карты в режиме 'hidden' (ссылки `sourceMappingURL` в бандлах нет),
+   * а этот обработчик закрывает и прямой доступ. Файлы остаются на диске рядом со сборкой —
+   * ровно там, где они нужны для разбора стектрейса.
+   */
+  app.get(/\.map$/, (_req, res) => {
+    res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+  });
+
   app.use(express.static(distDir));
   app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
     res.sendFile(path.join(distDir, 'index.html'));

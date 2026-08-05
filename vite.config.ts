@@ -19,9 +19,16 @@ export default defineConfig({
   },
 
   build: {
-    // Source maps are worth the disk: without them a production stack trace from a player
-    // is unreadable, and this app has no server-side error reporting to fall back on.
-    sourcemap: true,
+    /*
+     * Source maps are worth the disk: without them a production stack trace from a player
+     * is unreadable, and this app has no server-side error reporting to fall back on.
+     *
+     * But 'hidden' rather than true (bigplan.md, пункт 34): карты по-прежнему собираются и их
+     * можно применить локально, разбирая присланный игроком стектрейс, а вот ссылки
+     * `//# sourceMappingURL=` в бандлах больше нет. Раньше она была, и любой браузер с открытыми
+     * инструментами тянул 4.3 МБ карты к главному чанку — вместе с полными исходниками проекта.
+     */
+    sourcemap: 'hidden',
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {

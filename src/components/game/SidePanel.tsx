@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import Decimal from 'break_eternity.js';
 import { useGameStore } from '../../features/gameStore';
@@ -9,33 +9,45 @@ import { ChevronLeft, X } from 'lucide-react';
 
 import { BuildPanel } from './BuildPanel';
 import { TileInspector } from './TileInspector';
-import { CombatPanel } from './CombatPanel';
-import { MarketPanel } from './MarketPanel';
-import { ResearchPanel } from './ResearchPanel';
-import { DemonsPanel } from './DemonsPanel';
-import { PrestigePanel } from './PrestigePanel';
-import { ArtifactsPanel } from './ArtifactsPanel';
-import { DailyRewardsPanel } from './DailyRewardsPanel';
-import { ProductionChainVisualizer } from './ProductionChainVisualizer';
-import { ChatPanel } from './ChatPanel';
 import { useChatStore } from '../../features/chatStore';
-import { ExpeditionPanel } from './ExpeditionPanel';
-import { PoliticsPanel } from './PoliticsPanel';
-import { GalaxyMap } from './GalaxyMap';
-import { PlatformsPanel } from './PlatformsPanel';
-import { FleetPanel } from './FleetPanel';
-import { IntergalacticLogisticsPanel } from './IntergalacticLogisticsPanel';
-import { RandomEventsPanel } from './RandomEventsPanel';
-import AchievementsPanel from './AchievementsPanel';
-import { MegastructuresPanel } from './MegastructuresPanel';
-import { QuestsPanel } from './QuestsPanel';
-import { HelpPanel } from './HelpPanel';
-import { AnalyticsPanel } from './analytics';
-import { FinancePanel } from './finance';
-import { CulturePanel } from './culture/CulturePanel';
-import { EnergyBalancePanel } from './EnergyBalancePanel';
-import { PollutionPanel } from './PollutionPanel';
-import { SettingsPanel } from './SettingsPanel';
+
+/*
+ * ЛЕНИВАЯ ЗАГРУЗКА ПАНЕЛЕЙ (bigplan.md, пункт 34)
+ *
+ * Все 26 панелей были статическими импортами, поэтому попадали в главный чанк: игрок скачивал
+ * аналитику вместе с recharts, карту галактик и админку ещё до первого кадра, даже если ни разу
+ * их не откроет. Панели открываются редко и прекрасно грузятся по требованию.
+ *
+ * Строительство и инспектор оставлены статическими намеренно: их открывают постоянно, и мигание
+ * заглушкой на каждом клике по клетке было бы хуже, чем экономия на их размере.
+ */
+const CombatPanel = lazy(() => import('./CombatPanel').then((m) => ({ default: m.CombatPanel })));
+const MarketPanel = lazy(() => import('./MarketPanel').then((m) => ({ default: m.MarketPanel })));
+const ResearchPanel = lazy(() => import('./ResearchPanel').then((m) => ({ default: m.ResearchPanel })));
+const DemonsPanel = lazy(() => import('./DemonsPanel').then((m) => ({ default: m.DemonsPanel })));
+const PrestigePanel = lazy(() => import('./PrestigePanel').then((m) => ({ default: m.PrestigePanel })));
+const ArtifactsPanel = lazy(() => import('./ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel })));
+const DailyRewardsPanel = lazy(() => import('./DailyRewardsPanel').then((m) => ({ default: m.DailyRewardsPanel })));
+const ProductionChainVisualizer = lazy(() => import('./ProductionChainVisualizer').then((m) => ({ default: m.ProductionChainVisualizer })));
+const ChatPanel = lazy(() => import('./ChatPanel').then((m) => ({ default: m.ChatPanel })));
+const ExpeditionPanel = lazy(() => import('./ExpeditionPanel').then((m) => ({ default: m.ExpeditionPanel })));
+const PoliticsPanel = lazy(() => import('./PoliticsPanel').then((m) => ({ default: m.PoliticsPanel })));
+const GalaxyMap = lazy(() => import('./GalaxyMap').then((m) => ({ default: m.GalaxyMap })));
+const PlatformsPanel = lazy(() => import('./PlatformsPanel').then((m) => ({ default: m.PlatformsPanel })));
+const FleetPanel = lazy(() => import('./FleetPanel').then((m) => ({ default: m.FleetPanel })));
+const IntergalacticLogisticsPanel = lazy(() => import('./IntergalacticLogisticsPanel').then((m) => ({ default: m.IntergalacticLogisticsPanel })));
+const RandomEventsPanel = lazy(() => import('./RandomEventsPanel').then((m) => ({ default: m.RandomEventsPanel })));
+const AchievementsPanel = lazy(() => import('./AchievementsPanel'));
+const MegastructuresPanel = lazy(() => import('./MegastructuresPanel').then((m) => ({ default: m.MegastructuresPanel })));
+const QuestsPanel = lazy(() => import('./QuestsPanel').then((m) => ({ default: m.QuestsPanel })));
+const HelpPanel = lazy(() => import('./HelpPanel').then((m) => ({ default: m.HelpPanel })));
+const AnalyticsPanel = lazy(() => import('./analytics').then((m) => ({ default: m.AnalyticsPanel })));
+const FinancePanel = lazy(() => import('./finance').then((m) => ({ default: m.FinancePanel })));
+const CulturePanel = lazy(() => import('./culture/CulturePanel').then((m) => ({ default: m.CulturePanel })));
+const EnergyBalancePanel = lazy(() => import('./EnergyBalancePanel').then((m) => ({ default: m.EnergyBalancePanel })));
+const PollutionPanel = lazy(() => import('./PollutionPanel').then((m) => ({ default: m.PollutionPanel })));
+const SettingsPanel = lazy(() => import('./SettingsPanel').then((m) => ({ default: m.SettingsPanel })));
+
 
 /*
  * Правая панель. Одна оболочка — заголовок с акцентной полосой, «назад» и крестик —
@@ -114,6 +126,15 @@ const GROUPS: SectionGroup[] = [
 ];
 
 const SECTIONS: Section[] = GROUPS.flatMap((g) => g.items);
+
+/**
+ * Заглушка на время загрузки чанка панели (bigplan.md, пункт 34).
+ * Нейтральная и без анимации: панели грузятся за десятки миллисекунд, и мигающий спиннер
+ * заметнее самой задержки.
+ */
+function PanelLoading() {
+  return <div className="p-4 text-xs text-content-faint">Загрузка раздела…</div>;
+}
 
 /** Энергия и экология: два коротких блока, ради которых раньше жертвовали высотой карты. */
 function PowerSection() {
@@ -339,7 +360,16 @@ export function SidePanel({ streamOnline = true }: { streamOnline?: boolean }) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">{renderSection()}</div>
+      {/*
+        Suspense вокруг раздела, а не вокруг каждой панели: границы загрузки достаточно одной,
+        а заглушка одинаковая. Ключ по разделу — чтобы при переключении показывалась заглушка
+        нового раздела, а не подвисал предыдущий.
+      */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Suspense key={section} fallback={<PanelLoading />}>
+          {renderSection()}
+        </Suspense>
+      </div>
     </aside>
   );
 }

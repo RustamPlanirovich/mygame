@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useOptimizedGameLoop } from './hooks/useOptimizedGameLoop';
 import { useGameStore } from './features/gameStore';
 import { useUiStore } from './features/uiStore';
@@ -15,14 +15,8 @@ import { NotificationToast } from './components/game/NotificationToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
 import { ProductionChainOverlay } from './components/game/ProductionChainOverlay';
 import { Minimap } from './components/game/Minimap';
-import { HelpModal } from './components/game/HelpPanel';
 import { AuthForm } from './components/auth/AuthForm';
-import { SaveManager } from './components/game/SaveManager';
-import { GameSlotsManager } from './components/game/GameSlotsManager';
-import { ProfilePanel } from './components/game/ProfilePanel';
-import { CheatPanel } from './components/game/CheatPanel';
-import { MapSelector } from './components/game/MapSelector';
-import { OfflineProfitModal, useOfflineTrading } from './components/game/finance/OfflineProfitModal';
+import { useOfflineTrading } from './components/game/finance/OfflineProfitModal';
 import { useAdvisorStore } from './features/advisorStore';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
@@ -31,9 +25,26 @@ import { useDevice, useRecommendedSettings } from './hooks/useDevice';
 import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
 import { isAuthenticated, getCurrentSession, getCurrentSlotId, loadSettingsFromServer } from './utils/settingsApi';
 import type { GameSettings } from './core/gameTypes.settings';
-import { AdminPanel, AnnouncementBanner } from './components/admin';
+import { AnnouncementBanner } from './components/admin';
 import { Modal, PanelBoundary } from './components/ui';
 import type { AdminRole } from './utils/adminApi';
+
+/*
+ * ЛЕНИВАЯ ЗАГРУЗКА МОДАЛЬНЫХ ОКОН (bigplan.md, пункт 34)
+ *
+ * Все они открываются редко (некоторые — никогда: админку видит только персонал, чит-панель
+ * живёт лишь в dev), а грузились в главном чанке до первого кадра. Каждое окно теперь
+ * монтируется ТОЛЬКО когда открыто: без этого lazy-чанк подтянулся бы сразу и смысла не было.
+ */
+const HelpModal = lazy(() => import('./components/game/HelpPanel').then((m) => ({ default: m.HelpModal })));
+const SaveManager = lazy(() => import('./components/game/SaveManager').then((m) => ({ default: m.SaveManager })));
+const GameSlotsManager = lazy(() => import('./components/game/GameSlotsManager').then((m) => ({ default: m.GameSlotsManager })));
+const ProfilePanel = lazy(() => import('./components/game/ProfilePanel').then((m) => ({ default: m.ProfilePanel })));
+const CheatPanel = lazy(() => import('./components/game/CheatPanel').then((m) => ({ default: m.CheatPanel })));
+const MapSelector = lazy(() => import('./components/game/MapSelector').then((m) => ({ default: m.MapSelector })));
+const OfflineProfitModal = lazy(() => import('./components/game/finance/OfflineProfitModal').then((m) => ({ default: m.OfflineProfitModal })));
+const AdminPanel = lazy(() => import('./components/admin').then((m) => ({ default: m.AdminPanel })));
+
 
 function App() {
   const [user, setUser] = useState<{ id: number; email: string; role?: AdminRole } | null>(null);
@@ -372,42 +383,56 @@ function App() {
       <ProductionChainOverlay buildings={buildings} />
       
       {/* Help Modal - открывается по F1 */}
-      <HelpModal isOpen={showHelpModal} onClose={closeHelpModal} />
-      
+      {showHelpModal && (
+        <Suspense fallback={null}>
+          <HelpModal isOpen onClose={closeHelpModal} />
+        </Suspense>
+      )}
+
       {/* Save Manager */}
-      <SaveManager isOpen={showSaveManager} onClose={closeSaveManager} />
-      
+      {showSaveManager && (
+        <Suspense fallback={null}>
+          <SaveManager isOpen onClose={closeSaveManager} />
+        </Suspense>
+      )}
+
       {/* Profile Modal */}
-      <Modal
-        open={showProfile}
-        onClose={closeProfile}
-        title="Профиль"
-        size="lg"
-      >
-        <ProfilePanel
-          onShowSaveManager={openSaveManagerFromProfile}
-          onShowGameSlots={openGameSlotsFromProfile}
-          onClose={closeProfile}
-        />
-      </Modal>
-      
+      {showProfile && (
+        <Modal open onClose={closeProfile} title="Профиль" size="lg">
+          <Suspense fallback={<div className="p-4 text-xs text-content-faint">Загрузка…</div>}>
+            <ProfilePanel
+              onShowSaveManager={openSaveManagerFromProfile}
+              onShowGameSlots={openGameSlotsFromProfile}
+              onClose={closeProfile}
+            />
+          </Suspense>
+        </Modal>
+      )}
+
       {/* Game Slots Manager */}
-      <GameSlotsManager 
-        isOpen={showGameSlots} 
-        onClose={closeGameSlots}
-        onSlotSwitch={() => {
-          // При переключении слота можно перезагрузить страницу для чистого состояния
-          window.location.reload();
-        }}
-      />
+      {showGameSlots && (
+        <Suspense fallback={null}>
+          <GameSlotsManager
+            isOpen
+            onClose={closeGameSlots}
+            onSlotSwitch={() => {
+              // При переключении слота можно перезагрузить страницу для чистого состояния
+              window.location.reload();
+            }}
+          />
+        </Suspense>
+      )}
       
       {/* Cheat Panel - только в dev режиме */}
       {import.meta.env.DEV && showCheatPanel && (
-        <CheatPanel onClose={closeCheatPanel} />
+        <Suspense fallback={null}>
+          <CheatPanel onClose={closeCheatPanel} />
+        </Suspense>
       )}
       
       {/* Map Selector Modal */}
       {showMapSelector && (
+        <Suspense fallback={null}>
         <MapSelector
           // ResearchState has `technologies: Record<TechnologyId, boolean>` — there is no
           // `unlocked` array, so this was `new Set(undefined)`: an EMPTY set. Every map gated
@@ -425,16 +450,19 @@ function App() {
           }}
           onClose={closeMapSelector}
         />
+        </Suspense>
       )}
       
       {/* Объявления администрации — для всех игроков */}
       <AnnouncementBanner />
 
       {/* Админ-панель — только для admin и moderator */}
-      {staffRole && (
+      {/* Монтируем только когда открыта: иначе lazy-чанк админки подтянется у персонала сразу. */}
+      {staffRole && showAdmin && (
         <PanelBoundary label="Админка">
+          <Suspense fallback={null}>
           <AdminPanel
-            open={showAdmin}
+            open
             onClose={closeAdmin}
             role={staffRole}
             // currentUserId нужен панели, чтобы отличить собственный аккаунт:
@@ -447,15 +475,18 @@ function App() {
               setUser(null);
             }}
           />
+          </Suspense>
         </PanelBoundary>
       )}
 
       {/* Offline Profit Modal */}
       {showOfflineProfit && offlineProfit?.hasOfflineProfit && (
-        <OfflineProfitModal
-          onClose={() => setShowOfflineProfit(false)}
-          onCollect={() => setShowOfflineProfit(false)}
-        />
+        <Suspense fallback={null}>
+          <OfflineProfitModal
+            onClose={() => setShowOfflineProfit(false)}
+            onCollect={() => setShowOfflineProfit(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

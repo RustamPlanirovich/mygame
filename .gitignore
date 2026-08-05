@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Карты кода выносятся из dist после сборки (tools/stash-sourcemaps.mjs)
+sourcemaps
 *.local
 
 # Env files
