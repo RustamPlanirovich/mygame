@@ -284,9 +284,19 @@ export const PRESTIGE_UPGRADES: Record<PrestigeUpgradeId, PrestigeUpgrade> = {
   },
 };
 
-// Расчет получаемых Quantum Points при престиже
+/**
+ * Расчет получаемых Quantum Points при престиже.
+ *
+ * ВАЖНО: на вход идёт прогресс ТЕКУЩЕГО забега, а не суммарный за всё время. Раньше сюда
+ * передавался пожизненный `prestige.stats.totalCreditsEarned`, который престиж не сбрасывает,
+ * — поэтому сразу после престижа формула снова видела весь прошлый прогресс и выдавала почти
+ * столько же QP. Кнопку можно было жать сколько угодно раз, получая очки за один и тот же
+ * прогресс. Значения забега (кредиты, RP, влияние, мегаструктуры, концовки) обнуляются при
+ * сбросе, поэтому после престижа честный результат — 0 QP.
+ */
 export function calculateQuantumPoints(state: {
-  totalCreditsEarned: Decimal;
+  /** Кредиты, заработанные за текущий забег (без стартового бонуса престижа). */
+  runCredits: Decimal;
   researchPoints: Decimal;
   influence: Decimal;
   megastructuresBuilt: number;
@@ -298,7 +308,7 @@ export function calculateQuantumPoints(state: {
 
   // Базовые очки от прогресса (удвоенные коэффициенты)
   // 1 QP за каждые 500k кредитов (было 1M)
-  quantumPoints += Math.floor(state.totalCreditsEarned.div(500000).toNumber());
+  quantumPoints += Math.floor(state.runCredits.div(500000).toNumber());
 
   // 1 QP за каждые 50k RP (было 100k)
   quantumPoints += Math.floor(state.researchPoints.div(50000).toNumber());
@@ -320,8 +330,12 @@ export function calculateQuantumPoints(state: {
   const prestigePenalty = Math.pow(0.92, state.prestigeCount);
   quantumPoints = Math.floor(quantumPoints * prestigePenalty);
 
-  // Минимум 1 QP
-  return Math.max(1, quantumPoints);
+  /*
+   * Ноль — допустимый результат: без прогресса престиж не даёт ничего и кнопка гаснет.
+   * Прежний `Math.max(1, …)` гарантировал минимум 1 QP даже на пустом забеге, то есть
+   * бесплатное очко за каждый клик сразу после сброса.
+   */
+  return Math.max(0, quantumPoints);
 }
 
 // Проверка, можно ли купить улучшение престижа

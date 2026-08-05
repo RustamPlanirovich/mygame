@@ -452,8 +452,18 @@
     animation: fade-in var(--dur) var(--ease-snap) both;
   }
   .modal-shell {
-    @apply fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-full -translate-x-1/2
-           -translate-y-1/2 flex-col overflow-hidden rounded-2xl border;
+    @apply fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-full flex-col
+           overflow-hidden rounded-2xl border;
+    /*
+     * Центрируем отдельным свойством `translate`, а не transform-утилитами Tailwind.
+     * `scale-in` ниже анимирует `transform`, анимация в каскаде сильнее обычного
+     * объявления, а `fill-mode: both` оставляет её последний кадр (`transform: scale(1)`)
+     * навсегда — сдвиг от `-translate-x-1/2 -translate-y-1/2` стирался, и окно вставало
+     * левым верхним углом в центр экрана. Чем крупнее окно, тем сильнее его уносило за
+     * правый нижний край: админ-панель уезжала с экрана почти целиком. Свойство
+     * `translate` анимация не трогает, и браузер применяет его до `transform`.
+     */
+    translate: -50% -50%;
     background-color: var(--surface-1);
     border-color: var(--edge-strong);
     box-shadow: theme('boxShadow.elev-4');
@@ -699,7 +709,9 @@
     display: none !important;
   }
   .modal-shell {
-    @apply inset-0 left-0 top-0 max-h-none w-full translate-x-0 translate-y-0 rounded-none;
+    @apply inset-0 left-0 top-0 max-h-none w-full rounded-none;
+    /* На мобильном окно на весь экран — центрующий сдвиг снимаем тем же свойством. */
+    translate: 0 0;
   }
   /* Touch targets, scoped to real buttons. The previous rule applied
      min-height/min-width: 44px to EVERY `button`, which stretched icon-only

@@ -8,6 +8,58 @@ import { X, Lock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { ResourceProductionChain } from './ResourceProductionChain';
 
+type SortBy = 'name' | 'cost' | 'level';
+
+interface ListFilters {
+  onlyAffordable: boolean;
+  onlyUnlocked: boolean;
+  sortBy: SortBy;
+}
+
+const FILTERS_STORAGE_KEY = 'buildingListFilters';
+
+const DEFAULT_FILTERS: ListFilters = {
+  onlyAffordable: false,
+  onlyUnlocked: false,
+  sortBy: 'name',
+};
+
+const isSortBy = (v: unknown): v is SortBy => v === 'name' || v === 'cost' || v === 'level';
+
+/**
+ * Фильтры вкладки «Строительство» хранятся в localStorage.
+ *
+ * Панель размонтируется при уходе на другую вкладку (SidePanelTabs рисует только активную),
+ * поэтому на useState галочки «Доступные»/«Разблокированные» и сортировка сбрасывались при
+ * каждом возврате в раздел. Поисковая строка сознательно НЕ сохраняется: это разовый запрос,
+ * а не настройка.
+ */
+function loadFilters(): ListFilters {
+  try {
+    const stored = localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!stored) return DEFAULT_FILTERS;
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== 'object' || parsed === null) return DEFAULT_FILTERS;
+    const raw = parsed as Partial<ListFilters>;
+    return {
+      onlyAffordable: typeof raw.onlyAffordable === 'boolean' ? raw.onlyAffordable : DEFAULT_FILTERS.onlyAffordable,
+      onlyUnlocked: typeof raw.onlyUnlocked === 'boolean' ? raw.onlyUnlocked : DEFAULT_FILTERS.onlyUnlocked,
+      sortBy: isSortBy(raw.sortBy) ? raw.sortBy : DEFAULT_FILTERS.sortBy,
+    };
+  } catch {
+    // Битый JSON или запрет на storage в приватном режиме — работаем на значениях по умолчанию.
+    return DEFAULT_FILTERS;
+  }
+}
+
+function saveFilters(filters: ListFilters): void {
+  try {
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+    // Запись недоступна (приватный режим, переполнение) — фильтры просто не переживут перезагрузку.
+  }
+}
+
 const requiredDepositForBuilding = (buildingId: string) => {
   if (buildingId === 'miner_mk1') return 'ore';
   if (buildingId === 'ice_extractor_mk1') return 'ice';
@@ -87,10 +139,15 @@ export function BuildingList() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [showOnlyAffordable, setShowOnlyAffordable] = useState(false);
-  const [showOnlyUnlocked, setShowOnlyUnlocked] = useState(false);
-  const [sortBy, setSortBy] = useState<'name' | 'cost' | 'level'>('name');
+  // Ленивый инициализатор: localStorage читается один раз за монтирование, а не на каждый рендер
+  // (панель перерисовывается на каждом тике игры).
+  const [filters, setFilters] = useState<ListFilters>(loadFilters);
+  const { onlyAffordable: showOnlyAffordable, onlyUnlocked: showOnlyUnlocked, sortBy } = filters;
   const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    saveFilters(filters);
+  }, [filters]);
   
   // Debounce для поискового запроса - оптимизация производительности
   const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -224,22 +281,12 @@ export function BuildingList() {
     return sorted;
   }, [buildings, debouncedSearchQuery, showOnlyAffordable, showOnlyUnlocked, sortBy, affordability, research.technologies]);
 
-  // Определяем, ищет ли пользователь конкретный ресурс (использует debouncedSearchQuery)
-  const searchedResource = useMemo<ResourceType | null>(() => {
-    if (!debouncedSearchQuery) return null;
-
-    const query = debouncedSearchQuery.toLowerCase();
-    
-    // Проверяем все ресурсы
-    for (const [resKey, resLabel] of Object.entries(RESOURCE_LABEL)) {
-      if (resLabel.toLowerCase().includes(query) || resKey.toLowerCase().includes(query)) {
-        return resKey as ResourceType;
-      }
-    }
-
-    return null;
-  }, [debouncedSearchQuery]);
-
+  /*
+   * Раньше поиск по названию ресурса дополнительно разворачивал наверху списка блок
+   * «📊 Ищете: …» с полной цепочкой этого ресурса. Он занимал место над результатами и
+   * дублировал то, что уже есть на карточке каждого здания («Показать цепочку»). Вкладка
+   * оставлена только под поиск и фильтры, цепочки живут на карточках.
+   */
   const toggleChainExpansion = (buildingId: string) => {
     const newExpanded = new Set(expandedChains);
     if (newExpanded.has(buildingId)) {
@@ -273,7 +320,7 @@ export function BuildingList() {
             <input
               type="checkbox"
               checked={showOnlyAffordable}
-              onChange={(e) => setShowOnlyAffordable(e.target.checked)}
+              onChange={(e) => setFilters((f) => ({ ...f, onlyAffordable: e.target.checked }))}
               className="w-3 h-3"
             />
             <span className="text-cyber-text-dim">Доступные</span>
@@ -282,7 +329,7 @@ export function BuildingList() {
             <input
               type="checkbox"
               checked={showOnlyUnlocked}
-              onChange={(e) => setShowOnlyUnlocked(e.target.checked)}
+              onChange={(e) => setFilters((f) => ({ ...f, onlyUnlocked: e.target.checked }))}
               className="w-3 h-3"
             />
             <span className="text-cyber-text-dim">Разблокированные</span>
@@ -294,7 +341,7 @@ export function BuildingList() {
           <span className="text-xs text-cyber-text-dim">Сортировка:</span>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            onChange={(e) => setFilters((f) => ({ ...f, sortBy: e.target.value as SortBy }))}
             className="flex-1 bg-cyber-black border border-cyber-gray rounded px-2 py-1 text-xs text-cyber-text"
           >
             <option value="name">По названию</option>
@@ -312,21 +359,6 @@ export function BuildingList() {
       {/* Список зданий */}
       <div className="flex-1 overflow-y-auto p-3">
         <div className="space-y-2">
-          {/* Показываем производственную цепочку для искомого ресурса с debounce */}
-          {searchedResource && (
-            <div className="mb-3 p-3 bg-cyber-blue/5 border border-cyber-blue/30 rounded">
-              <div className="text-xs font-medium text-cyber-blue mb-2">
-                📊 Ищете: {RESOURCE_LABEL[searchedResource]}
-              </div>
-              <ResourceProductionChain 
-                resource={searchedResource} 
-                buildings={buildings}
-                useDebounce={true}
-                debounceDelay={300}
-              />
-            </div>
-          )}
-
           {filteredBuildings.map((b) => {
           const Icon = getBuildingIcon(b.id);
           const isSelected = selectedBuildId === b.id;
@@ -361,26 +393,38 @@ export function BuildingList() {
             }
           };
 
+          const hasProduction = Object.keys(b.production).length > 0;
+
+          /*
+           * Карточка — контейнер, а кнопкой остаётся только область выбора здания. Раньше
+           * кнопкой была вся карточка, и «Показать цепочку» лежал внутри неё: на здании,
+           * которое ещё не по карману, кнопка приходит с disabled, браузер гасит события
+           * мыши для всего её содержимого — и цепочка не раскрывалась именно там, где она
+           * нужнее всего (посмотреть, из чего это здание вообще делается).
+           */
           return (
-            <button
+            <div
               key={b.id}
-              type="button"
               title={buildTitle(b)}
-              onClick={handleClick}
               onMouseEnter={handleMouseEnter}
               onMouseLeave={handleMouseLeave}
               className={
-                `w-full flex flex-col gap-1.5 p-2.5 rounded transition-all border ` +
+                `flex flex-col rounded transition-all border ` +
                 (!isUnlocked
-                  ? 'bg-cyber-gray/5 border-cyber-gray/20 opacity-40 cursor-not-allowed text-cyber-text-dim'
-                  : isSelected 
-                    ? 'bg-cyber-green/10 border-cyber-green text-cyber-green' 
+                  ? 'bg-cyber-gray/5 border-cyber-gray/20 opacity-40 text-cyber-text-dim'
+                  : isSelected
+                    ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
                     : isHighlighted
                       ? 'bg-cyber-yellow/10 border-cyber-yellow text-cyber-yellow'
-                      : canAfford 
-                        ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text' 
-                        : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 cursor-not-allowed text-cyber-text-dim')
+                      : canAfford
+                        ? 'bg-cyber-gray/20 border-cyber-gray/50 hover:bg-cyber-gray/30 text-cyber-text'
+                        : 'bg-cyber-gray/10 border-cyber-gray/30 opacity-50 text-cyber-text-dim')
               }
+            >
+            <button
+              type="button"
+              onClick={handleClick}
+              className="w-full flex flex-col gap-1.5 p-2.5 text-left disabled:cursor-not-allowed"
               disabled={!isUnlocked || (!canAfford && !isSelected)}
             >
               <div className="flex items-center gap-2 w-full">
@@ -445,47 +489,13 @@ export function BuildingList() {
               )}
 
               {/* Производство */}
-              {Object.keys(b.production).length > 0 && (
-                <div className="space-y-1">
-                  <div className="flex flex-wrap gap-1.5 text-[10px] items-center">
-                    <span className="text-cyber-text-dim">+</span>
-                    {Object.entries(b.production).map(([res, amt]) => (
-                      <span key={res} className="text-cyber-blue">
-                        {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
-                      </span>
-                    ))}
-                    
-                    {/* Кнопка показать цепочку */}
-                    {Object.keys(b.production).length > 0 && (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleChainExpansion(b.id);
-                        }}
-                        className="ml-auto flex items-center gap-0.5 text-[9px] text-cyber-blue hover:text-cyber-green transition-colors cursor-pointer"
-                      >
-                        {expandedChains.has(b.id) ? (
-                          <>
-                            <ChevronUp size={10} />
-                            <span>Скрыть цепочку</span>
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown size={10} />
-                            <span>Показать цепочку</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Производственная цепочка */}
-                  {expandedChains.has(b.id) && Object.keys(b.production).map((res) => (
-                    <ResourceProductionChain
-                      key={res}
-                      resource={res as ResourceType}
-                      buildings={buildings}
-                    />
+              {hasProduction && (
+                <div className="flex flex-wrap gap-1.5 text-[10px] items-center">
+                  <span className="text-cyber-text-dim">+</span>
+                  {Object.entries(b.production).map(([res, amt]) => (
+                    <span key={res} className="text-cyber-blue">
+                      {formatNumber(amt)} {RESOURCE_LABEL[res as keyof typeof RESOURCE_LABEL]}/с
+                    </span>
                   ))}
                 </div>
               )}
@@ -511,6 +521,39 @@ export function BuildingList() {
                 </>
               )}
             </button>
+
+            {/* Цепочка производства — вне кнопки выбора, поэтому работает и на недоступном здании */}
+            {isUnlocked && hasProduction && (
+              <div className="px-2.5 pb-2 -mt-0.5 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => toggleChainExpansion(b.id)}
+                  className="ml-auto flex items-center gap-0.5 text-[9px] text-cyber-blue hover:text-cyber-green transition-colors"
+                >
+                  {expandedChains.has(b.id) ? (
+                    <>
+                      <ChevronUp size={10} />
+                      <span>Скрыть цепочку</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={10} />
+                      <span>Показать цепочку</span>
+                    </>
+                  )}
+                </button>
+
+                {expandedChains.has(b.id) &&
+                  Object.keys(b.production).map((res) => (
+                    <ResourceProductionChain
+                      key={res}
+                      resource={res as ResourceType}
+                      buildings={buildings}
+                    />
+                  ))}
+              </div>
+            )}
+            </div>
           );
         })}
       </div>

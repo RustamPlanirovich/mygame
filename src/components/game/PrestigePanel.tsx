@@ -217,9 +217,21 @@ export function PrestigePanel() {
           <p className="text-white text-center mb-1 text-[11px]">
             При престиже вы получите: <span className="font-bold text-cyan-400">{quantumGain} Quantum Points</span>
           </p>
-          <p className="text-[10px] text-gray-400 text-center mb-2">
-            Прогресс будет сброшен, но престиж-улучшения сохранятся
-          </p>
+          {/*
+            * При нулевой прибавке кнопка заблокирована — без подписи это выглядело бы как
+            * поломка. QP даёт только прогресс текущего забега, поэтому сразу после престижа
+            * жать снова нечего.
+            */}
+          {quantumGain > 0 ? (
+            <p className="text-[10px] text-gray-400 text-center mb-2">
+              Прогресс будет сброшен, но престиж-улучшения сохранятся
+            </p>
+          ) : (
+            <p className="text-[10px] text-yellow-400 text-center mb-2">
+              Недостаточно прогресса в этом забеге: развивайтесь дальше, чтобы престиж дал
+              Quantum Points
+            </p>
+          )}
           <button
             onClick={performPrestige}
             disabled={quantumGain <= 0}

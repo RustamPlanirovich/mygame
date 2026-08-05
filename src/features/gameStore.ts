@@ -639,6 +639,27 @@ const INITIAL_ASCENSION: import('../core/gameTypes').AscensionState = {
   },
 };
 
+/**
+ * Валюта, с которой начинается забег: база плюс стартовые бонусы престижа и вознесения.
+ *
+ * Одна формула на два места: performPrestige выдаёт ровно эти значения при сбросе, а
+ * calculatePrestigeGain вычитает их из текущего баланса, чтобы стартовый бонус не
+ * пересчитывался в Quantum Points. Разъедутся эти два расчёта — и престиж снова станет
+ * самоокупаемым.
+ */
+function getRunStartCurrency(
+  prestige: import('../core/gameTypes').PrestigeState,
+  ascension: import('../core/gameTypes').AscensionState,
+): { credits: Decimal; influence: Decimal } {
+  const bonuses = getTotalPrestigeBonuses(prestige);
+  return {
+    credits: INITIAL_CURRENCY.credits
+      .add(bonuses.startingCredits)
+      .add(ascension.multipliers.startingCredits),
+    influence: INITIAL_CURRENCY.influence.add(bonuses.startingInfluence),
+  };
+}
+
 // ============================================================================
 // Repeatable Research - Initial State (infinitely.md Phase 3)
 // ============================================================================
@@ -11118,7 +11139,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   // Рассчитать сколько Quantum Points игрок получит при престиже
   calculatePrestigeGain: () => {
     const state = get();
-    
+
+    /*
+     * Прогресс забега = текущий баланс минус то, с чем забег начался. Стартовые бонусы
+     * престижа и вознесения выдаются при сбросе, и без вычитания они сами превращались бы
+     * в QP: у прокачанного игрока свежий забег начинается с сотен тысяч кредитов и тысяч
+     * влияния, то есть кнопка «Престиж» снова была бы активна сразу после престижа.
+     */
+    const runStart = getRunStartCurrency(state.prestige, state.ascension);
+    const runCredits = state.currency.credits.sub(runStart.credits);
+    const runInfluence = state.currency.influence.sub(runStart.influence);
+
     // Get artifact bonuses
     const artifactBonuses = calculateArtifactBonuses(
       state.artifacts.discovered,
@@ -11135,9 +11166,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     const endingsAchieved = Object.values(state.endgame.endings).filter(e => e.unlocked).length;
     
     const quantumPoints = calculateQuantumPoints({
-      totalCreditsEarned: state.prestige.stats.totalCreditsEarned,
+      runCredits: runCredits.lt(0) ? D(0) : runCredits,
       researchPoints: state.currency.researchPoints,
-      influence: state.currency.influence,
+      influence: runInfluence.lt(0) ? D(0) : runInfluence,
       megastructuresBuilt,
       endingsAchieved,
       prestigeCount: state.prestige.prestigeCount,
@@ -11205,11 +11236,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         ...retainedResources, // Применяем сохраненные ресурсы
       };
 
-      // Применяем стартовые бонусы (prestige + ascension)
-      const startingCredits = INITIAL_CURRENCY.credits
-        .add(bonuses.startingCredits)
-        .add(state.ascension.multipliers.startingCredits);
-      const startingInfluence = INITIAL_CURRENCY.influence.add(bonuses.startingInfluence);
+      // Применяем стартовые бонусы (prestige + ascension). Те же значения вычитает
+      // calculatePrestigeGain, считая прогресс забега, — расчёт обязан быть один.
+      const runStart = getRunStartCurrency(newPrestige, state.ascension);
+      const startingCredits = runStart.credits;
+      const startingInfluence = runStart.influence;
 
       // Разблокируем технологии Эры 1-3 если куплено улучшение
       let unlockedTechs = { ...INITIAL_RESEARCH.technologies };
