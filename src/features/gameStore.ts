@@ -141,6 +141,7 @@ import {
 } from '../core/systems/construction';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
+import { playSfx } from '../core/audio/sfx';
 
 /*
  * Уже применённые админские выдачи (bigplan.md, пункт 9). Живёт вне стора: это защита от
@@ -3276,6 +3277,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   placeSelectedBuildAt: (pos) => {
+    /*
+     * Флаг вместо звука прямо в апдейтере: сайд-эффект внутри `set` — тот же антипаттерн,
+     * из-за которого раньше терялись начисления (bigplan.md, пункт 36).
+     */
+    let placedOk = false;
+
     set((state) => {
       const activePlatformId = state.galaxies.activePlatformId;
       
@@ -3360,6 +3367,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             selectedBuildId: null,
           },
         };
+        placedOk = true;
         
         return {
           resources: capped,
@@ -3466,6 +3474,8 @@ export const useGameStore = create<GameState>((set, get) => ({
        * Квест на постройку продвигается по ЗАВЕРШЕНИИ, а не по старту — см. обработку
        * завершённых работ в tick. Иначе задание закрывалось бы недостроенным зданием.
        */
+      placedOk = true;
+
       return {
         resources: capped,
         buildings: newBuildings,
@@ -3481,6 +3491,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
       };
     });
+
+    // Звук постройки (bigplan.md, пункт 16) — после set, не внутри апдейтера.
+    if (placedOk) playSfx('place');
   },
 
   /**
@@ -3650,6 +3663,10 @@ export const useGameStore = create<GameState>((set, get) => ({
         resources: capped,
       };
     });
+
+    // Звук сноса (bigplan.md, пункт 16). Один на действие, а не на каждое здание:
+    // на выделении из пятидесяти клеток это был бы треск.
+    if (removedCount > 0) playSfx('remove');
 
     // Сайд-эффект после set: массовое действие должно подтверждаться, иначе непонятно,
     // сработало ли оно и почему снеслось меньше, чем выделено.

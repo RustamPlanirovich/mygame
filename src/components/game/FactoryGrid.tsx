@@ -20,6 +20,7 @@ import { getPowerSources } from '../../utils/powerGridHelpers';
 import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 import { jobProgress } from '../../core/systems/construction';
+import { playSfx } from '../../core/audio/sfx';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
@@ -550,6 +551,10 @@ export function FactoryGrid() {
         const y = clamp(gridPos.y, 0, currentGrid.height - 1);
 
         const pos = { x, y };
+
+        // Звук клика по клетке (bigplan.md, пункт 16).
+        playSfx('click');
+
         selectTile(pos);
         
         // Auto-select building when clicking on deposit (if no building selected)

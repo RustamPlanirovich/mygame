@@ -6,6 +6,7 @@ import { TopBar } from './components/game/TopBar';
 import { FactoryGrid } from './components/game/FactoryGrid';
 import { SelectionActionBar } from './components/game/SelectionActionBar';
 import { useServerStream } from './hooks/useServerStream';
+import { useAudio } from './hooks/useAudio';
 import { SidePanel } from './components/game/SidePanel';
 import { QuickRail } from './components/game/QuickRail';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
@@ -219,6 +220,13 @@ function App() {
    * на бирже. Один SSE-поток на вкладку вместо трёх независимых опросов.
    */
   const streamStatus = useServerStream();
+
+  /*
+   * Звук (bigplan.md, пункты 15, 16): громкости из настроек, фоновая музыка, глушение
+   * в неактивной вкладке. Контекст создаётся по первому жесту игрока — иначе браузер
+   * заблокирует автоплей.
+   */
+  useAudio();
 
   // Initialize hotkeys (только для desktop)
   if (device.isDesktop) {

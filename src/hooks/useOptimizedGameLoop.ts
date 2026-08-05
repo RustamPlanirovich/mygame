@@ -2,6 +2,15 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '../features/gameStore';
 import { useFinanceStore } from '../features/financeStore';
 import { checkAchievements } from '../utils/achievementsHelpers';
+import { playSfx } from '../core/audio/sfx';
+import type { GameState } from '../core/gameTypes';
+
+/** Сколько незавершённых работ на базе. Дёшево: в очереди обычно 0-3 записи. */
+function countTileJobs(state: GameState): number {
+  const jobs = state.grid.tileJobs;
+  if (!jobs) return 0;
+  return Object.keys(jobs).length;
+}
 
 /**
  * СУПЕР-ОПТИМИЗИРОВАННЫЙ игровой цикл
@@ -70,7 +79,18 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
       const dt = logicFrameTime / 1000; // Конвертируем в секунды
       
       // ОПТИМИЗАЦИЯ: Вызываем tick напрямую через ref
+      /*
+       * Звук завершения стройки/улучшения (bigplan.md, пункты 16, 18, 19). Ловим по уменьшению
+       * числа работ в очереди: сам tick — чистый апдейтер, и звать из него звук значило бы
+       * тащить сайд-эффект в reducer (тот самый антипаттерн из пункта 36).
+       */
+      const jobsBefore = countTileJobs(useGameStore.getState());
+
       tickRef.current(dt);
+
+      if (jobsBefore > 0 && countTileJobs(useGameStore.getState()) < jobsBefore) {
+        playSfx('complete');
+      }
 
       // Auto-save tracking - раз в 30 секунд
       saveTimeRef.current += dt;

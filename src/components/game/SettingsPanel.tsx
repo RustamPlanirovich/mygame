@@ -7,10 +7,47 @@ import { SignalStats } from './SignalOverlay';
 import { loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
 import { useConfirmDialog, useAlertDialog } from './ConfirmDialog';
 import { IconText } from '../ui/icons';
+import { applyAudioSettings } from '../../hooks/useAudio';
+
+/** Ползунок громкости 0..1 с подписью в процентах. */
+function VolumeSlider({
+  label,
+  hint,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className={disabled ? 'opacity-50' : undefined}>
+      <div className="flex items-center justify-between">
+        <label className="text-sm text-cyber-text">{label}</label>
+        <span className="text-xs font-mono tabular-nums text-cyber-text-dim">
+          {Math.round(value * 100)}%
+        </span>
+      </div>
+      {hint && <div className="text-xs text-cyber-text-dim">{hint}</div>}
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={Math.round(value * 100)}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        className="w-full mt-1"
+      />
+    </div>
+  );
+}
 
 export const SettingsPanel: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
-  const [activeTab, setActiveTab] = useState<'graphics' | 'gameplay' | 'ui' | 'hotkeys' | 'saves'>('gameplay');
+  const [activeTab, setActiveTab] = useState<'graphics' | 'gameplay' | 'ui' | 'audio' | 'hotkeys' | 'saves'>('gameplay');
   const [isLoading, setIsLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string>('');
   const saveGame = useGameStore(state => state.saveGame);
@@ -43,13 +80,26 @@ export const SettingsPanel: React.FC = () => {
     key: keyof GameSettings[T],
     value: any
   ) => {
-    setSettings(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [key]: value,
-      },
-    }));
+    setSettings(prev => {
+      const next = {
+        ...prev,
+        [category]: {
+          ...prev[category],
+          [key]: value,
+        },
+      };
+
+      /*
+       * Звук применяем СРАЗУ, не дожидаясь кнопки «Сохранить» (bigplan.md, пункты 15, 16):
+       * громкость настраивают на слух, и регулятор, который начинает работать только после
+       * сохранения и перезагрузки, настроить невозможно.
+       */
+      if (category === 'audio') {
+        applyAudioSettings(next.audio);
+      }
+
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -167,6 +217,7 @@ export const SettingsPanel: React.FC = () => {
     { id: 'gameplay' as const, label: 'Игра' },
     { id: 'graphics' as const, label: 'Графика' },
     { id: 'ui' as const, label: 'Интерфейс' },
+    { id: 'audio' as const, label: 'Звук' },
     { id: 'hotkeys' as const, label: 'Клавиши' },
     { id: 'saves' as const, label: 'Сохранения' },
   ];
@@ -362,6 +413,60 @@ export const SettingsPanel: React.FC = () => {
                     />
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Audio Settings (bigplan.md, пункты 15, 16, 35) */}
+        {activeTab === 'audio' && (
+          <div className="space-y-4">
+            <div className="bg-cyber-dark p-4 rounded-lg border border-cyber-gray">
+              <h3 className="text-sm font-bold text-cyber-blue mb-3">Звук</h3>
+
+              <div className="space-y-4">
+                <label className="flex items-center justify-between">
+                  <span className="text-sm text-cyber-text">Выключить весь звук</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.audio.muteAll}
+                    onChange={(e) => handleSettingChange('audio', 'muteAll', e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                </label>
+
+                {/*
+                  Три отдельных регулятора, а не один: музыка и звуки интерфейса нужны игрокам
+                  в разных пропорциях, и «выключить музыку, оставить клики» — самый частый
+                  сценарий. Общий уровень поверх них.
+                */}
+                <VolumeSlider
+                  label="Фоновая музыка"
+                  hint="Спокойный генеративный фон без слов"
+                  value={settings.audio.musicVolume}
+                  disabled={settings.audio.muteAll}
+                  onChange={(v) => handleSettingChange('audio', 'musicVolume', v)}
+                />
+
+                <VolumeSlider
+                  label="Звуки интерфейса"
+                  hint="Клик по клетке, постройка, снос, завершение работ"
+                  value={settings.audio.sfxVolume}
+                  disabled={settings.audio.muteAll}
+                  onChange={(v) => handleSettingChange('audio', 'sfxVolume', v)}
+                />
+
+                <VolumeSlider
+                  label="Общая громкость"
+                  value={settings.audio.masterVolume}
+                  disabled={settings.audio.muteAll}
+                  onChange={(v) => handleSettingChange('audio', 'masterVolume', v)}
+                />
+
+                <p className="text-xs text-cyber-text-dim">
+                  Звук включается после первого клика в игре — так требуют браузеры: до
+                  взаимодействия страница не имеет права ничего проигрывать.
+                </p>
               </div>
             </div>
           </div>
