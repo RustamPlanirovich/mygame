@@ -5,6 +5,7 @@
 
 import { RESOURCE_UNIVERSE, RESOURCE_REFERENCE_PRICES } from './market-sim/universe.js';
 import { describeError } from './error-detail.js';
+import { realtimeHub } from './realtime.js';
 import {
   VAULT_CREDITS,
   initVaultTables,
@@ -737,6 +738,35 @@ export function createMarketRoutes(app, pool, authMiddleware) {
       const updatedOrder = updatedOrderResult.rows[0];
 
       await client.query('COMMIT');
+
+      /*
+       * Уведомляем остальных игроков о новом ордере (bigplan.md, пункты 17, 24).
+       *
+       * Рассылаем ПОСЛЕ COMMIT: до него ордера ещё нет, и при откате транзакции все получили бы
+       * тост про заказ, которого не существует.
+       *
+       * Отправляем всем, кроме автора, и НЕ фильтруем по складу на сервере: сервер не знает
+       * инвентарь игрока (он лежит в его сейве), а payload крошечный. Решает клиент — он
+       * показывает тост только если этот ресурс у него реально есть (см. useServerStream).
+       *
+       * Полностью исполненный ордер не анонсируем: предлагать «проверьте и продайте» по
+       * закрытой заявке значит гарантированно тратить внимание игрока впустую.
+       */
+      if (updatedOrder.status === 'active') {
+        realtimeHub.broadcast(
+          'market.order.created',
+          {
+            id: updatedOrder.id,
+            playerName: updatedOrder.player_name,
+            type: updatedOrder.order_type,
+            resource: updatedOrder.resource,
+            quantity: updatedOrder.quantity,
+            pricePerUnit: updatedOrder.price_per_unit,
+            createdAt: new Date(updatedOrder.created_at).getTime(),
+          },
+          (c) => c.userId !== playerId,
+        );
+      }
 
       res.json({
         ok: true,

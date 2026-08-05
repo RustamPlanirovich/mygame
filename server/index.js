@@ -19,6 +19,8 @@ import { startMarketSim, stopMarketSim, createMarketSimRoutes } from './market-s
 import { createP2PLendingRoutes, initP2PLendingTables } from './p2p-lending.js';
 import { createOfflineTradingRoutes, initOfflineTradingTables } from './offline-trading.js';
 import { createAdminRoutes, initAdminTables, bootstrapRoleForEmail } from './admin.js';
+import { realtimeHub } from './realtime.js';
+import { createChatRoutes, initChatTables } from './chat.js';
 import {
   compression,
   rateLimit,
@@ -223,10 +225,37 @@ const authMiddleware = async (req, res, next) => {
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.json({ ok: true });
+    res.json({ ok: true, streams: realtimeHub.connectionCount });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message ?? e) });
   }
+});
+
+/**
+ * GET /api/stream — единый realtime-канал (bigplan.md, пункт 24).
+ *
+ * Один SSE-поток на вкладку вместо отдельного опроса для чата, чата гильдии и уведомлений
+ * о заказах на бирже. Авторизация — обычный `Authorization: Bearer`, тем же authMiddleware:
+ * клиент читает поток через fetch + ReadableStream, а не через EventSource, именно чтобы не
+ * тащить токен в query-строку (он попал бы в access-логи и в Referer).
+ *
+ * Гильдия читается один раз при подключении и кладётся в клиента хаба — иначе фильтр
+ * «только моей гильдии» стоил бы запроса в БД на каждое сообщение.
+ */
+app.get('/api/stream', authMiddleware, async (req, res) => {
+  let guildId = null;
+  try {
+    const membership = await pool.query(
+      'SELECT guild_id FROM guild_members WHERE player_id = $1 LIMIT 1',
+      [req.userId]
+    );
+    guildId = membership.rows[0]?.guild_id ?? null;
+  } catch (e) {
+    // Отсутствие гильдии не повод не подключать поток: общий чат и биржа работают без неё.
+    console.warn('[stream] guild lookup failed:', e?.message ?? e);
+  }
+
+  realtimeHub.attach(req, res, { userId: req.userId, guildId });
 });
 
 // Регистрация
@@ -1149,6 +1178,9 @@ await startMarketSim(pool);
 // Инициализация таблиц для P2P кредитования
 await initP2PLendingTables(pool);
 
+// Чат: общий канал (гильдейский живёт в market.js вместе с таблицами гильдий)
+await initChatTables(pool);
+
 // Регистрация маршрутов для торговой биржи и гильдий
 createMarketRoutes(app, pool, authMiddleware);
 createMarketSimRoutes(app, pool);
@@ -1170,6 +1202,9 @@ createOfflineTradingRoutes(app, pool, authMiddleware);
 
 // Регистрация маршрутов для P2P кредитования
 createP2PLendingRoutes(app, pool, authMiddleware);
+
+// Чат: общий и гильдейский (bigplan.md, пункты 12, 13)
+createChatRoutes(app, pool, authMiddleware);
 
 // Админ-панель (/api/admin/*) и публичные объявления (/api/announcements)
 createAdminRoutes(app, pool, authMiddleware);

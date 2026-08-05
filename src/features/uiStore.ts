@@ -32,6 +32,7 @@ export type PanelSectionId =
   | 'artifacts'
   | 'rewards'
   | 'chains'
+  | 'chat'
   | 'expedition'
   | 'power'
   | 'settings'

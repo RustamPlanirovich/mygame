@@ -3,6 +3,8 @@
  * Фаза 1: Мультиплеерная торговля
  */
 
+import { realtimeHub } from './realtime.js';
+
 // Константы гильдий
 const GUILD_CONSTANTS = {
   CREATE_COST: 10_000,
@@ -402,7 +404,12 @@ export function createGuildRoutes(app, pool, authMiddleware) {
       `, [playerId, id]);
       
       await client.query('COMMIT');
-      
+
+      // Открытый SSE-поток игрока держит его guildId, чтобы не запрашивать БД на каждое
+      // сообщение чата. После смены членства его надо обновить, иначе игрок не увидит
+      // чат новой гильдии до переподключения.
+      realtimeHub.setUserGuild(playerId, id);
+
       res.json({ ok: true, message: 'JOINED_GUILD' });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -468,7 +475,11 @@ export function createGuildRoutes(app, pool, authMiddleware) {
       );
       
       await client.query('COMMIT');
-      
+
+      // См. пояснение в JOINED_GUILD: сбрасываем гильдию в открытых потоках, иначе
+      // вышедший продолжал бы получать сообщения покинутой гильдии.
+      realtimeHub.setUserGuild(playerId, null);
+
       res.json({ ok: true, message: 'LEFT_GUILD' });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -679,7 +690,10 @@ export function createGuildRoutes(app, pool, authMiddleware) {
       );
       
       await client.query('COMMIT');
-      
+
+      // Исключённый не должен продолжать читать чат гильдии через открытый поток.
+      realtimeHub.setUserGuild(targetPlayerId, null);
+
       res.json({ ok: true, message: 'MEMBER_KICKED' });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -847,17 +861,25 @@ export function createGuildRoutes(app, pool, authMiddleware) {
         RETURNING *
       `, [id, playerId, playerName, message.trim()]);
       
-      res.json({
-        ok: true,
-        message: {
-          id: result.rows[0].id.toString(),
-          guildId: result.rows[0].guild_id,
-          playerId: result.rows[0].player_id.toString(),
-          playerName: result.rows[0].player_name,
-          message: result.rows[0].message,
-          createdAt: new Date(result.rows[0].created_at).getTime()
-        }
-      });
+      const saved = {
+        id: result.rows[0].id.toString(),
+        channel: 'guild',
+        guildId: result.rows[0].guild_id,
+        playerId: result.rows[0].player_id.toString(),
+        playerName: result.rows[0].player_name,
+        message: result.rows[0].message,
+        createdAt: new Date(result.rows[0].created_at).getTime()
+      };
+
+      /*
+       * Рассылаем участникам гильдии по SSE (bigplan.md, пункты 13, 24). Раньше сообщение
+       * просто ложилось в таблицу: увидеть его можно было только следующим GET, то есть
+       * переоткрыв панель. Рассылка идёт ПОСЛЕ успешного INSERT — иначе игроки увидели бы
+       * сообщение, которого нет в истории.
+       */
+      realtimeHub.broadcastToGuild(result.rows[0].guild_id, 'chat.message', saved);
+
+      res.json({ ok: true, message: saved });
     } catch (e) {
       console.error('Error sending guild message:', e);
       res.status(500).json({ ok: false, error: String(e?.message ?? e) });

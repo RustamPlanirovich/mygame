@@ -17,6 +17,8 @@ import { PrestigePanel } from './PrestigePanel';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { DailyRewardsPanel } from './DailyRewardsPanel';
 import { ProductionChainVisualizer } from './ProductionChainVisualizer';
+import { ChatPanel } from './ChatPanel';
+import { useChatStore } from '../../features/chatStore';
 import { ExpeditionPanel } from './ExpeditionPanel';
 import { PoliticsPanel } from './PoliticsPanel';
 import { GalaxyMap } from './GalaxyMap';
@@ -100,6 +102,7 @@ const GROUPS: SectionGroup[] = [
   {
     title: 'Задания и прочее',
     items: [
+      { id: 'chat', label: 'Чат', icon: 'chat' },
       { id: 'quests', label: 'Квесты', icon: 'quest' },
       { id: 'achievements', label: 'Достижения', icon: 'trophy', Component: AchievementsPanel },
       { id: 'events', label: 'События', icon: 'siren', Component: RandomEventsPanel },
@@ -122,7 +125,7 @@ function PowerSection() {
   );
 }
 
-export function SidePanel() {
+export function SidePanel({ streamOnline = true }: { streamOnline?: boolean }) {
   const section = useUiStore((s) => s.section);
   const openSection = useUiStore((s) => s.open);
   const close = useUiStore((s) => s.close);
@@ -154,6 +157,7 @@ export function SidePanel() {
   const claimableQuests = useGameStore(
     (s) => s.quests.activeQuests.filter((q) => q.isCompleted && q.isActive).length,
   );
+  const chatUnread = useChatStore((s) => s.unread);
 
   const quests = useGameStore((s) => s.quests.activeQuests);
   const claimQuestReward = useGameStore((s) => s.claimQuestReward);
@@ -224,8 +228,11 @@ export function SidePanel() {
       events: activeEventsCount,
       achievements: recentAchievements,
       quests: claimableQuests,
+      // Новые сообщения чата, пришедшие пока панель закрыта (пункты 12, 13):
+      // иначе чат в меню разделов ничем не отличается от пустого.
+      chat: chatUnread,
     }),
-    [activeEventsCount, recentAchievements, claimableQuests],
+    [activeEventsCount, recentAchievements, claimableQuests, chatUnread],
   );
 
   const handleClose = () => {
@@ -287,6 +294,11 @@ export function SidePanel() {
     }
     if (section === 'quests') {
       return <QuestsPanel quests={quests} onClaimReward={claimQuestReward} />;
+    }
+    if (section === 'chat') {
+      // streamOnline приходит из App: чат должен честно сказать, что связи нет,
+      // иначе молчащий канал не отличить от отсутствия сообщений.
+      return <ChatPanel streamOnline={streamOnline} />;
     }
 
     const Component = active?.Component;
