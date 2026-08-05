@@ -11,7 +11,7 @@ import type Decimal from 'break_eternity.js';
 import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
-import { Search, ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff, Settings } from 'lucide-react';
+import { ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff, Settings } from 'lucide-react';
 import { BuildingSettingsPanel } from './building/BuildingSettingsPanel';
 import {
   computeBandwidth,
@@ -341,40 +341,32 @@ export function TileInspector() {
     return { canAfford: missing.length === 0, missing };
   }, [resources, selectedBuildCost]);
 
+  /*
+   * Заголовок «ИНСПЕКТОР — Клетка (x, y)» рисует шапка правой панели (SidePanel),
+   * поэтому здесь его больше нет: раньше он дублировался и съедал первый экран.
+   */
   return (
-    <div className="p-4 border-b border-cyber-gray">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
-          <Search size={18} className="text-cyber-green" />
-          <span>Инспектор</span>
-        </h2>
-        <div className="text-xs text-cyber-text-dim">
-          {grid.selected ? `Клетка: (${grid.selected.x}, ${grid.selected.y})` : 'Выберите клетку'}
-        </div>
-      </div>
-
+    <div className="p-3">
       <div className="cyber-panel">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="text-xs text-cyber-text-dim">
-            Режим строительства:{' '}
-            {selectedBuild ? (
+        {/* Строка про режим строительства нужна только когда он включён — «выкл» первой
+            строкой инспектора ничего не сообщало, но занимало место. */}
+        {selectedBuild ? (
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-xs text-cyber-text-dim">
+              Режим строительства:{' '}
               <span className="text-cyber-text inline-flex items-center gap-2">
                 {SelectedBuildIcon ? <SelectedBuildIcon size={14} className="text-cyber-text" /> : null}
                 <span>{selectedBuild.name}</span>
               </span>
-            ) : (
-              <span className="text-cyber-text-dim">выкл</span>
-            )}
-          </div>
-          {selectedBuild ? (
+            </div>
             <button className="cyber-button text-xs py-2 px-3" onClick={() => selectBuild(null)}>
               ОТМЕНА
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
         {!grid.selected ? (
-          <div className="text-sm text-cyber-text-dim">Выбери клетку на сетке слева.</div>
+          <div className="text-sm text-cyber-text-dim">Выберите клетку на карте.</div>
         ) : isBaseSelected ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">

@@ -80,7 +80,8 @@ export const Minimap = () => {
   const mapSize = isExpanded ? MINIMAP_SIZE * 2 : MINIMAP_SIZE;
 
   return (
-    <div className="absolute bottom-4 right-4 z-10 animate-scale-in">
+    /* Слева внизу: справа теперь лежит панель управления, поверх карты. */
+    <div className="absolute bottom-3 left-3 z-10 animate-scale-in">
       <div className="glass rounded-md border border-edge p-3 shadow-elev-3">
         <div className="flex items-center justify-between mb-2">
           <span className="stat-label">Мини-карта</span>

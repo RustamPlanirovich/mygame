@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOptimizedGameLoop } from './hooks/useOptimizedGameLoop';
 import { useGameStore } from './features/gameStore';
-import { ResourcePanel } from './components/game/ResourcePanel';
-import { CurrencyPanel } from './components/game/CurrencyPanel';
-import { EnergyBalancePanel } from './components/game/EnergyBalancePanel';
-import { PollutionPanel } from './components/game/PollutionPanel';
+import { useUiStore } from './features/uiStore';
+import { TopBar } from './components/game/TopBar';
 import { FactoryGrid } from './components/game/FactoryGrid';
-import { SidePanelTabs } from './components/game/SidePanelTabs';
+import { SidePanel } from './components/game/SidePanel';
+import { QuickRail } from './components/game/QuickRail';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
 import { NotificationToast } from './components/game/NotificationToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
 import { ProductionChainOverlay } from './components/game/ProductionChainOverlay';
-import { Dashboard } from './components/game/Dashboard';
 import { Minimap } from './components/game/Minimap';
 import { HelpModal } from './components/game/HelpPanel';
 import { AuthForm } from './components/auth/AuthForm';
@@ -30,9 +28,8 @@ import { cleanupLegacyLocalStorage } from './utils/cleanupLocalStorage';
 import { isAuthenticated, getCurrentSession, getCurrentSlotId, loadSettingsFromServer } from './utils/settingsApi';
 import type { GameSettings } from './core/gameTypes.settings';
 import { AdminPanel, AnnouncementBanner } from './components/admin';
-import { GameIcon, Modal, PanelBoundary } from './components/ui';
+import { Modal, PanelBoundary } from './components/ui';
 import type { AdminRole } from './utils/adminApi';
-import { Menu, X, ChevronLeft, ChevronRight, Map, Shield } from 'lucide-react';
 
 function App() {
   const [user, setUser] = useState<{ id: number; email: string; role?: AdminRole } | null>(null);
@@ -58,13 +55,6 @@ function App() {
   // Определяем устройство
   const device = useDevice();
   const recommendedSettings = useRecommendedSettings();
-  
-  // Mobile menu state
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  
-  // Collapsed states for panels
-  const [collapsedStats, setCollapsedStats] = useState(false);
-  const [collapsedInfoPanels, setCollapsedInfoPanels] = useState(false);
   
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -105,6 +95,9 @@ function App() {
   const closeCheatPanel = useCallback(() => setShowCheatPanel(false), []);
   const closeMapSelector = useCallback(() => setShowMapSelector(false), []);
   const closeAdmin = useCallback(() => setShowAdmin(false), []);
+  const openProfile = useCallback(() => setShowProfile(true), []);
+  const openMapSelector = useCallback(() => setShowMapSelector(true), []);
+  const openAdmin = useCallback(() => setShowAdmin(true), []);
   const openSaveManagerFromProfile = useCallback(() => {
     setShowProfile(false);
     setShowSaveManager(true);
@@ -258,6 +251,16 @@ function App() {
       loadGame().then(() => {
         // Проверяем и обновляем daily login после загрузки
         checkAndUpdateDailyLogin();
+        /*
+         * Выбранная клетка лежит в сохранении, а на телефоне правая панель занимает весь
+         * экран: без сброса игрок при входе видел инспектор клетки, на которой закончил
+         * прошлую сессию, вместо своей фабрики. Ширину читаем здесь, а не через useDevice,
+         * чтобы поворот экрана не перезапускал загрузку сохранения.
+         */
+        if (window.matchMedia('(max-width: 767px)').matches) {
+          useGameStore.getState().selectTile(null);
+          useUiStore.getState().close();
+        }
       });
     }
   }, [user, loadGame, checkAndUpdateDailyLogin]);
@@ -307,173 +310,34 @@ function App() {
   }
 
   return (
-    <div className="h-[100dvh] flex bg-cyber-black text-cyber-text overflow-hidden">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-cyber-black text-cyber-text">
       {/* FPS Counter (F3 в dev режиме) */}
       {showFPS && (
-        <div className="fixed top-2 left-80 z-50 bg-black/80 text-green-400 px-2 py-1 rounded text-xs font-mono">
+        <div className="fixed bottom-2 left-1/2 z-50 -translate-x-1/2 rounded bg-black/80 px-2 py-1 font-mono text-xs text-green-400">
           FPS: {getFPS()}
         </div>
       )}
-      
-      {/* Mobile Menu Button */}
-      {device.isMobile && (
-        <button
-          onClick={() => setShowMobileMenu(!showMobileMenu)}
-          className="fixed top-2 right-2 z-50 bg-cyber-dark border border-cyber-green p-2 rounded"
-          aria-label="Menu"
-        >
-          {showMobileMenu ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      )}
-      
-      {/* Центральная область - игровое поле */}
-      <main className={`flex-1 flex flex-col overflow-hidden ${device.isMobile ? 'w-full' : ''}`}>
-        {/* Dashboard - компактный и сворачиваемый */}
-        {!device.isMobile && !collapsedStats && <Dashboard onOpenProfile={() => setShowProfile(true)} />}
-        
-        {/* Объединенная панель валют и ресурсов */}
-        <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark flex items-center justify-between">
-          <div className="flex-1">
-            <div className="flex items-center">
-              <CurrencyPanel />
-              <div className="w-px h-8 bg-cyber-gray mx-2" />
-              <ResourcePanel />
-            </div>
-          </div>
-          {!device.isMobile && (
-            <button
-              onClick={() => setCollapsedStats(!collapsedStats)}
-              className="px-2 py-1 hover:bg-cyber-gray/30 border-l border-cyber-gray transition-colors"
-              title={collapsedStats ? 'Показать статистику' : 'Скрыть статистику'}
-            >
-              {collapsedStats ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-            </button>
-          )}
-        </div>
-        
-        {/* Energy и Pollution - сворачиваемые */}
-        {!collapsedInfoPanels && (
-          <div className={`shrink-0 border-b border-cyber-gray bg-cyber-darker grid ${
-            device.isMobile ? 'grid-cols-1 gap-1 p-1' : 'grid-cols-2 gap-2 p-2'
-          }`}>
-            <EnergyBalancePanel />
-            {!device.isMobile && <PollutionPanel />}
-          </div>
-        )}
-        
-        {/* Кнопка сворачивания панелей Energy/Pollution */}
-        {!device.isMobile && (
-          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark">
-            <button
-              onClick={() => setCollapsedInfoPanels(!collapsedInfoPanels)}
-              className="w-full py-0.5 text-xs text-cyber-text-dim hover:text-cyber-green hover:bg-cyber-gray/30 transition-colors"
-            >
-              {collapsedInfoPanels ? '▼ Показать панели' : '▲ Скрыть панели'}
-            </button>
-          </div>
-        )}
-        <section className="flex-1 overflow-hidden">
-          <div className="h-full relative">
-            <FactoryGrid />
-            {!device.isMobile && <Minimap />}
-          </div>
-        </section>
+
+      {/* Одна строка ресурсов вместо четырёх ярусов панелей */}
+      <TopBar
+        onOpenProfile={openProfile}
+        onOpenMaps={openMapSelector}
+        onOpenAdmin={staffRole ? openAdmin : undefined}
+        compact={device.isMobile}
+      />
+
+      {/*
+        Карта занимает всё остальное место, а правая панель лежит НАД ней (как в
+        Industry Idle). Раньше панель была колонкой во флексе: открытие/закрытие
+        меняло ширину канваса, Pixi пересобирал сцену и камера прыгала.
+      */}
+      <main className="relative min-h-0 flex-1 overflow-hidden">
+        <FactoryGrid />
+        {!device.isMobile && <Minimap />}
+        {!device.isMobile && <QuickRail />}
+        <SidePanel />
       </main>
 
-      {/* Правая панель управления - на мобильных показывается как модальное окно */}
-      {device.isMobile ? (
-        // Mobile: Slide-in menu
-        <>
-          {showMobileMenu && (
-            <div 
-              className="fixed inset-0 bg-black/70 z-40"
-              onClick={() => setShowMobileMenu(false)}
-            />
-          )}
-          <aside className={`fixed top-0 right-0 bottom-0 w-[85vw] max-w-[400px] z-40 
-            border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden
-            transition-transform duration-300 ${
-              showMobileMenu ? 'translate-x-0' : 'translate-x-full'
-            }`}>
-            <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
-              <div>
-                <h1 className="flex items-center gap-1.5 text-base font-bold text-cyber-green"><GameIcon icon="🏭" /> Фабрика</h1>
-                <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setShowMobileMenu(false);
-                    setShowMapSelector(true);
-                  }}
-                  className="p-1 hover:bg-cyber-gray rounded text-cyber-text hover:text-cyber-green"
-                  title="Карты"
-                >
-                  <Map size={20} />
-                </button>
-                {staffRole && (
-                  <button
-                    onClick={() => {
-                      setShowMobileMenu(false);
-                      setShowAdmin(true);
-                    }}
-                    className="p-1 hover:bg-cyber-gray rounded text-cyber-text hover:text-cyber-green"
-                    aria-label="Админ-панель"
-                    title="Админ-панель"
-                  >
-                    <Shield size={20} />
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowMobileMenu(false)}
-                  className="p-1 hover:bg-cyber-gray rounded"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              <SidePanelTabs />
-            </div>
-          </aside>
-        </>
-      ) : (
-        // Desktop/Tablet: Fixed sidebar
-        <aside className="w-[420px] shrink-0 border-l border-cyber-gray bg-cyber-darker flex flex-col overflow-hidden">
-          <div className="shrink-0 border-b border-cyber-gray bg-cyber-dark p-3 flex justify-between items-center">
-            <div>
-              <h1 className="flex items-center gap-1.5 text-base font-bold text-cyber-green"><GameIcon icon="🏭" /> Фабрика</h1>
-              <p className="text-[10px] text-cyber-text-dim mt-0.5">Управление производством</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setShowMapSelector(true)}
-                className="flex items-center gap-1 px-2 py-1 bg-cyber-gray/30 hover:bg-cyber-green/20 border border-cyber-gray hover:border-cyber-green rounded text-xs text-cyber-text hover:text-cyber-green transition-colors"
-                title="Выбрать карту"
-              >
-                <Map size={14} />
-                <span>Карты</span>
-              </button>
-              {staffRole && (
-                <button
-                  onClick={() => setShowAdmin(true)}
-                  className="icon-btn"
-                  aria-label="Админ-панель"
-                  title="Админ-панель"
-                >
-                  <Shield size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            <SidePanelTabs />
-          </div>
-        </aside>
-      )}
-      
       {/* Event notification toasts */}
       <EventNotificationToast />
       
