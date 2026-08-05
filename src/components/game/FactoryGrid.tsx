@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
 import { THEME_COLORS, hexToCss } from '../../core/constants/themeColors';
 import { useGameStore, getBasePos } from '../../features/gameStore';
+import { useUiStore } from '../../features/uiStore';
 import {
   BUILDING_EMOJI,
   DEPOSIT_EMOJI,
@@ -197,6 +198,8 @@ export function FactoryGrid() {
   });
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
+  // Массовое выделение (bigplan.md, пункты 10 и 28) — UI-состояние, не попадает в сейв.
+  const selectedTiles = useUiStore((s) => s.selectedTiles);
   const selectTile = useGameStore((s) => s.selectTile);
   const selectBuild = useGameStore((s) => s.selectBuild);
   const placeSelectedBuildAt = useGameStore((s) => s.placeSelectedBuildAt);
@@ -257,6 +260,26 @@ export function FactoryGrid() {
     startY: 0,
     lastX: 0,
     lastY: 0,
+  });
+
+  /*
+   * ВЫДЕЛЕНИЕ РАМКОЙ (bigplan.md, пункты 10 и 28).
+   *
+   * Держим в ref, а не в state: рамка обновляется на каждое движение мыши, и прогон через
+   * React-рендер на 60 Гц ради прямоугольника — лишняя работа. В стор уходит только
+   * итоговый набор клеток на pointerup.
+   *
+   * Мировые координаты (а не экранные): иначе рамка «поедет», если во время протяжки
+   * изменится зум или камера.
+   */
+  const boxRef = useRef({
+    active: false,
+    /** Дополнять существующее выделение (Shift), а не заменять его. */
+    additive: false,
+    startWorldX: 0,
+    startWorldY: 0,
+    curWorldX: 0,
+    curWorldY: 0,
   });
 
   // ─── ЗАЩИТА ОТ УСТАРЕВШЕГО РЕЖИМА СЕТКИ ────────────────────────────────────
@@ -436,6 +459,32 @@ export function FactoryGrid() {
       textLayerRef.current = textLayer;
       world.addChild(textLayer);
 
+      /*
+       * Отдельный слой для рамки выделения. Она обновляется на каждый кадр протяжки, и рисовать
+       * её в общем `g` значило бы перерисовывать вместе с ней всю карту 60 раз в секунду.
+       */
+      const boxLayer = new PIXI.Graphics();
+      world.addChild(boxLayer);
+
+      const drawSelectionBox = () => {
+        boxLayer.clear();
+        const box = boxRef.current;
+        if (!box.active) return;
+
+        const x = Math.min(box.startWorldX, box.curWorldX);
+        const y = Math.min(box.startWorldY, box.curWorldY);
+        const w = Math.abs(box.curWorldX - box.startWorldX);
+        const h = Math.abs(box.curWorldY - box.startWorldY);
+        if (w < 1 && h < 1) return;
+
+        boxLayer
+          .rect(x, y, w, h)
+          .fill({ color: THEME_COLORS.cyberYellow, alpha: 0.08 })
+          .stroke({ color: THEME_COLORS.cyberYellow, width: 1.5, alpha: 0.9 });
+      };
+
+      app.ticker.add(drawSelectionBox);
+
       app.canvas.style.display = 'block';
       app.canvas.style.width = '100%';
       app.canvas.style.height = '100%';
@@ -446,6 +495,45 @@ export function FactoryGrid() {
           x: (sx - cam.x) / cam.zoom,
           y: (sy - cam.y) / cam.zoom,
         };
+      };
+
+      /**
+       * Клетки со зданиями внутри текущей рамки.
+       *
+       * Идём по ЗАНЯТЫМ клеткам (grid.tiles), а не по прямоугольнику сетки: рамкой на
+       * отдалённой камере можно накрыть десятки тысяч клеток, а зданий там единицы.
+       */
+      const tilesInBox = (): string[] => {
+        const box = boxRef.current;
+        const minX = Math.min(box.startWorldX, box.curWorldX);
+        const maxX = Math.max(box.startWorldX, box.curWorldX);
+        const minY = Math.min(box.startWorldY, box.curWorldY);
+        const maxY = Math.max(box.startWorldY, box.curWorldY);
+
+        const s = useGameStore.getState();
+        const g = s.galaxies.activePlatformId
+          ? s.galaxies.platforms.find((p) => p.id === s.galaxies.activePlatformId)?.grid || s.grid
+          : s.grid;
+
+        const baseKey = `${getBasePos(g).x},${getBasePos(g).y}`;
+        const out: string[] = [];
+
+        for (const key of Object.keys(g.tiles)) {
+          if (key === baseKey) continue; // ядро базы снести нельзя, выделять его незачем
+          const comma = key.indexOf(',');
+          const gx = Number(key.slice(0, comma));
+          const gy = Number(key.slice(comma + 1));
+          if (!Number.isFinite(gx) || !Number.isFinite(gy)) continue;
+
+          // Центр клетки — попадание по центру предсказуемее, чем по любому касанию рамкой.
+          const p = gridToPixel(gx, gy);
+          const cx = currentGridMode === 'hex' ? p.px : p.px + CELL / 2;
+          const cy = currentGridMode === 'hex' ? p.py : p.py + CELL / 2;
+
+          if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) out.push(key);
+        }
+
+        return out;
       };
 
       const handlePrimaryClick = (sx: number, sy: number) => {
@@ -613,6 +701,25 @@ export function FactoryGrid() {
           return;
         }
 
+        /*
+         * Alt+drag — рамка выделения. Alt, а не просто drag: левое перетаскивание уже занято
+         * панорамированием (viewport.md), и отбирать его нельзя. Shift дополняет выделение.
+         */
+        if ((e as any).button === 0 && e.altKey) {
+          const wp = screenToWorld(sx, sy);
+          boxRef.current.active = true;
+          boxRef.current.additive = e.shiftKey;
+          boxRef.current.startWorldX = wp.x;
+          boxRef.current.startWorldY = wp.y;
+          boxRef.current.curWorldX = wp.x;
+          boxRef.current.curWorldY = wp.y;
+          panRef.current.candidate = false;
+          panRef.current.active = false;
+          useUiStore.getState().setBoxSelecting(true);
+          (app.canvas as any).setPointerCapture?.(e.pointerId);
+          return;
+        }
+
         // Default behavior (viewport.md): left button starts a drag candidate.
         // If movement exceeds a threshold, we pan; otherwise we treat it as a click on pointerup.
         if ((e as any).button === 0) {
@@ -627,6 +734,19 @@ export function FactoryGrid() {
       };
 
       const onPointerUp = (e: PointerEvent) => {
+        // Завершение рамки выделения: считаем попавшие клетки и кладём в UI-стор.
+        if (boxRef.current.active) {
+          boxRef.current.active = false;
+          (app.canvas as any).releasePointerCapture?.(e.pointerId);
+          useUiStore.getState().setBoxSelecting(false);
+
+          const keys = tilesInBox();
+          const ui = useUiStore.getState();
+          if (boxRef.current.additive) ui.addSelectedTiles(keys);
+          else ui.setSelectedTiles(keys);
+          return;
+        }
+
         const wasActive = panRef.current.active;
         const wasCandidate = panRef.current.candidate;
 
@@ -641,6 +761,31 @@ export function FactoryGrid() {
           const rect = app.canvas.getBoundingClientRect();
           const sx = (e.clientX - rect.left) * (app.canvas.width / rect.width);
           const sy = (e.clientY - rect.top) * (app.canvas.height / rect.height);
+
+          /*
+           * Shift+клик — добавить/убрать одну клетку в выделении, не трогая режим постройки.
+           * Обычный клик по карте при непустом выделении его сбрасывает: иначе выделение
+           * «залипает» и следующее массовое действие сработает не по тем клеткам.
+           */
+          if (e.shiftKey) {
+            const wp = screenToWorld(sx, sy);
+            const gp = pixelToGrid(wp.x, wp.y);
+            const s = useGameStore.getState();
+            const g = s.galaxies.activePlatformId
+              ? s.galaxies.platforms.find((p) => p.id === s.galaxies.activePlatformId)?.grid || s.grid
+              : s.grid;
+            const gx = clamp(gp.x, 0, g.width - 1);
+            const gy = clamp(gp.y, 0, g.height - 1);
+            const key = `${gx},${gy}`;
+            // Пустую клетку выделять нечего — массовые действия работают по зданиям.
+            if (g.tiles[key]) useUiStore.getState().toggleSelectedTile(key);
+            return;
+          }
+
+          if (useUiStore.getState().selectedTiles.length > 0) {
+            useUiStore.getState().clearSelectedTiles();
+          }
+
           handlePrimaryClick(sx, sy);
         }
       };
@@ -658,6 +803,14 @@ export function FactoryGrid() {
         const rect = app.canvas.getBoundingClientRect();
         const sx = (e.clientX - rect.left) * (app.canvas.width / rect.width);
         const sy = (e.clientY - rect.top) * (app.canvas.height / rect.height);
+
+        // Протяжка рамки: только обновляем ref, отрисовка идёт в тикере Pixi.
+        if (boxRef.current.active) {
+          const wp = screenToWorld(sx, sy);
+          boxRef.current.curWorldX = wp.x;
+          boxRef.current.curWorldY = wp.y;
+          return;
+        }
 
         if (panRef.current.active) {
           const dx = sx - panRef.current.lastX;
@@ -1412,18 +1565,43 @@ export function FactoryGrid() {
         g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
       }
     }
+
+    /*
+     * Массовое выделение (bigplan.md, пункты 10 и 28). Рисуем ПОСЛЕ одиночного выделения,
+     * чтобы жёлтая рамка выделенных клеток была видна поверх зелёной рамки активной клетки.
+     */
+    if (selectedTiles.length > 0) {
+      for (const key of selectedTiles) {
+        const comma = key.indexOf(',');
+        const gx = Number(key.slice(0, comma));
+        const gy = Number(key.slice(comma + 1));
+        if (!Number.isFinite(gx) || !Number.isFinite(gy)) continue;
+
+        const p = gridToPixel(gx, gy);
+        if (isHex) {
+          drawHexagon(g, p.px, p.py, HEX_SIZE + 1);
+          g.stroke({ color: THEME_COLORS.cyberYellow, width: 2, alpha: 0.95 });
+        } else {
+          g.roundRect(p.px - 1, p.py - 1, CELL + 2, CELL + 2, 6)
+            .fill({ color: THEME_COLORS.cyberYellow, alpha: 0.12 })
+            .stroke({ color: THEME_COLORS.cyberYellow, width: 2, alpha: 0.95 });
+        }
+      }
+    }
   }, [
-      grid.tiles, 
-      grid.deposits, 
-      grid.selected, 
-      grid.buffers, 
-      grid.width, 
-      grid.height, 
+      grid.tiles,
+      grid.deposits,
+      grid.selected,
+      grid.buffers,
+      grid.width,
+      grid.height,
       grid.tileDisabled,
       // Дуга прогресса стройки должна появляться и исчезать сразу, не дожидаясь смены буферов.
       grid.tileJobs,
+      // Подсветка выделенных клеток должна появляться сразу после протяжки рамки.
+      selectedTiles,
       combat.enemies.length,
-      worldSize, 
+      worldSize,
       buildingsById,
       // Added new dependencies from top-level useMemo
       allBuildingsWithCoords,

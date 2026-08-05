@@ -139,6 +139,7 @@ import {
   effectiveDisabledTiles,
   upgradeDurationSeconds,
 } from '../core/systems/construction';
+import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import { generateMap } from '../utils/mapGenerator';
 import { getMapDefinition } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
@@ -3552,60 +3553,136 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   removeBuildingAt: (pos) => {
-    set((state) => {
-      const k = keyOf(pos);
-      const buildId = state.grid.tiles[k];
-      if (!buildId) return state;
+    // Один код сноса на все случаи: раньше поштучный снос был отдельной реализацией,
+    // и массовый неизбежно разошёлся бы с ним по правилам возврата.
+    get().removeBuildingsAt([pos]);
+  },
 
-      const buildingIndex = state.buildings.findIndex((b) => b.id === buildId);
-      if (buildingIndex === -1) return state;
+  /**
+   * Снести несколько зданий одним обновлением состояния (bigplan.md, пункты 10 и 28).
+   *
+   * Почему не N вызовов removeBuildingAt: каждый — отдельный `set()` и отдельный полный
+   * пересчёт вместимости складов (recomputeCaps) по всем зданиям. На выделении из 50 клеток
+   * это 50 пересчётов и 50 ререндеров всего интерфейса вместо одного.
+   */
+  removeBuildingsAt: (positions) => {
+    if (positions.length === 0) return;
+
+    let removedCount = 0;
+    let skippedBase = false;
+
+    set((state) => {
+      const baseKey = keyOf(getBasePos(state.grid));
+      const plan = planDemolition(
+        positions.map(keyOf),
+        state.grid.tiles,
+        state.buildings,
+        calculateCost,
+        { baseKey, tileJobs: state.grid.tileJobs },
+      );
+
+      skippedBase = plan.skipped.some((s) => s.reason === 'base');
+      if (isEmptyPlan(plan)) return state;
 
       const nextTiles = { ...state.grid.tiles };
-      delete nextTiles[k];
+      const nextTileLevels = { ...(state.grid.tileLevels ?? {}) };
+      const nextTileEvolutionLevels = { ...(state.grid.tileEvolutionLevels ?? {}) };
+      const nextTileDisabled = { ...(state.grid.tileDisabled ?? {}) };
+      const nextTileJobs = { ...(state.grid.tileJobs ?? {}) };
 
-      // ФАЗА 8.5: Удаляем уровень здания при сносе
-      const tileLevels = state.grid.tileLevels || {};
-      const nextTileLevels = { ...tileLevels };
-      delete nextTileLevels[k];
+      for (const key of plan.keys) {
+        delete nextTiles[key];
+        delete nextTileLevels[key];
+        delete nextTileEvolutionLevels[key];
+        // Снятый флаг «выключено» и незавершённая работа: без этого на новом здании,
+        // построенном на той же клетке, оставались бы настройки прежнего.
+        delete nextTileDisabled[key];
+        delete nextTileJobs[key];
+      }
 
-      // Phase 4: Удаляем эволюцию здания при сносе
-      const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
-      const nextTileEvolutionLevels = { ...tileEvolutionLevels };
-      delete nextTileEvolutionLevels[k];
+      // Счётчики каталога — одним проходом по затронутым типам.
+      const newBuildings = state.buildings.map((b) => {
+        const removed = plan.countByBuilding[b.id];
+        return removed ? { ...b, count: Math.max(0, b.count - removed) } : b;
+      });
 
-      const newBuildings = [...state.buildings];
-      const b = newBuildings[buildingIndex];
-      newBuildings[buildingIndex] = { ...b, count: Math.max(0, b.count - 1) };
-
-      // Возвращаем 75% стоимости здания при сносе
-      const building = state.buildings[buildingIndex];
-      const cost = calculateCost(building);
-      const refundRate = 0.75; // 75% возврат
-      
-      let newResources = { ...state.resources };
+      // Возврат в базовый буфер.
+      const newResources = { ...state.resources };
       let buffers = state.grid.buffers;
-      
-      for (const [resType, amount] of Object.entries(cost)) {
+      for (const [resType, amount] of Object.entries(plan.refund)) {
         const rType = resType as ResourceType;
-        const refund = D(amount).mul(refundRate);
-        if (newResources[rType]) {
-          const cur = getBuf(buffers, 'base', rType);
-          const next = cur.add(refund);
-          buffers = setBuf(buffers, 'base', rType, next);
-          newResources[rType] = { ...newResources[rType], amount: next };
-        }
+        if (!newResources[rType] || !amount) continue;
+        const cur = getBuf(buffers, 'base', rType);
+        // Обрезаем по вместимости: как и любой другой доход, возврат не может превысить склад.
+        const next = cur.add(amount).min(newResources[rType].max);
+        buffers = setBuf(buffers, 'base', rType, next);
+        newResources[rType] = { ...newResources[rType], amount: next };
       }
 
       const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
       const capped = recomputeCaps(newResources, newBuildings, capsMult, nextTileLevels, nextTiles);
 
-      // keep buffer record (so resources can remain, but it's ok). Optional cleanup later.
+      removedCount = plan.keys.length;
 
       return {
-        grid: { ...state.grid, tiles: nextTiles, tileLevels: nextTileLevels, tileEvolutionLevels: nextTileEvolutionLevels, buffers },
+        grid: {
+          ...state.grid,
+          tiles: nextTiles,
+          tileLevels: nextTileLevels,
+          tileEvolutionLevels: nextTileEvolutionLevels,
+          tileDisabled: nextTileDisabled,
+          tileJobs: nextTileJobs,
+          buffers,
+          // Выбранная клетка могла быть только что снесена — иначе инспектор покажет призрак.
+          selected: state.grid.selected && plan.keys.includes(keyOf(state.grid.selected))
+            ? null
+            : state.grid.selected,
+        },
         buildings: newBuildings,
         resources: capped,
       };
+    });
+
+    // Сайд-эффект после set: массовое действие должно подтверждаться, иначе непонятно,
+    // сработало ли оно и почему снеслось меньше, чем выделено.
+    if (removedCount > 1) {
+      get().addNotification({
+        type: 'info',
+        title: 'Здания снесены',
+        message: skippedBase
+          ? `Снесено: ${removedCount}. Ядро базы снести нельзя.`
+          : `Снесено: ${removedCount}`,
+      });
+    }
+  },
+
+  /**
+   * Включить или выключить сразу несколько зданий (bigplan.md, пункт 28).
+   * Выключенное здание не производит и не потребляет — быстрый способ разгрузить энергосеть.
+   */
+  setBuildingsDisabled: (positions, disabled) => {
+    if (positions.length === 0) return;
+
+    set((state) => {
+      const next = { ...(state.grid.tileDisabled ?? {}) };
+      let changed = false;
+
+      for (const pos of positions) {
+        const key = keyOf(pos);
+        const buildingId = state.grid.tiles[key];
+        // Пустые клетки и здания, которые нельзя отключать, молча пропускаем.
+        if (!buildingId || !isBuildingDisableable(buildingId)) continue;
+
+        const current = next[key] === true;
+        if (current === disabled) continue;
+
+        if (disabled) next[key] = true;
+        else delete next[key];
+        changed = true;
+      }
+
+      if (!changed) return state;
+      return { grid: { ...state.grid, tileDisabled: next } };
     });
   },
 

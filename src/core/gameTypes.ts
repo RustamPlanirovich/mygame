@@ -1200,6 +1200,13 @@ export interface GameState {
   placeSelectedBuildAt: (pos: GridCoord) => void;
   removeBuildingAt: (pos: GridCoord) => void;
   /**
+   * Снести несколько зданий одним обновлением состояния (bigplan.md, пункты 10 и 28).
+   * Поштучный вызов дал бы N пересчётов вместимости складов и N ререндеров на одно действие.
+   */
+  removeBuildingsAt: (positions: GridCoord[]) => void;
+  /** Включить/выключить сразу несколько зданий (bigplan.md, пункт 28). */
+  setBuildingsDisabled: (positions: GridCoord[], disabled: boolean) => void;
+  /**
    * Отменить незавершённую постройку или улучшение на клетке и вернуть списанное
    * (bigplan.md, пункты 18–19). Без отмены ошибочный клик по дорогому зданию заморозил бы
    * ресурсы до конца стройки.

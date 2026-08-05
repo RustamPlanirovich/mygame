@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useGameStore } from '../features/gameStore';
+import { useUiStore } from '../features/uiStore';
 
 interface HotkeyConfig {
   key: string;
@@ -55,10 +56,14 @@ export const useGameHotkeys = () => {
     {
       key: 'Escape',
       handler: () => {
-        // Закрыть модальные окна или вернуться назад
-        console.log('ESC pressed');
+        /*
+         * Снять массовое выделение (bigplan.md, пункты 10 и 28). Раньше здесь был только
+         * console.log — Escape ничего не делал. Модальные окна закрывают себя сами по своему
+         * обработчику, поэтому здесь трогаем только выделение.
+         */
+        useUiStore.getState().clearSelectedTiles();
       },
-      description: 'Отмена / Назад',
+      description: 'Снять выделение',
     },
   ];
 

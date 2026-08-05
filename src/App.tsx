@@ -4,6 +4,7 @@ import { useGameStore } from './features/gameStore';
 import { useUiStore } from './features/uiStore';
 import { TopBar } from './components/game/TopBar';
 import { FactoryGrid } from './components/game/FactoryGrid';
+import { SelectionActionBar } from './components/game/SelectionActionBar';
 import { SidePanel } from './components/game/SidePanel';
 import { QuickRail } from './components/game/QuickRail';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
@@ -335,6 +336,8 @@ function App() {
         <FactoryGrid />
         {!device.isMobile && <Minimap />}
         {!device.isMobile && <QuickRail />}
+        {/* Панель массовых действий: появляется только при непустом выделении (пункты 10, 28) */}
+        <SelectionActionBar />
         <SidePanel />
       </main>
 

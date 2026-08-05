@@ -44,6 +44,27 @@ interface UiState {
   close: () => void;
   /** Повторный клик по тому же разделу закрывает панель. */
   toggle: (section: PanelSectionId) => void;
+
+  /*
+   * МАССОВОЕ ВЫДЕЛЕНИЕ КЛЕТОК (bigplan.md, пункты 10 и 28).
+   *
+   * Живёт в UI-сторе, а не в gameStore: выделение не влияет на симуляцию и не должно попадать
+   * в сейв — при загрузке игрок начинает с пустым выделением. Плюс gameStore пересобирается
+   * тиком 20 раз в секунду, и держать там UI-состояние значит платить за это без причины.
+   *
+   * Ключи в формате "x,y" — тот же формат, что у grid.tiles.
+   */
+  selectedTiles: string[];
+  /** Идёт ли протяжка рамки; сама рамка рисуется в FactoryGrid. */
+  isBoxSelecting: boolean;
+  /** Полностью заменить выделение (результат протяжки рамки). */
+  setSelectedTiles: (keys: string[]) => void;
+  /** Добавить/убрать одну клетку (Shift+клик). */
+  toggleSelectedTile: (key: string) => void;
+  /** Дополнить выделение (Shift+рамка). */
+  addSelectedTiles: (keys: string[]) => void;
+  clearSelectedTiles: () => void;
+  setBoxSelecting: (active: boolean) => void;
 }
 
 /*
@@ -60,4 +81,37 @@ export const useUiStore = create<UiState>((set) => ({
   close: () => set({ section: null }),
   toggle: (section) =>
     set((state) => ({ section: state.section === section ? null : section })),
+
+  selectedTiles: [],
+  isBoxSelecting: false,
+
+  setSelectedTiles: (keys) =>
+    set((state) => {
+      // Пустое выделение поверх пустого — не повод создавать новый массив и будить подписчиков.
+      if (keys.length === 0 && state.selectedTiles.length === 0) return state;
+      return { selectedTiles: dedupe(keys) };
+    }),
+
+  toggleSelectedTile: (key) =>
+    set((state) => ({
+      selectedTiles: state.selectedTiles.includes(key)
+        ? state.selectedTiles.filter((k) => k !== key)
+        : [...state.selectedTiles, key],
+    })),
+
+  addSelectedTiles: (keys) =>
+    set((state) => {
+      if (keys.length === 0) return state;
+      return { selectedTiles: dedupe([...state.selectedTiles, ...keys]) };
+    }),
+
+  clearSelectedTiles: () =>
+    set((state) => (state.selectedTiles.length === 0 ? state : { selectedTiles: [] })),
+
+  setBoxSelecting: (active) =>
+    set((state) => (state.isBoxSelecting === active ? state : { isBoxSelecting: active })),
 }));
+
+function dedupe(keys: string[]): string[] {
+  return keys.length > 1 ? Array.from(new Set(keys)) : keys;
+}
