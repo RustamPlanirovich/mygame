@@ -3,6 +3,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { activeGridDistance } from '../core/math/hexGeometry';
 import type { Building } from '../core/gameTypes';
 import { evaluatePlacementQuality, getBuildingsWithCoordinates } from '../utils/proximityHelpers';
 import { isLocationPowered, getNearestPowerSource } from '../utils/powerGridHelpers';
@@ -80,9 +81,9 @@ export function checkBuildingPlacement(
       const maxRadius = rule.radius;
       const neighbors = buildingsWithCoords.filter(b => {
         if (!b.coord) return false;
-        const dx = Math.abs(b.coord.x - x);
-        const dy = Math.abs(b.coord.y - y);
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Геометрия текущей карты (bigplan.md, пункты 21, 31): предупреждение о размещении
+        // обязано считать соседей так же, как движок близости.
+        const distance = activeGridDistance(b.coord.x, b.coord.y, x, y);
         return distance <= maxRadius && distance > 0;
       });
 
@@ -108,16 +109,15 @@ export function checkBuildingPlacement(
       const maxRadius = rule.radius;
       const neighbors = buildingsWithCoords.filter(b => {
         if (!b.coord) return false;
-        const dx = Math.abs(b.coord.x - x);
-        const dy = Math.abs(b.coord.y - y);
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Та же геометрия, что и в ветке выше и в движке близости.
+        const distance = activeGridDistance(b.coord.x, b.coord.y, x, y);
         return distance <= maxRadius && distance > 0;
       });
 
       let matches = 0;
       if (rule.targetBuildingType) {
-        const types = Array.isArray(rule.targetBuildingType) 
-          ? rule.targetBuildingType 
+        const types = Array.isArray(rule.targetBuildingType)
+          ? rule.targetBuildingType
           : [rule.targetBuildingType];
         matches = neighbors.filter(n => types.includes(n.name)).length;
       }

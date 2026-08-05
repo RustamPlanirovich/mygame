@@ -3,6 +3,7 @@
  */
 
 import type { Building, BuildingType } from '../gameTypes';
+import { activeGridDistance } from './hexGeometry';
 
 export type ProximityRuleType = 'bonus' | 'penalty' | 'required' | 'incompatible';
 
@@ -39,30 +40,32 @@ export function getAdjacentBuildings(
   radius: number,
   buildings: Building[]
 ): Building[] {
+  /*
+   * Расстояние считается по геометрии ТЕКУЩЕЙ карты (bigplan.md, пункты 21, 31).
+   *
+   * Здесь было `Math.sqrt(dx*dx + dy*dy)` — евклидово расстояние по (x, y). На гексагональных
+   * картах (а их в игре четыре из девяти) это давало неверное соседство: клетки хранятся в
+   * offset-координатах, у нечётных столбцов есть сдвиг на полряда, поэтому одинаковая разность
+   * координат означает разное фактическое расстояние. Часть соседей терялась, часть
+   * учитывалась ошибочно — то есть все правила близости на hex-картах работали не так.
+   *
+   * Заодно и на квадратных сетках поведение стало предсказуемым: теперь радиус измеряется
+   * в ШАГАХ (Чебышёв), а не в длине отрезка, где диагональ стоила 1.41 и «радиус 1» не
+   * включал диагональных соседей.
+   */
   return buildings.filter(building => {
     if (!building.coord) return false;
-    const dx = Math.abs(building.coord.x - x);
-    const dy = Math.abs(building.coord.y - y);
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    const distance = activeGridDistance(building.coord.x, building.coord.y, x, y);
     return distance <= radius && distance > 0; // Исключаем само здание (distance > 0)
   });
 }
 
-/**
- * Вычислить манхэттенское расстояние между двумя точками
+/*
+ * Здесь были getManhattanDistance и getEuclideanDistance. Оба удалены (bigplan.md, пункты 21, 31):
+ * ими никто не пользовался, а на гексагональных картах любая из этих метрик по (x, y) даёт
+ * неверное расстояние — оставлять их значит оставлять готовую ловушку для следующей правки.
+ * Единственный правильный способ — activeGridDistance из core/math/hexGeometry.
  */
-export function getManhattanDistance(x1: number, y1: number, x2: number, y2: number): number {
-  return Math.abs(x1 - x2) + Math.abs(y1 - y2);
-}
-
-/**
- * Вычислить евклидово расстояние между двумя точками
- */
-export function getEuclideanDistance(x1: number, y1: number, x2: number, y2: number): number {
-  const dx = x1 - x2;
-  const dy = y1 - y2;
-  return Math.sqrt(dx * dx + dy * dy);
-}
 
 /**
  * Определить категорию здания по его типу

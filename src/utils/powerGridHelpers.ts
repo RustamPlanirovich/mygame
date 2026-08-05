@@ -4,6 +4,7 @@
  */
 
 import type { Building, GridCoord } from '../core/gameTypes';
+import { activeGridDistance } from '../core/math/hexGeometry';
 
 /**
  * Проверяет, находится ли точка (targetX, targetY) в радиусе покрытия от точки (sourceX, sourceY)
@@ -15,10 +16,15 @@ export function isInRadius(
   targetY: number,
   radius: number
 ): boolean {
-  const dx = Math.abs(targetX - sourceX);
-  const dy = Math.abs(targetY - sourceY);
-  // Используем манхэттенское расстояние (клетчатая сетка)
-  return dx + dy <= radius;
+  /*
+   * Расстояние по геометрии ТЕКУЩЕЙ карты (bigplan.md, пункты 21, 31).
+   *
+   * Было манхэттенское (dx + dy). На квадратной сетке это давало радиус в форме ромба, а не
+   * квадрата; на гексагональной — вообще чужую форму, потому что не учитывался сдвиг нечётных
+   * столбцов. То есть зона покрытия энергосети на hex-картах не совпадала с тем, что рисуется
+   * и что ожидает игрок.
+   */
+  return activeGridDistance(sourceX, sourceY, targetX, targetY) <= radius;
 }
 
 /**
@@ -120,7 +126,7 @@ export function getNearestPowerSource(
   for (const { building } of powerSources) {
     if (!building.coord) continue;
 
-    const distance = Math.abs(building.coord.x - coord.x) + Math.abs(building.coord.y - coord.y);
+    const distance = activeGridDistance(building.coord.x, building.coord.y, coord.x, coord.y);
     
     if (distance < minDistance) {
       minDistance = distance;

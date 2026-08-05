@@ -143,6 +143,7 @@ import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
+import { setActiveGridGeometry } from '../core/math/hexGeometry';
 
 /*
  * Когда последний раз проверяли условие текущей цели сценария. Вне стора: это троттлинг,
@@ -8594,6 +8595,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (currentMapId) {
         const mapDef = getMapDefinition(currentMapId);
         if (mapDef) {
+          /*
+           * Геометрия сетки восстанавливается вместе с картой (bigplan.md, пункты 21, 31).
+           * Без этой строки после перезагрузки страницы hex-карта считала бы соседство
+           * по квадратной геометрии: startMap при загрузке сейва не вызывается.
+           */
+          setActiveGridGeometry(mapDef.gridType === 'hex' ? 'hex' : 'square');
+
           const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
           const currentGrid = state.grid;
           
@@ -9580,6 +9588,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (currentMapId) {
         const mapDef = getMapDefinition(currentMapId);
         if (mapDef) {
+          /*
+           * Геометрия сетки восстанавливается вместе с картой (bigplan.md, пункты 21, 31).
+           * Без этой строки после перезагрузки страницы hex-карта считала бы соседство
+           * по квадратной геометрии: startMap при загрузке сейва не вызывается.
+           */
+          setActiveGridGeometry(mapDef.gridType === 'hex' ? 'hex' : 'square');
+
           const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
           const currentGrid = state.grid;
           
@@ -13262,6 +13277,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       const mapDef = getMapDefinition(mapId);
       if (!mapDef) return state;
+
+      /*
+       * Геометрия сетки — свойство карты (bigplan.md, пункты 21, 31). Устанавливаем её ДО
+       * генерации, потому что дальше всё соседство (близость, районы, энергосеть, логистика)
+       * считается по ней. Раньше расстояния везде считались евклидово по (x, y), и на четырёх
+       * hex-картах из девяти это была чужая геометрия.
+       */
+      setActiveGridGeometry(mapDef.gridType === 'hex' ? 'hex' : 'square');
 
       // Генерируем новый seed для карты
       const newSeed = Date.now();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { activeGridDistance } from '../../core/math/hexGeometry';
 import type Decimal from 'break_eternity.js';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore, calculateCost } from '../../features/gameStore';
@@ -229,9 +230,9 @@ export function BuildPanel() {
       if (!b.proximityRules?.length) continue;
       const inRange = neighbors.filter((n) => {
         if (!n.coord) return false;
-        const dx = n.coord.x - grid.selected!.x;
-        const dy = n.coord.y - grid.selected!.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Расстояние в шагах по геометрии текущей карты (bigplan.md, пункты 21, 31):
+        // подсказка о бонусах должна совпадать с тем, что реально посчитает движок.
+        const distance = activeGridDistance(n.coord.x, n.coord.y, grid.selected!.x, grid.selected!.y);
         return b.proximityRules!.some((rule) => distance <= rule.radius);
       });
       const multiplier = getTotalProximityMultiplier(

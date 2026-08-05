@@ -4,6 +4,7 @@
  */
 
 import type { Building } from '../gameTypes';
+import { activeGridDistance } from './hexGeometry';
 import { getBuildingCategory } from '../math/proximity';
 
 export type DistrictType = 
@@ -181,12 +182,14 @@ function dbscan(buildings: Building[], epsilon: number, minPoints: number): Buil
     visited.add(building.id);
     
     // Найти соседей
+    /*
+      * Расстояние по геометрии текущей карты (bigplan.md, пункты 21, 31). Было евклидово
+      * по (x, y), что на гексах давало неверное соседство из-за сдвига нечётных столбцов —
+      * районы собирались не из тех зданий.
+      */
     const neighbors = buildings.filter(b => {
       if (!b.coord || b.id === building.id) return false;
-      const dx = b.coord.x - building.coord!.x;
-      const dy = b.coord.y - building.coord!.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      return distance <= epsilon;
+      return activeGridDistance(b.coord.x, b.coord.y, building.coord!.x, building.coord!.y) <= epsilon;
     });
     
     if (neighbors.length < minPoints - 1) continue; // -1 потому что building не включено в neighbors
@@ -205,10 +208,7 @@ function dbscan(buildings: Building[], epsilon: number, minPoints: number): Buil
       // Найти соседей текущего здания
       const currentNeighbors = buildings.filter(b => {
         if (!b.coord || b.id === current.id || visited.has(b.id)) return false;
-        const dx = b.coord.x - current.coord!.x;
-        const dy = b.coord.y - current.coord!.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance <= epsilon;
+        return activeGridDistance(b.coord.x, b.coord.y, current.coord!.x, current.coord!.y) <= epsilon;
       });
       
       if (currentNeighbors.length >= minPoints - 1) {
@@ -261,13 +261,18 @@ export function detectDistricts(buildingsWithCoords: Building[]): District[] {
       const centerY = sumY / cluster.length;
       
       // Вычислить радиус (максимальное расстояние от центра)
+      /*
+       * Центр кластера — среднее, то есть дробные координаты, а шаговое расстояние определено
+       * только между клетками. Поэтому центр округляем до ближайшей клетки и дальше считаем
+       * в шагах: район получается правильным гексагональным (или квадратным) «диском», а не
+       * окружностью, наложенной на сетку с другой геометрией.
+       */
+      const centerCellX = Math.round(centerX);
+      const centerCellY = Math.round(centerY);
       const radius = Math.max(
-        ...cluster.map(b => {
-          if (!b.coord) return 0;
-          const dx = b.coord.x - centerX;
-          const dy = b.coord.y - centerY;
-          return Math.sqrt(dx * dx + dy * dy);
-        })
+        ...cluster.map(b =>
+          b.coord ? activeGridDistance(b.coord.x, b.coord.y, centerCellX, centerCellY) : 0,
+        )
       );
       
       const bonus = calculateDistrictBonus(districtType, cluster.length);
@@ -301,10 +306,15 @@ export function getDistrictBonusForBuilding(
   
   // Проверяем, находится ли здание в каком-либо районе
   for (const district of districts) {
-    const dx = building.coord.x - district.centerX;
-    const dy = building.coord.y - district.centerY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
+    // Тот же шаговый метрик, что и при расчёте радиуса — иначе проверка и построение
+    // района жили бы в разных геометриях.
+    const distance = activeGridDistance(
+      building.coord.x,
+      building.coord.y,
+      Math.round(district.centerX),
+      Math.round(district.centerY),
+    );
+
     if (distance <= district.radius && isBuildingInDistrict(building, district.type)) {
       return { bonus: district.bonus, districtType: district.type };
     }

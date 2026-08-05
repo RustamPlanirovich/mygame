@@ -4,6 +4,7 @@
  */
 
 import type { Building, GridCoord } from '../core/gameTypes';
+import { activeGridDistance } from '../core/math/hexGeometry';
 
 /**
  * Максимальная дистанция без штрафа (базовое значение)
@@ -113,10 +114,15 @@ export function isInLogisticsNetwork(
 }
 
 /**
- * Рассчитывает расстояние между двумя точками (манхэттенское)
+ * Расстояние между двумя клетками в ШАГАХ по геометрии текущей карты
+ * (bigplan.md, пункты 21, 31).
+ *
+ * Было манхэттенское (dx + dy): на гексах оно игнорирует сдвиг нечётных столбцов, поэтому
+ * логистическая эффективность и радиус узлов считались по чужой геометрии. На квадратной
+ * сетке манхэттен ещё и делал зону покрытия ромбом вместо квадрата.
  */
 export function calculateDistance(from: GridCoord, to: GridCoord): number {
-  return Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
+  return activeGridDistance(from.x, from.y, to.x, to.y);
 }
 
 /**

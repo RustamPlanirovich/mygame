@@ -21,6 +21,7 @@ import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 import { jobProgress } from '../../core/systems/construction';
 import { playSfx } from '../../core/audio/sfx';
+import { setActiveGridGeometry } from '../../core/math/hexGeometry';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
@@ -297,6 +298,19 @@ export function FactoryGrid() {
   // единственный источник режима — этот ref, и в нём нет копии, живущей дольше рендера.
   const gridModeRef = useRef<GridMode>(currentGridMode);
   gridModeRef.current = currentGridMode;
+
+  /*
+   * Единственная гарантия, что РЕНДЕР и ЛОГИКА не разойдутся по геометрии
+   * (bigplan.md, пункты 21, 31).
+   *
+   * Стор ставит геометрию в startMap и при загрузке сейва, но точек входа на карту больше
+   * (selectMap, отладочные переходы), и разойтись они могут незаметно: игрок видит гексы, а
+   * бонусы соседства считаются по квадратам. Здесь мы синхронизируем её с тем же значением,
+   * по которому реально рисуется сетка, — рассогласование становится невозможным.
+   */
+  useEffect(() => {
+    setActiveGridGeometry(currentGridMode === 'hex' ? 'hex' : 'square');
+  }, [currentGridMode]);
 
   // Convert grid coordinates to pixel coordinates based on the CURRENT mode
   const gridToPixel = (x: number, y: number) => gridToPixelIn(gridModeRef.current, x, y);

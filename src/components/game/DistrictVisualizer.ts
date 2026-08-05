@@ -3,6 +3,7 @@
  */
 
 import * as PIXI from 'pixi.js';
+import { activeGridDistance } from '../../core/math/hexGeometry';
 import type { District } from '../../core/math/districts';
 import { THEME_COLORS } from '../../core/constants/themeColors';
 
@@ -206,10 +207,15 @@ export function visualizeDistrictHeatmap(
       
       // Проверяем, попадает ли клетка в какой-либо район
       for (const district of districts) {
-        const dx = x - district.centerX;
-        const dy = y - district.centerY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
+        // Тот же шаговый метрик и то же округление центра, что в districts.ts —
+        // иначе подсветка района на карте не совпала бы с его фактическими границами.
+        const distance = activeGridDistance(
+          x,
+          y,
+          Math.round(district.centerX),
+          Math.round(district.centerY),
+        );
+
         if (distance <= district.radius) {
           maxBonus = Math.max(maxBonus, district.bonus);
         }
