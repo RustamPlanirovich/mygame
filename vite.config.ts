@@ -35,6 +35,16 @@ export default defineConfig({
          * hitting a fresh build at the same time.
          */
         manualChunks(id) {
+          /*
+           * `@rollup/plugin-commonjs` emits its interop helpers as a virtual module that lives
+           * outside node_modules, so rollup was free to place it in `vendor`. React ships as
+           * CommonJS and needs those helpers, so vendor-react imported them back out of
+           * `vendor` while `vendor` imported React — the same circular-chunk trap. Pin them to
+           * vendor-react, the chunk every other vendor chunk already depends on, so the chunk
+           * graph stays a DAG.
+           */
+          if (id.includes('commonjsHelpers')) return 'vendor-react';
+
           if (!id.includes('node_modules')) return undefined;
 
           if (id.includes('pixi.js')) return 'vendor-pixi';
@@ -48,7 +58,18 @@ export default defineConfig({
           if (id.includes('break_eternity') || id.includes('lz-string') || id.includes('seedrandom')) {
             return 'vendor-math';
           }
-          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+          /*
+           * Match the package directory, not any path segment. A loose `/react/` test also
+           * matched `zustand/esm/react/shallow.mjs`, which pulled that file into vendor-react;
+           * it imports use-sync-external-store, which stayed in `vendor`, so the two chunks
+           * imported each other. In a circular chunk import `vendor` runs before vendor-react
+           * is initialised, and use-sync-external-store reads `React.useState` at module scope
+           * — hanging the game on the loading screen with `undefined is not an object`.
+           *
+           * use-sync-external-store belongs here for the same reason: it destructures React
+           * eagerly, so it must never be split away from React.
+           */
+          if (/node_modules\/(react|react-dom|scheduler|use-sync-external-store)\//.test(id)) {
             return 'vendor-react';
           }
           return 'vendor';
