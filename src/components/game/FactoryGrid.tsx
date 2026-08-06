@@ -67,6 +67,13 @@ const DRAG_THRESHOLD_PX = 4;
  */
 const RUIN_ICON = 'broken_image';
 
+/*
+ * Стабильная «пустая карта уровней» для селектора. Литерал `|| {}` каждый раз возвращал бы НОВЫЙ
+ * объект, сравнение по ссылке в компараторе ниже всегда давало бы «изменилось», и сетка
+ * перерисовывалась бы на каждый тик — а у свежесозданной платформы tileLevels ещё нет.
+ */
+const EMPTY_TILE_LEVELS: Record<string, number> = {};
+
 // Кэшируем стили для текста чтобы не создавать новые объекты каждый кадр
 const TEXT_STYLES = {
   base: new PIXI.TextStyle({
@@ -108,6 +115,25 @@ const TEXT_STYLES = {
   flow: new PIXI.TextStyle({
     fontSize: 8,
     fontWeight: '600',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  /*
+   * Уровень здания в правом нижнем углу клетки. Два стиля вместо перекраски одного:
+   * `style.fill = …` мутирует ОБЩИЙ объект стиля и дёргает 'update' у всех текстов на нём
+   * (так уже сделано со штрафом логистики), а бейдж уровня рисуется у каждого здания сразу.
+   * Первый уровень — приглушённый белый, улучшенное здание — зелёный, как «Ур. N» в инспекторе:
+   * так апгрейды видны по карте, без клика по каждой клетке.
+   */
+  level: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberText,
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Arial, sans-serif',
+  }),
+  levelUpgraded: new PIXI.TextStyle({
+    fill: THEME_COLORS.cyberGreen,
+    fontSize: 11,
+    fontWeight: '700',
     fontFamily: 'Arial, sans-serif',
   }),
 };
@@ -165,6 +191,11 @@ export function FactoryGrid() {
       tileDisabled: (mainGrid as any).tileDisabled || {},
       // Незавершённые стройки/улучшения: берём из АКТИВНОЙ сетки — на платформе своя очередь.
       tileJobs: (activeGrid as any).tileJobs || {},
+      /*
+       * Уровни зданий (Фаза 8.5) — из АКТИВНОЙ сетки: у платформы свои уровни
+       * (см. upgradeBuildingAt), и уровни главной базы на её клетках означали бы чужие числа.
+       */
+      tileLevels: (activeGrid as any).tileLevels || EMPTY_TILE_LEVELS,
       width: activeGrid.width,
       height: activeGrid.height,
     };
@@ -180,6 +211,7 @@ export function FactoryGrid() {
            a.tileEvolutionLevels === b.tileEvolutionLevels &&
            a.tileDisabled === b.tileDisabled &&
            a.tileJobs === b.tileJobs &&
+           a.tileLevels === b.tileLevels &&
            a.width === b.width &&
            a.height === b.height;
   });
@@ -227,13 +259,24 @@ export function FactoryGrid() {
   const worldRef = useRef<PIXI.Container | null>(null);
   const graphicsRef = useRef<PIXI.Graphics | null>(null);
   const textLayerRef = useRef<PIXI.Container | null>(null);
+  /*
+   * Слой бейджей поверх слоя иконок: уровень здания рисуется в правом нижнем углу клетки, а
+   * иконка занимает почти всю клетку. Внутри одного контейнера порядок вывода — это порядок
+   * добавления детей, то есть порядок СОЗДАНИЯ объектов пула, и слоты пула достаются разным
+   * клеткам по мере движения камеры: цифра то оказывалась бы над иконкой, то под ней.
+   */
+  const badgeLayerRef = useRef<PIXI.Container | null>(null);
+  // Подложки бейджей: одна Graphics на всю сетку, первый ребёнок слоя — всегда под цифрами.
+  const badgeGfxRef = useRef<PIXI.Graphics | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const initializedRef = useRef(false);
-  
+
   // ПУЛ ТЕКСТОВЫХ ОБЪЕКТОВ - храним между кадрами
   const textPoolRef = useRef<PIXI.Text[]>([]);
   // Иконки на канвасе — спрайты из общего набора, тоже пулятся между кадрами
   const iconPoolRef = useRef<PIXI.Sprite[]>([]);
+  // Отдельный пул для бейджей уровня: они живут в своём слое (см. badgeLayerRef).
+  const badgePoolRef = useRef<PIXI.Text[]>([]);
 
   // Растеризуем весь набор иконок сетки заранее, иначе они проявлялись бы
   // по одной по мере первого появления клетки в кадре.
@@ -490,6 +533,15 @@ export function FactoryGrid() {
       const textLayer = new PIXI.Container();
       textLayerRef.current = textLayer;
       world.addChild(textLayer);
+
+      // Бейджи уровня — своим слоем над иконками, см. badgeLayerRef.
+      const badgeLayer = new PIXI.Container();
+      badgeLayerRef.current = badgeLayer;
+      world.addChild(badgeLayer);
+
+      const badgeGfx = new PIXI.Graphics();
+      badgeGfxRef.current = badgeGfx;
+      badgeLayer.addChild(badgeGfx);
 
       /*
        * Отдельный слой для рамки выделения. Она обновляется на каждый кадр протяжки, и рисовать
@@ -1003,7 +1055,17 @@ export function FactoryGrid() {
       appRef.current = null;
       graphicsRef.current = null;
       textLayerRef.current = null;
+      badgeLayerRef.current = null;
+      badgeGfxRef.current = null;
       worldRef.current = null;
+      /*
+       * Пулы обнуляем вместе со сценой: app.destroy(children) уже уничтожил сами объекты, и
+       * попытка переиспользовать их после пересоздания канваса (StrictMode, смена карты)
+       * кончилась бы addChild уничтоженного текста.
+       */
+      textPoolRef.current = [];
+      iconPoolRef.current = [];
+      badgePoolRef.current = [];
       initializedRef.current = false;
       updateCameraClampRef.current = null;
       fitCameraRef.current = null;
@@ -1020,6 +1082,8 @@ export function FactoryGrid() {
     const app = appRef.current;
     const g = graphicsRef.current;
     const textLayer = textLayerRef.current;
+    const badgeLayer = badgeLayerRef.current;
+    const badgeGfx = badgeGfxRef.current;
     if (!app || !g) return;
 
     // Apply camera transform
@@ -1030,6 +1094,7 @@ export function FactoryGrid() {
     }
 
     g.clear();
+    badgeGfx?.clear();
 
     // НЕ удаляем детей - пул текстов управляется через visible
 
@@ -1092,8 +1157,16 @@ export function FactoryGrid() {
         // Переиспользуем существующий объект
         t = textPool[textPoolIndex];
         t.text = text;
-        t.style = style;
+        /*
+         * Стиль присваиваем ТОЛЬКО при смене: сеттер `style` в pixi 8 всегда вызывает
+         * onViewUpdate(), то есть помечает текст грязным и заставляет пересчитать его текстуру.
+         * Пока в пуле было два-три текста, это не замечалось, но бейдж уровня есть у каждого
+         * здания, а сетка перерисовывается до 20 раз в секунду.
+         */
+        if (t.style !== style) t.style = style;
         t.visible = true;
+        // Прозрачность сбрасываем: слот мог достаться от вызывающего, который её приглушал.
+        t.alpha = 1;
         // Добавляем на слой если еще не добавлен
         if (textLayer && t.parent !== textLayer) {
           textLayer.addChild(t);
@@ -1105,6 +1178,34 @@ export function FactoryGrid() {
         if (textLayer) textLayer.addChild(t);
       }
       textPoolIndex++;
+      return t;
+    };
+
+    /*
+     * ПУЛ БЕЙДЖЕЙ УРОВНЯ. Отдельный от textPool, потому что живёт в другом слое (badgeLayer),
+     * и заодно не делит слоты со штрафом логистики: тот двигает anchor и перекрашивает стиль.
+     */
+    const badgePool = badgePoolRef.current;
+    let badgePoolIndex = 0;
+
+    const getBadgeFromPool = (text: string, style: PIXI.TextStyle): PIXI.Text | null => {
+      if (!badgeLayer) return null;
+      let t: PIXI.Text;
+      if (badgePoolIndex < badgePool.length) {
+        t = badgePool[badgePoolIndex];
+        t.text = text;
+        // Стиль — только при смене: сеттер в pixi 8 всегда помечает текст грязным.
+        if (t.style !== style) t.style = style;
+        t.visible = true;
+        if (t.parent !== badgeLayer) badgeLayer.addChild(t);
+      } else {
+        t = new PIXI.Text({ text, style });
+        // Правый нижний угол клетки: привязка ставится один раз, все бейджи её не меняют.
+        t.anchor.set(1, 1);
+        badgePool.push(t);
+        badgeLayer.addChild(t);
+      }
+      badgePoolIndex++;
       return t;
     };
 
@@ -1539,6 +1640,55 @@ export function FactoryGrid() {
                 pauseIcon.y = centerY - 6;
               }
             }
+
+            /*
+             * УРОВЕНЬ ЗДАНИЯ В ПРАВОМ НИЖНЕМ УГЛУ КЛЕТКИ.
+             *
+             * Уровень (Фаза 8.5) множит и производство, и потребление, но до этого его было
+             * видно только в инспекторе одной выделенной клетки: по карте нельзя было понять,
+             * где ряд шахт первого уровня, а где уже прокачанные. Показываем у ВСЕХ зданий,
+             * включая первый уровень, — иначе пустой угол читается как «бейдж не нарисовался».
+             *
+             * Правый нижний угол — единственный свободный: сверху справа звезда эволюции и
+             * процент логистического штрафа, сверху слева значок «нет питания», снизу слева
+             * молния голодной турели.
+             *
+             * Тёмная подложка обязательна: цифра ложится на иконку здания, и без неё белое
+             * на белом (например, на ⚙️ или 🏭) не читается. И подложка, и цифра идут в
+             * badgeLayer — поверх слоя иконок, иначе непрозрачный угол иконки съедал бы бейдж.
+             */
+            if (showDetailedText && badgeGfx) {
+              const level: number = grid.tileLevels?.[k] || 1;
+              const label = String(level);
+
+              // Правый нижний угол ВНУТРИ формы клетки: у гекса низ уже верхнего края,
+              // поэтому бейдж прижимаем ближе к центру, иначе он вылезает за соту.
+              const badgeRight = centerX + (isHex ? HEX_SIZE * 0.62 : CELL / 2 - 3);
+              const badgeBottom = centerY + (isHex ? HEX_SIZE * 0.6 : CELL / 2 - 2);
+
+              // Ширина по числу цифр: уровень доходит до 500, и на трёхзначном фиксированная
+              // подложка обрезала бы цифру.
+              const badgeW = 7 * label.length + 6;
+              const badgeH = 13;
+              // Приглушаем ровно так же, как саму иконку: у стройки, руины и паузы бейдж не
+              // должен быть ярче здания, к которому он относится.
+              const badgeAlpha = isRuined ? 0.4 : job ? 0.55 : isDisabled ? 0.7 : 1;
+
+              badgeGfx.roundRect(badgeRight - badgeW, badgeBottom - badgeH, badgeW, badgeH, 3)
+                .fill({ color: THEME_COLORS.cyberBlack, alpha: 0.75 * badgeAlpha });
+
+              const levelText = getBadgeFromPool(
+                label,
+                level > 1 ? TEXT_STYLES.levelUpgraded : TEXT_STYLES.level,
+              );
+              if (levelText) {
+                levelText.x = badgeRight - 3;
+                // +1: у строки снизу остаётся место под выносные элементы, которых у цифр нет,
+                // и без сдвига число смотрится приподнятым над подложкой.
+                levelText.y = badgeBottom + 1;
+                levelText.alpha = badgeAlpha;
+              }
+            }
           } else {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
             const dep = grid.deposits?.[k];
@@ -1570,6 +1720,13 @@ export function FactoryGrid() {
     for (let i = textPoolIndex; i < textPool.length; i++) {
       if (textPool[i].visible) {
         textPool[i].visible = false;
+      }
+    }
+
+    // То же для пула бейджей уровня.
+    for (let i = badgePoolIndex; i < badgePool.length; i++) {
+      if (badgePool[i].visible) {
+        badgePool[i].visible = false;
       }
     }
 
@@ -1750,6 +1907,8 @@ export function FactoryGrid() {
       grid.tileDisabled,
       // Дуга прогресса стройки должна появляться и исчезать сразу, не дожидаясь смены буферов.
       grid.tileJobs,
+      // Бейдж уровня: после улучшения число должно смениться сразу, а не со следующим тиком.
+      grid.tileLevels,
       // Подсветка выделенных клеток должна появляться сразу после протяжки рамки.
       selectedTiles,
       /*
