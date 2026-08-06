@@ -52,6 +52,16 @@ export interface OfflineMiningGain {
   capped: boolean;
 }
 
+/** Что демон «Ночная смена» сделал за это отсутствие. */
+export interface NightShiftReport {
+  /** Эффективность, до которой он дотянул (базовая, если оплатить не удалось совсем). */
+  efficiency: number;
+  /** Сколько ⚡ он забрал из офлайн-выработки. */
+  energyFee: Decimal;
+  /** Доля оплаченной смены 0..1: 1 — ночь оплачена целиком. */
+  paidShare: number;
+}
+
 export interface OfflineMiningReport {
   /** Момент, от которого считали (savedAt сейва), мс. */
   since: number;
@@ -65,6 +75,8 @@ export interface OfflineMiningReport {
   anyCapped: boolean;
   /** Начисления, по убыванию количества. Пустого отчёта не бывает — вместо него null. */
   gains: OfflineMiningGain[];
+  /** Демон «Ночная смена», если он был включён на момент выхода. */
+  nightShift?: NightShiftReport;
 }
 
 export interface OfflineMiningInput {
@@ -76,6 +88,14 @@ export interface OfflineMiningInput {
   efficiency?: number;
   maxSeconds?: number;
   minSeconds?: number;
+  /**
+   * Демон «Ночная смена» был включён на момент выхода. Поднимает эффективность до
+   * `boostedEfficiency`, но берёт `rentPerSecond` ⚡ за каждую секунду отсутствия.
+   */
+  nightShift?: {
+    rentPerSecond: number;
+    boostedEfficiency: number;
+  };
 }
 
 /**
@@ -88,7 +108,7 @@ export interface OfflineMiningInput {
  */
 export function computeOfflineMining(input: OfflineMiningInput): OfflineMiningReport | null {
   const { resources, savedAt, now } = input;
-  const efficiency = input.efficiency ?? OFFLINE_EFFICIENCY;
+  const baseEfficiency = input.efficiency ?? OFFLINE_EFFICIENCY;
   const maxSeconds = input.maxSeconds ?? OFFLINE_MAX_SECONDS;
   const minSeconds = input.minSeconds ?? OFFLINE_MIN_SECONDS;
 
@@ -99,7 +119,46 @@ export function computeOfflineMining(input: OfflineMiningInput): OfflineMiningRe
   if (elapsedSeconds < minSeconds) return null;
 
   const creditedSeconds = Math.min(elapsedSeconds, maxSeconds);
-  if (creditedSeconds <= 0 || efficiency <= 0) return null;
+  if (creditedSeconds <= 0 || baseEfficiency <= 0) return null;
+
+  /*
+   * ДЕМОН «НОЧНАЯ СМЕНА». Поднимает эффективность отсутствия, но платит за себя энергией —
+   * и платит ИЗ ОФЛАЙН-ВЫРАБОТКИ, а не из накопленного за игру запаса.
+   *
+   * Так сделано намеренно: списание из хранилища встречало бы вернувшегося игрока пустой
+   * энергосетью и вставшей базой, то есть демон наказывал бы за то, что им пользуются. А из
+   * заработанного за ночь он не может взять больше, чем ночь принесла, — значит смена
+   * никогда не оставляет игрока БЕДНЕЕ, чем без неё.
+   *
+   * Оплата частичная: слабая база (мало чистой ⚡/с) вытягивает не 95%, а сколько сумела —
+   * эффективность растёт от базовой пропорционально оплаченной доле. Полный бонус — только
+   * там, где энергетика реально с запасом.
+   */
+  let efficiency = baseEfficiency;
+  let nightShift: NightShiftReport | undefined;
+  if (input.nightShift && input.nightShift.rentPerSecond > 0) {
+    const boosted = Math.max(baseEfficiency, input.nightShift.boostedEfficiency);
+    const energyRate = resources.energy?.production;
+    /*
+     * Заработанное считаем с оглядкой на свободное место в хранилище: выйти из игры с
+     * полным энергохранилищем и получить смену бесплатно нельзя — платить будет нечем,
+     * потому что энергия за ночь всё равно никуда не поместится.
+     */
+    const energyRoom = resources.energy ? resources.energy.max.sub(resources.energy.amount) : D(0);
+    const earnedAtBase =
+      energyRate && energyRate.gt(0) && energyRoom.gt(0)
+        ? energyRate.mul(creditedSeconds).mul(baseEfficiency).min(energyRoom)
+        : D(0);
+    const fullFee = D(input.nightShift.rentPerSecond).mul(creditedSeconds);
+
+    const paidShare =
+      fullFee.gt(0) && earnedAtBase.gt(0)
+        ? Math.min(1, Math.max(0, earnedAtBase.div(fullFee).toNumber()))
+        : 0;
+
+    efficiency = baseEfficiency + (boosted - baseEfficiency) * paidShare;
+    nightShift = { efficiency, energyFee: fullFee.mul(paidShare), paidShare };
+  }
 
   const factor = D(creditedSeconds).mul(efficiency);
   const gains: OfflineMiningGain[] = [];
@@ -119,7 +178,9 @@ export function computeOfflineMining(input: OfflineMiningInput): OfflineMiningRe
     const room = res.max.sub(res.amount);
     if (room.lte(0)) continue;
 
-    const raw = rate.mul(factor);
+    let raw = rate.mul(factor);
+    // Аренда «Ночной смены» удерживается прямо из наработанной за ночь энергии (см. выше).
+    if (key === 'energy' && nightShift) raw = raw.sub(nightShift.energyFee).max(D(0));
     if (raw.lte(0)) continue;
 
     const capped = raw.gt(room);
@@ -132,5 +193,5 @@ export function computeOfflineMining(input: OfflineMiningInput): OfflineMiningRe
 
   gains.sort((a, b) => b.amount.cmp(a.amount));
 
-  return { since: savedAt, elapsedSeconds, creditedSeconds, efficiency, anyCapped, gains };
+  return { since: savedAt, elapsedSeconds, creditedSeconds, efficiency, anyCapped, gains, nightShift };
 }

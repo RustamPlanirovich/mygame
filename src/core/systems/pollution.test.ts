@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { stepPollution, type PollutionInput } from './pollution';
+import {
+  pollutionEfficiencyMultiplier,
+  runScrubber,
+  stepPollution,
+  type PollutionInput,
+} from './pollution';
 import { D } from '../math/format';
 import type { Building, PollutionState } from '../gameTypes';
 
@@ -126,5 +131,75 @@ describe('stepPollution', () => {
     // count > 0, но ни одной размещённой клетки: это здание существует только в каталоге.
     const result = stepPollution(EMPTY, input({ buildings: [factory('smelter_mk1', 5, 10)], tiles: {} }));
     expect(result).toBe(EMPTY);
+  });
+});
+
+/**
+ * Демон-Санитар: жжёт отходы за энергию.
+ *
+ * Проверяется ровно то, из-за чего он вообще может стать дырой в балансе: что он не жжёт
+ * больше, чем оплачено, и что при нехватке энергии он работает частично, а не бесплатно.
+ */
+describe('runScrubber', () => {
+  const rates = {
+    dt: 1,
+    wastePerSecond: 25,
+    radioactivePerSecond: 2,
+    energyPerWaste: 0.25,
+    energyPerRadioactive: 6,
+  };
+
+  it('сжигает свою ставку за секунду и берёт за это энергию', () => {
+    const dirty: PollutionState = { ...EMPTY, wasteAmount: D(1000) };
+    const result = runScrubber(dirty, { ...rates, energyAvailable: D(1000) });
+
+    expect(result).not.toBeNull();
+    expect(result!.wasteAmount.toNumber()).toBe(975);
+    // 25 мусора × 0.25 ⚡
+    expect(result!.energySpent.toNumber()).toBeCloseTo(6.25, 6);
+    // Штраф пересчитан по остатку: 1000 мусора это −5%, 975 — чуть меньше.
+    expect(result!.efficiencyMultiplier).toBeGreaterThan(
+      pollutionEfficiencyMultiplier(dirty.wasteAmount, dirty.radioactiveWasteAmount),
+    );
+  });
+
+  it('радиоактивные отходы вывозит первыми — они дороже по эффективности', () => {
+    const dirty: PollutionState = { ...EMPTY, wasteAmount: D(1000), radioactiveWasteAmount: D(50) };
+    // Хватает ровно на 2 радиоактивных (12 ⚡) и ни на что больше.
+    const result = runScrubber(dirty, { ...rates, energyAvailable: D(12) });
+
+    expect(result!.radioactiveWasteAmount.toNumber()).toBe(48);
+    expect(result!.wasteAmount.toNumber()).toBe(1000);
+  });
+
+  it('при нехватке энергии жжёт только оплаченное, а не весь объём', () => {
+    const dirty: PollutionState = { ...EMPTY, wasteAmount: D(1000) };
+    const result = runScrubber(dirty, { ...rates, energyAvailable: D(1) });
+
+    // 1 ⚡ хватает на 4 единицы мусора.
+    expect(result!.wasteAmount.toNumber()).toBe(996);
+    expect(result!.energySpent.toNumber()).toBeCloseTo(1, 6);
+  });
+
+  it('без энергии и без отходов ничего не делает', () => {
+    const dirty: PollutionState = { ...EMPTY, wasteAmount: D(1000) };
+    expect(runScrubber(dirty, { ...rates, energyAvailable: D(0) })).toBeNull();
+    expect(runScrubber(EMPTY, { ...rates, energyAvailable: D(1000) })).toBeNull();
+  });
+
+  it('замедление не меняет итог: 10 запусков по 1 с = один запуск с dt=10', () => {
+    const dirty: PollutionState = { ...EMPTY, wasteAmount: D(1000) };
+    const once = runScrubber(dirty, { ...rates, dt: 10, energyAvailable: D(1e6) });
+
+    let step: PollutionState = dirty;
+    let spent = D(0);
+    for (let i = 0; i < 10; i++) {
+      const r = runScrubber(step, { ...rates, dt: 1, energyAvailable: D(1e6) })!;
+      step = { ...step, wasteAmount: r.wasteAmount, radioactiveWasteAmount: r.radioactiveWasteAmount };
+      spent = spent.add(r.energySpent);
+    }
+
+    expect(step.wasteAmount.toNumber()).toBeCloseTo(once!.wasteAmount.toNumber(), 6);
+    expect(spent.toNumber()).toBeCloseTo(once!.energySpent.toNumber(), 6);
   });
 });

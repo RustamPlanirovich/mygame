@@ -154,3 +154,104 @@ describe('computeOfflineMining', () => {
     expect(report!.gains.map((g) => g.resource)).toEqual(['steel', 'ice', 'ore']);
   });
 });
+
+/**
+ * Демон «Ночная смена»: платная надбавка к офлайну.
+ *
+ * Главное свойство, которое здесь и проверяется: смена НИКОГДА не оставляет игрока беднее,
+ * чем без неё. Она берёт плату только из той энергии, которую сама же и наработала, поэтому
+ * слабая энергетика получает частичную надбавку, а не долг.
+ */
+describe('computeOfflineMining + Ночная смена', () => {
+  const HOUR = 3600;
+  const nightShift = { rentPerSecond: 12, boostedEfficiency: 0.95 };
+
+  it('при достаточной энергии поднимает эффективность до 95% и удерживает аренду', () => {
+    const report = computeOfflineMining({
+      resources: makeResources({
+        // 100 ⚡/с при аренде 12 ⚡/с — ночь оплачена с запасом.
+        energy: { production: 100, max: 1e9 },
+        ore: { production: 2 },
+      }),
+      savedAt: NOW - HOUR * 1000,
+      now: NOW,
+      nightShift,
+    });
+
+    expect(report!.efficiency).toBeCloseTo(0.95, 6);
+    expect(report!.nightShift!.paidShare).toBe(1);
+    expect(report!.nightShift!.energyFee.toNumber()).toBeCloseTo(12 * HOUR, 6);
+
+    // Руды больше, чем без демона: 0.95 против 0.75.
+    const ore = report!.gains.find((g) => g.resource === 'ore')!;
+    expect(ore.amount.toNumber()).toBeCloseTo(2 * HOUR * 0.95, 6);
+
+    // Энергия начислена за вычетом аренды.
+    const energy = report!.gains.find((g) => g.resource === 'energy')!;
+    expect(energy.amount.toNumber()).toBeCloseTo(100 * HOUR * 0.95 - 12 * HOUR, 6);
+  });
+
+  it('слабая энергетика получает надбавку частично, а не в долг', () => {
+    const report = computeOfflineMining({
+      resources: makeResources({
+        // 6 ⚡/с × 0.75 = 4.5 из нужных 12 — оплачено 37.5% смены.
+        energy: { production: 6, max: 1e9 },
+        ore: { production: 2 },
+      }),
+      savedAt: NOW - HOUR * 1000,
+      now: NOW,
+      nightShift,
+    });
+
+    expect(report!.nightShift!.paidShare).toBeCloseTo(0.375, 6);
+    expect(report!.efficiency).toBeCloseTo(OFFLINE_EFFICIENCY + 0.2 * 0.375, 6);
+
+    // Энергии всё равно начислено не меньше нуля: аренда не превышает выработку.
+    const energy = report!.gains.find((g) => g.resource === 'energy');
+    expect(energy === undefined || energy.amount.gte(0)).toBe(true);
+
+    // И руды не меньше, чем без демона.
+    const ore = report!.gains.find((g) => g.resource === 'ore')!;
+    expect(ore.amount.toNumber()).toBeGreaterThan(2 * HOUR * OFFLINE_EFFICIENCY);
+  });
+
+  it('база без чистого прироста энергии не получает надбавку вовсе', () => {
+    const report = computeOfflineMining({
+      resources: makeResources({ energy: { production: 0 }, ore: { production: 2 } }),
+      savedAt: NOW - HOUR * 1000,
+      now: NOW,
+      nightShift,
+    });
+
+    expect(report!.efficiency).toBe(OFFLINE_EFFICIENCY);
+    expect(report!.nightShift!.paidShare).toBe(0);
+    expect(report!.nightShift!.energyFee.toNumber()).toBe(0);
+  });
+
+  it('полное энергохранилище закрывает лазейку «смена бесплатно»', () => {
+    const report = computeOfflineMining({
+      // Платить нечем: энергия за ночь всё равно не поместится на склад.
+      resources: makeResources({
+        energy: { production: 1000, amount: 500, max: 500 },
+        ore: { production: 2 },
+      }),
+      savedAt: NOW - HOUR * 1000,
+      now: NOW,
+      nightShift,
+    });
+
+    expect(report!.efficiency).toBe(OFFLINE_EFFICIENCY);
+    expect(report!.nightShift!.paidShare).toBe(0);
+  });
+
+  it('без демона отчёт остаётся прежним и не содержит его блока', () => {
+    const report = computeOfflineMining({
+      resources: makeResources({ energy: { production: 100 }, ore: { production: 2 } }),
+      savedAt: NOW - HOUR * 1000,
+      now: NOW,
+    });
+
+    expect(report!.efficiency).toBe(OFFLINE_EFFICIENCY);
+    expect(report!.nightShift).toBeUndefined();
+  });
+});

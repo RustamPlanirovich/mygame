@@ -48,6 +48,22 @@ const RECYCLER_RADIUS = 3;
 const RECYCLER_INTENSITY = 0.8;
 
 /**
+ * Штраф к эффективности от накопленных отходов: −5% за каждую 1000 мусора и −10% за каждые
+ * 500 радиоактивных, но не ниже 10%.
+ *
+ * Вынесено из stepPollution отдельной функцией, потому что мусор снимает не только
+ * переработчик: демон-Санитар жжёт отходы ПОСЛЕ шага загрязнения (ему нужна энергия базы,
+ * которой у чистой функции нет), и пересчитать штраф он обязан по этой же формуле. Второй
+ * экземпляр формулы разошёлся бы с первым молча — панель показывала бы одно, тик считал бы
+ * другое.
+ */
+export function pollutionEfficiencyMultiplier(waste: Decimal, radioactive: Decimal): number {
+  const wastePenalty = waste.div(1000).mul(0.05).toNumber();
+  const radioactivePenalty = radioactive.div(500).mul(0.1).toNumber();
+  return Math.max(0.1, 1.0 - wastePenalty - radioactivePenalty);
+}
+
+/**
  * Один шаг подсистемы загрязнения.
  *
  * @returns прежний объект, если ни одна величина не изменилась.
@@ -117,10 +133,7 @@ export function stepPollution(state: PollutionState, input: PollutionInput): Pol
     zones = nextZones;
   }
 
-  // −5% эффективности за каждую 1000 мусора, −10% за каждые 500 радиоактивных отходов.
-  const wastePenalty = waste.div(1000).mul(0.05).toNumber();
-  const radioactivePenalty = radioactive.div(500).mul(0.1).toNumber();
-  const efficiencyMultiplier = Math.max(0.1, 1.0 - wastePenalty - radioactivePenalty);
+  const efficiencyMultiplier = pollutionEfficiencyMultiplier(waste, radioactive);
 
   /*
    * Ничего не изменилось — отдаём ИСХОДНУЮ ссылку. Внутри тика на этом месте всегда
@@ -143,5 +156,95 @@ export function stepPollution(state: PollutionState, input: PollutionInput): Pol
     radioactiveWasteAmount: radioactive,
     pollutionZones: zones,
     efficiencyMultiplier,
+  };
+}
+
+// --------------------------------------------------------------- демон-Санитар --
+
+export interface ScrubberInput {
+  /** Секунды с прошлого запуска — тот же накопленный dt, что у шага загрязнения. */
+  dt: number;
+  /** Сколько единиц в секунду демон способен сжечь. */
+  wastePerSecond: number;
+  radioactivePerSecond: number;
+  /** Сколько ⚡ стоит одна сожжённая единица. */
+  energyPerWaste: number;
+  energyPerRadioactive: number;
+  /** Энергия базы на этот момент: сдельную часть платят из неё. */
+  energyAvailable: Decimal;
+}
+
+export interface ScrubberResult {
+  /** Остаток мусора после работы демона. */
+  wasteAmount: Decimal;
+  radioactiveWasteAmount: Decimal;
+  /** Пересчитанный штраф к эффективности. */
+  efficiencyMultiplier: number;
+  /** Сколько ⚡ списать с базы. */
+  energySpent: Decimal;
+}
+
+/**
+ * Санитар: жжёт накопленные отходы за энергию (bigplan: демоны со сдельной оплатой).
+ *
+ * ПОЧЕМУ ОТДЕЛЬНО ОТ stepPollution. Шаг загрязнения — чистая функция от сетки, у неё нет и
+ * не должно быть доступа к энергии базы. Демон же платит именно энергией, поэтому он
+ * работает ПОСЛЕ шага, по его результату, и сам пересчитывает штраф общей формулой.
+ *
+ * ЧАСТИЧНАЯ ОПЛАТА. Если энергии на весь объём не хватает, демон жжёт ровно столько,
+ * сколько оплачено, а не отключается целиком: иначе на грязной базе он молча простаивал бы
+ * ровно тогда, когда нужнее всего. Радиоактивные отходы разгребаются первыми — они дороже
+ * по эффективности (−10% за 500 против −5% за 1000).
+ *
+ * @returns null, если жечь нечего или платить нечем — вызывающий тогда не трогает состояние.
+ */
+export function runScrubber(state: PollutionState, input: ScrubberInput): ScrubberResult | null {
+  const { dt, energyAvailable } = input;
+  if (!(dt > 0) || energyAvailable.lte(0)) return null;
+
+  const waste = D(state.wasteAmount);
+  const radioactive = D(state.radioactiveWasteAmount);
+  if (waste.lte(0) && radioactive.lte(0)) return null;
+
+  let budget = energyAvailable;
+  let spent = D(0);
+
+  // Радиоактивные — первыми: единица радиоактивных отходов бьёт по эффективности в 4 раза
+  // сильнее единицы мусора, поэтому при нехватке энергии выгоднее вывезти именно их.
+  const radPrice = D(input.energyPerRadioactive);
+  let radLeft = radioactive;
+  if (radioactive.gt(0) && radPrice.gt(0)) {
+    const wanted = radioactive.min(D(input.radioactivePerSecond).mul(dt));
+    const affordable = budget.div(radPrice);
+    const burned = wanted.min(affordable).max(D(0));
+    if (burned.gt(0)) {
+      const cost = burned.mul(radPrice);
+      radLeft = radioactive.sub(burned).max(D(0));
+      budget = budget.sub(cost).max(D(0));
+      spent = spent.add(cost);
+    }
+  }
+
+  const wastePrice = D(input.energyPerWaste);
+  let wasteLeft = waste;
+  if (waste.gt(0) && wastePrice.gt(0)) {
+    const wanted = waste.min(D(input.wastePerSecond).mul(dt));
+    const affordable = budget.div(wastePrice);
+    const burned = wanted.min(affordable).max(D(0));
+    if (burned.gt(0)) {
+      const cost = burned.mul(wastePrice);
+      wasteLeft = waste.sub(burned).max(D(0));
+      budget = budget.sub(cost).max(D(0));
+      spent = spent.add(cost);
+    }
+  }
+
+  if (spent.lte(0)) return null;
+
+  return {
+    wasteAmount: wasteLeft,
+    radioactiveWasteAmount: radLeft,
+    efficiencyMultiplier: pollutionEfficiencyMultiplier(wasteLeft, radLeft),
+    energySpent: spent,
   };
 }

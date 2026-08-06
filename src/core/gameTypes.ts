@@ -247,7 +247,16 @@ export interface Technology {
   };
 }
 
-export type DemonId = 'smart_broker' | 'overclocker' | 'oracle';
+export type DemonId =
+  | 'smart_broker'
+  | 'overclocker'
+  | 'oracle'
+  // Демоны со сдельной оплатой (см. DEMON_DEFS / DEMON_BALANCE в constants/progression.ts).
+  | 'supplier'
+  | 'scrubber'
+  | 'geologist'
+  | 'archivist'
+  | 'night_shift';
 
 export type NanoSwarmChannel = 'attack' | 'repair' | 'boost';
 

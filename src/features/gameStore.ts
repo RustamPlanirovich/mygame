@@ -53,6 +53,7 @@ import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders,
 import { rememberSaveRevision, getSaveRevisionFor } from './saveRevision';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
 import {
+  DEMON_BALANCE,
   DEMON_DEFS,
   UPGRADE_DEFS,
   computeCapsMultiplier,
@@ -148,7 +149,7 @@ import { computeEnergyBalance } from '../core/systems/energyBalance';
 import { generateCurrencies } from '../core/systems/currencyGeneration';
 import { outputMultiplier } from '../core/systems/productionOutput';
 import { dropExpiredEvents, eventNotificationType, nextEventDelay } from '../core/systems/randomEventSchedule';
-import { stepPollution } from '../core/systems/pollution';
+import { runScrubber, stepPollution } from '../core/systems/pollution';
 import { advanceSchedule, createTickSchedule } from '../core/systems/tickSchedule';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import {
@@ -630,11 +631,21 @@ const INITIAL_DEMONS: DemonsState = {
     smart_broker: false,
     overclocker: false,
     oracle: false,
+    supplier: false,
+    scrubber: false,
+    geologist: false,
+    archivist: false,
+    night_shift: false,
   },
   rentPaid: {
     smart_broker: false,
     overclocker: false,
     oracle: false,
+    supplier: false,
+    scrubber: false,
+    geologist: false,
+    archivist: false,
+    night_shift: false,
   },
   oracleRecommendationId: null,
   oracleRecommendationRoiSeconds: null,
@@ -5513,15 +5524,24 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
 
-          // Market Policy (import): try to top-up missing inputs from the market (tradeable only)
-          if (tilePolicy && b.consumption && !outputsBlocked) {
+          /*
+           * Market Policy (import): try to top-up missing inputs from the market (tradeable only)
+           *
+           * Сюда же подключён демон-СНАБЖЕНЕЦ: он делает то же самое, но сразу для всех
+           * зданий и без настройки по клетке — за это платит наценку к рынку, тогда как
+           * ручная политика покупает ДЕШЕВЛЕ рынка (price / tradeMult). Иначе демон обнулял
+           * бы смысл торговых политик: они бы стоили столько же, но требовали возни.
+           */
+          const supplierPaid = demonsPaid.supplier;
+          if ((tilePolicy || supplierPaid) && b.consumption && !outputsBlocked) {
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
               const rType = resType as ResourceType;
               if (rType === 'energy') continue;
               if (!(TRADEABLE as string[]).includes(rType)) continue;
 
               const p = (tilePolicy as any)[rType] as { import?: boolean; export?: boolean } | undefined;
-              if (!p?.import) continue;
+              const byPolicy = Boolean(p?.import);
+              if (!byPolicy && !supplierPaid) continue;
 
               const need = D(perSecond).mul(dtFacilities);
               if (need.lte(0)) continue;
@@ -5529,11 +5549,21 @@ export const useGameStore = create<GameState>((set, get) => ({
               const available = getBuf(buffers, tileKey, rType);
               if (available.gte(need)) continue;
 
+              /*
+               * Снабженец покупает только настоящий дефицит. Блок докупки идёт ДО
+               * автоматической доставки, поэтому без этой проверки демон скупал бы вход,
+               * который через десять строк и так приедет со склада базы, — то есть жёг бы
+               * энергию на пустом месте на каждой клетке каждый тик.
+               */
+              if (!byPolicy && getBuf(buffers, baseKey, rType).gte(need)) continue;
+
               const missing = need.sub(available).max(D(0));
               if (missing.lte(0)) continue;
 
               const price = state.market.prices[rType as TradeResourceType];
-              const unitCost = price.div(D(tradeMult)).max(D(0));
+              const unitCost = byPolicy
+                ? price.div(D(tradeMult)).max(D(0))
+                : price.mul(D(DEMON_BALANCE.SUPPLIER_PRICE_MARKUP)).max(D(0));
               if (unitCost.lte(0)) continue;
 
               const curE = getBuf(buffers, baseKey, 'energy');
@@ -5810,8 +5840,51 @@ export const useGameStore = create<GameState>((set, get) => ({
                   // запасов на каждом прогоне сбрасывала бы мемоизацию подписчиков.
                   depositReserves = { ...(state.grid.depositReserves ?? {}) };
                 }
-                const drained = drainDeposit(depositReserves, tileKey, produced.toNumber());
-                produced = D(drained.taken);
+
+                /*
+                 * ДЕМОН-ГЕОЛОГ. Списывает с жилы меньше, чем добыто: выпуск не меняется,
+                 * месторождение живёт дольше. Разницу он покупает энергией по цене
+                 * GEOLOGIST_PRICE_MULTIPLIER рыночных — то есть ЗАВЕДОМО дороже, чем ту же
+                 * единицу можно купить на бирже. Иначе демон превращался бы в бесконечный
+                 * источник руды из энергии и обнулял бы всю идею истощения (bigplan 38).
+                 *
+                 * Плата берётся за фактически сбережённое, уже ПОСЛЕ списания: последний тик
+                 * жилы отдаёт остаток, и платить за «сбережённое» из пустой жилы не за что.
+                 */
+                let drainAmount = produced;
+                let unitSaveCost = D(0);
+                if (demonsPaid.geologist) {
+                  const price = state.market.prices[rType as TradeResourceType];
+                  if (price?.gt(0)) {
+                    unitSaveCost = price.mul(D(DEMON_BALANCE.GEOLOGIST_PRICE_MULTIPLIER));
+                    const wantSave = produced.mul(D(DEMON_BALANCE.GEOLOGIST_SAVE_SHARE));
+                    const affordable = getBuf(buffers, baseKey, 'energy').div(unitSaveCost);
+                    const save = wantSave.min(affordable).max(D(0));
+                    drainAmount = produced.sub(save).max(D(0));
+                  }
+                }
+
+                const drained = drainDeposit(depositReserves, tileKey, drainAmount.toNumber());
+                /*
+                 * Множитель «сколько добыто на единицу списанного»: без геолога он равен 1 и
+                 * поведение прежнее (выпуск = списанное). С геологом он растягивает добытое
+                 * на пропорцию, поэтому оборвавшаяся на середине тика жила отдаёт ровно свою
+                 * долю выпуска, а не полную.
+                 */
+                const takenFactor = drainAmount.gt(0) ? produced.div(drainAmount) : D(1);
+                produced = D(drained.taken).mul(takenFactor);
+
+                if (unitSaveCost.gt(0)) {
+                  const savedActual = produced.sub(D(drained.taken)).max(D(0));
+                  if (savedActual.gt(0)) {
+                    const cost = savedActual.mul(unitSaveCost);
+                    const curE = getBuf(buffers, baseKey, 'energy');
+                    buffers = setBuf(buffers, baseKey, 'energy', curE.sub(cost).max(D(0)));
+                    energyConsumedTick = energyConsumedTick.add(cost);
+                    energyDrainDemonsTick = energyDrainDemonsTick.add(cost);
+                  }
+                }
+
                 if (drained.exhausted) {
                   depletedTiles.push(tileKey);
                   // Ставки производства пересчитываются по этому счётчику — см. productionRatesCache.
@@ -6879,6 +6952,40 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
       let nextCurrency = currencyStep.currency;
 
+      /*
+       * ДЕМОН-АРХИВАРИУС: энергия сверх ARCHIVIST_SURPLUS_THRESHOLD ёмкости уходит в очки
+       * исследований. Считается ЗДЕСЬ, между генерацией валют и расчётом витрины: списание
+       * должно попасть в ту же дельту энергии за секунду, которую увидит игрок, а прибавка
+       * к науке — в те же nextCurrency, что и остальные источники.
+       *
+       * Порог намеренно взят у самого потолка: до него энергия — рабочий запас базы, а выше
+       * она всё равно срезается клампом, то есть демон торгует ровно тем, что и так
+       * терялось. Потолок ARCHIVIST_MAX_RP_PER_SECOND не даёт поздней энергетике заменить
+       * собой лаборатории (см. комментарий в DEMON_BALANCE).
+       */
+      if (demonsPaid.archivist) {
+        const energyCap = newResources.energy.max;
+        const threshold = energyCap.mul(D(DEMON_BALANCE.ARCHIVIST_SURPLUS_THRESHOLD));
+        const haveEnergy = getBuf(buffers, baseKey, 'energy');
+        if (haveEnergy.gt(threshold)) {
+          const surplus = haveEnergy.sub(threshold);
+          const rp = surplus
+            .div(D(DEMON_BALANCE.ARCHIVIST_ENERGY_PER_RP))
+            .min(D(DEMON_BALANCE.ARCHIVIST_MAX_RP_PER_SECOND).mul(dt));
+          if (rp.gt(0)) {
+            const spent = rp.mul(D(DEMON_BALANCE.ARCHIVIST_ENERGY_PER_RP));
+            buffers = setBuf(buffers, baseKey, 'energy', haveEnergy.sub(spent).max(D(0)));
+            energyConsumedTick = energyConsumedTick.add(spent);
+            energyDrainDemonsTick = energyDrainDemonsTick.add(spent);
+            newResources = syncResourcesFromBase(newResources, buffers);
+            nextCurrency = {
+              ...nextCurrency,
+              researchPoints: nextCurrency.researchPoints.add(rp),
+            };
+          }
+        }
+      }
+
       // Production display = change in base buffer per second (approx, includes combat drain)
       if (dt > 0) {
         for (const r of Object.keys(newResources) as ResourceType[]) {
@@ -7367,7 +7474,7 @@ export const useGameStore = create<GameState>((set, get) => ({
        * Когда не пора — берём предыдущее значение ПО ССЫЛКЕ. Раньше здесь безусловно
        * создавался новый объект, и каждый подписчик загрязнения перерисовывался всегда.
        */
-      const nextPollution = slowRuns.pollution.due
+      let nextPollution = slowRuns.pollution.due
         ? stepPollution(state.pollution, {
             buildings: buildingsWithProximity,
             tiles: state.grid.tiles,
@@ -7377,6 +7484,38 @@ export const useGameStore = create<GameState>((set, get) => ({
             autoRecycleWaste: policyEffects.specialEffects.has('auto_recycle_waste'),
           })
         : state.pollution;
+
+      /*
+       * ДЕМОН-САНИТАР. Жжёт накопленные отходы за энергию — то, что иначе делают
+       * переработчики, занимая клетки. Идёт ПОСЛЕ шага загрязнения и по тому же расписанию
+       * (раз в секунду): жечь мусор 20 раз в секунду незачем, а dt приходит накопленный.
+       *
+       * Сдельная плата снимается с базового буфера здесь же, а не в блоке аренды: сколько
+       * именно демон сожжёт, известно только после того, как посчитан прирост отходов.
+       */
+      if (demonsPaid.scrubber && slowRuns.pollution.due) {
+        const scrub = runScrubber(nextPollution, {
+          dt: slowRuns.pollution.dt,
+          wastePerSecond: DEMON_BALANCE.SCRUBBER_WASTE_PER_SECOND,
+          radioactivePerSecond: DEMON_BALANCE.SCRUBBER_RADIOACTIVE_PER_SECOND,
+          energyPerWaste: DEMON_BALANCE.SCRUBBER_ENERGY_PER_WASTE,
+          energyPerRadioactive: DEMON_BALANCE.SCRUBBER_ENERGY_PER_RADIOACTIVE,
+          energyAvailable: getBuf(buffers, baseKey, 'energy'),
+        });
+        if (scrub) {
+          const curE = getBuf(buffers, baseKey, 'energy');
+          buffers = setBuf(buffers, baseKey, 'energy', curE.sub(scrub.energySpent).max(D(0)));
+          energyConsumedTick = energyConsumedTick.add(scrub.energySpent);
+          energyDrainDemonsTick = energyDrainDemonsTick.add(scrub.energySpent);
+          newResources = syncResourcesFromBase(newResources, buffers);
+          nextPollution = {
+            ...nextPollution,
+            wasteAmount: scrub.wasteAmount,
+            radioactiveWasteAmount: scrub.radioactiveWasteAmount,
+            efficiencyMultiplier: scrub.efficiencyMultiplier,
+          };
+        }
+      }
 
       /*
        * МЕЖГАЛАКТИЧЕСКИЕ КАРАВАНЫ (bigplan.md, пункт 22).
@@ -8458,11 +8597,10 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ...state.demons.active,
                 ...save.demons.active,
               },
-              rentPaid: {
-                smart_broker: false,
-                overclocker: false,
-                oracle: false,
-              },
+              // Аренда — состояние ОДНОГО тика, из сейва её не восстанавливают: первый же
+              // тик после загрузки посчитает, кто оплачен, а кто нет. Полный набор ключей
+              // берём из INITIAL_DEMONS, иначе новый демон молча остался бы без поля.
+              rentPaid: { ...INITIAL_DEMONS.rentPaid },
               brokerExcludeFromAutoSell: save.demons.brokerExcludeFromAutoSell ?? ({} as Record<TradeResourceType, boolean>),
             }
           : state.demons;
@@ -9081,11 +9219,10 @@ export const useGameStore = create<GameState>((set, get) => ({
                 ...state.demons.active,
                 ...save.demons.active,
               },
-              rentPaid: {
-                smart_broker: false,
-                overclocker: false,
-                oracle: false,
-              },
+              // Аренда — состояние ОДНОГО тика, из сейва её не восстанавливают: первый же
+              // тик после загрузки посчитает, кто оплачен, а кто нет. Полный набор ключей
+              // берём из INITIAL_DEMONS, иначе новый демон молча остался бы без поля.
+              rentPaid: { ...INITIAL_DEMONS.rentPaid },
               oracleRecommendationId: null,
               oracleRecommendationRoiSeconds: null,
               brokerExcludeFromAutoSell: save.demons.brokerExcludeFromAutoSell ?? ({} as Record<TradeResourceType, boolean>),
@@ -9938,10 +10075,24 @@ export const useGameStore = create<GameState>((set, get) => ({
        * платила бы за одно и то же отсутствие столько раз, сколько его открыли.
        */
       const savedAt = Number(save?.savedAt ?? save?.lastTick ?? 0);
+      /*
+       * Демон «Ночная смена» читается из УЖЕ ЗАГРУЖЕННОГО состояния: важно, был ли он
+       * включён на момент выхода, а не включён ли он сейчас. Плату он берёт из офлайн-энергии
+       * внутри computeOfflineMining — см. её шапку.
+       */
+      const nightShiftOn = get().demons.active.night_shift;
       const offlineMining = computeOfflineMining({
         resources: get().resources,
         savedAt,
         now: Date.now(),
+        ...(nightShiftOn
+          ? {
+              nightShift: {
+                rentPerSecond: DEMON_BALANCE.NIGHT_SHIFT_ENERGY_PER_SECOND,
+                boostedEfficiency: DEMON_BALANCE.NIGHT_SHIFT_EFFICIENCY,
+              },
+            }
+          : {}),
       });
       if (offlineMining) {
         console.log(

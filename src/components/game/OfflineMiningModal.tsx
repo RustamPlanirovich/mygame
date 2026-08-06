@@ -100,6 +100,33 @@ export const OfflineMiningModal: React.FC = () => {
           </div>
         </div>
 
+        {/*
+          Демон «Ночная смена». Показываем и удержанную аренду, и случай неполной оплаты:
+          иначе игрок видел бы «эффективность 81%» вместо обещанных 95% и читал бы это как
+          поломку, а не как «энергетика не вытянула смену».
+        */}
+        {report.nightShift && (
+          <Alert tone={report.nightShift.paidShare >= 1 ? 'info' : 'warning'}>
+            <span className="flex items-center gap-1">
+              <GameIcon icon="💤" /> Ночная смена удержала{' '}
+              <span className="font-mono tabular-nums">
+                {formatNumber(report.nightShift.energyFee)}
+              </span>
+              <GameIcon icon="⚡" /> из ночной выработки.
+            </span>
+            {report.nightShift.paidShare < 1 && (
+              <span>
+                {' '}
+                Оплатить смену целиком не хватило энергии — засчитано{' '}
+                <span className="font-mono tabular-nums">
+                  {Math.round(report.nightShift.paidShare * 100)}
+                </span>
+                % надбавки.
+              </span>
+            )}
+          </Alert>
+        )}
+
         {trimmedByLimit && (
           <Alert tone="warning">
             Офлайн засчитывается не больше{' '}

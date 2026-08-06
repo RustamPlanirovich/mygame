@@ -7,7 +7,21 @@ import { TRADE_LABEL } from '../../core/constants/labels';
 import { Skull, Settings } from 'lucide-react';
 import { GameIcon, IconText } from '../ui/icons';
 
-const ORDER: DemonId[] = ['smart_broker', 'overclocker', 'oracle'];
+/*
+ * Порядок ручной, а не по Object.keys: сверху три демона с одной только арендой (их можно
+ * держать включёнными постоянно), ниже — со сдельной оплатой, где счёт растёт вместе с
+ * пользой. Так список читается как «дешёвые → дорогие», а не как история коммитов.
+ */
+const ORDER: DemonId[] = [
+  'smart_broker',
+  'overclocker',
+  'oracle',
+  'supplier',
+  'scrubber',
+  'geologist',
+  'archivist',
+  'night_shift',
+];
 
 const TRADEABLE_RESOURCES: TradeResourceType[] = [
   'ore', 'ice', 'carbon', 'steel',
@@ -63,8 +77,13 @@ export function DemonsPanel() {
                 <div className="text-[10px] text-cyber-text-dim mt-0.5">
                   <IconText>{def.description}</IconText>
                 </div>
+                {def.variableCost && (
+                  <div className="text-[10px] text-cyber-yellow/80 mt-0.5">
+                    <GameIcon icon="🧾" /> сдельно: <IconText>{def.variableCost}</IconText>
+                  </div>
+                )}
                 <div className="text-[10px] text-cyber-text-dim mt-0.5">
-                  {formatNumber(def.energyPerSecond)}<GameIcon icon="⚡" />/с
+                  {formatNumber(def.energyPerSecond)}<GameIcon icon="⚡" />/с аренда
                   <span className="text-cyber-gray-light"> · {active ? (
                     <span className={effective ? 'text-cyber-green' : 'text-cyber-red'}>
                       <IconText>{effective ? '✓ опл.' : '✗ не опл.'}</IconText>
