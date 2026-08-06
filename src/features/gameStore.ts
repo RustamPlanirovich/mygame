@@ -38,6 +38,7 @@ import type {
   EndingId,
 } from '../core/gameTypes';
 import { D } from '../core/math/format.ts';
+import { RESOURCE_LABEL } from '../core/constants/labels';
 // NOTE: ./gameSave imports the INITIAL_* constants back from this module, so these two form
 // an import cycle. It is safe because every cross-module reference happens inside a function
 // body (serializeGame/loadSavePayload are called from actions; the INITIAL_* are read inside
@@ -49,6 +50,7 @@ import { serializeGame, loadSavePayload } from './gameSave';
 import { serializeFinance, hydrateFinance, registerGameCreditsAdapter, resetFinanceState } from './financeStore';
 import { baseResearchPointsPerSecond, baseInfluencePerSecond } from '../core/production/currencyRates';
 import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
+import { rememberSaveRevision, getSaveRevisionFor } from './saveRevision';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
 import {
   DEMON_DEFS,
@@ -139,6 +141,9 @@ import {
   effectiveDisabledTiles,
   upgradeDurationSeconds,
 } from '../core/systems/construction';
+import { createJob, splitCompleted, type Job } from '../core/systems/jobs';
+import { stepPollution } from '../core/systems/pollution';
+import { advanceSchedule, createTickSchedule } from '../core/systems/tickSchedule';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { playSfx } from '../core/audio/sfx';
@@ -159,7 +164,7 @@ const SCENARIO_CHECK_INTERVAL_MS = 1000;
  */
 const appliedGrantIds = new Set<string>();
 import { generateMap } from '../utils/mapGenerator';
-import { getMapDefinition, isMapUnlocked, type MapUnlockProgress } from '../core/constants/maps';
+import { getMapDefinition, isMapUnlocked, nextMapAfter, type MapUnlockProgress } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
 import { getCultureLevel, getCultureProgress } from '../core/constants/cultureLevels';
 import { calculateHappiness, calculateHappinessTrend, smoothHappinessTransition } from '../utils/happinessCalculator';
@@ -303,7 +308,7 @@ const D_ZERO = D(0);
 
 // LOGISTICS CACHE: Persists between ticks to avoid O(N^2) calculations
 // Stores pre-calculated sorted lists of sources for each consumer
-let logisticsCache: {
+const logisticsCache: {
   tilesCount: number; // Количество тайлов для быстрой проверки
   tilesKeys: string; // Сериализованные ключи для точной проверки (строится редко)
   routes: Record<string, Partial<Record<ResourceType, string[]>>>;
@@ -339,6 +344,22 @@ function tilesChangedForLogistics(tiles: Record<string, string>): boolean {
 }
 
 // PRODUCTION RATES CACHE: Пересчитываем только при изменении сетки/зданий
+/*
+ * Расписание медленных подсистем (bigplan.md, пункт 22). Живёт РЯДОМ со стором, а не в нём:
+ * это состояние планировщика, а не игры — в сейв ему незачем, а подписчикам стора незачем
+ * узнавать о нём 20 раз в секунду.
+ */
+const tickSchedule = createTickSchedule();
+
+/** Сброс расписания: новая игра или загрузка не должны наследовать фазу предыдущей. */
+export function resetTickSchedule(): void {
+  const fresh = createTickSchedule();
+  for (const key of Object.keys(fresh) as Array<keyof typeof fresh>) {
+    tickSchedule[key].accumulated = fresh[key].accumulated;
+    tickSchedule[key].period = fresh[key].period;
+  }
+}
+
 // Это экономит O(N*M) операций каждый тик где N=tiles, M=resources
 let productionRatesCache: {
   tilesCount: number;
@@ -590,7 +611,7 @@ const INITIAL_GALAXIES: import('../core/gameTypes').GalaxiesState = {
 const INITIAL_FLEET: import('../core/gameTypes').FleetState = {
   ships: [],
   autoDefend: true,
-  productionQueue: [],
+  buildQueue: [],
 };
 
 const INITIAL_POLLUTION: import('../core/gameTypes').PollutionState = {
@@ -638,6 +659,30 @@ export const INITIAL_SCENARIO: import('../core/gameTypes.tutorial').ScenarioStat
   completedIds: [],
   collapsed: false,
   dismissed: false,
+};
+
+/**
+ * Настройки интерфейса по умолчанию (bigplan.md, пункт 30.2).
+ *
+ * Шесть стартовых пинов — те же, что раньше стояли умолчанием в колонке
+ * `users.pinned_resources`: список выбран так, чтобы новичок сразу видел энергию и
+ * базовое сырьё, а не пустую строку.
+ */
+/**
+ * Сколько ресурсов имеет смысл держать в строке TopBar. Ограничение визуальное:
+ * дальше строка переносится и вытесняет валюты.
+ */
+export const MAX_PINNED_RESOURCES = 14;
+
+export const INITIAL_UI_PREFS: import('../core/gameTypes').UiPrefsState = {
+  pinnedResources: ['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'],
+  accountPinsImported: false,
+  buildPanel: {
+    onlyPositive: false,
+    onlyAffordable: false,
+    onlyUnlocked: true,
+    sortBy: 'name',
+  },
 };
 
 export const INITIAL_PLAYER_STATS: import('../core/gameTypes').PlayerStats = {
@@ -3110,7 +3155,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastTick: Date.now(),
   stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: Date.now() },
   scenario: { ...INITIAL_SCENARIO },
-  
+  uiPrefs: { ...INITIAL_UI_PREFS, buildPanel: { ...INITIAL_UI_PREFS.buildPanel } },
+
   // Energy balance telemetry
   energyProduction: D(0),
   energyConsumption: D(0),
@@ -3978,7 +4024,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       let collateral = D(0);
       let buffers = state.grid.buffers;
-      let nextCurrency = { ...state.currency };
+      const nextCurrency = { ...state.currency };
       
       if (type === 'buy') {
         // Lock credits as collateral
@@ -4026,7 +4072,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Return collateral
       let buffers = state.grid.buffers;
-      let nextCurrency = { ...state.currency };
+      const nextCurrency = { ...state.currency };
       
       if (order.type === 'buy') {
         nextCurrency.credits = nextCurrency.credits.add(order.collateral);
@@ -4526,7 +4572,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const capsMult = computeCapsMultiplier(state.research.levels, nextMeta.qubits);
       let resources = recomputeCaps({ ...INITIAL_RESOURCES }, nextBuildings, capsMult, {}, nextTiles);
-      let buffers = clampBaseBufferToCaps(nextGrid.buffers, resources);
+      const buffers = clampBaseBufferToCaps(nextGrid.buffers, resources);
       resources = syncResourcesFromBase(resources, buffers);
 
       return {
@@ -4617,6 +4663,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   tick: (dt) => {
     set((state) => {
       const now = Date.now();
+
+      /*
+       * Расписание медленных подсистем (bigplan.md, пункт 22). Продвигается ОДИН раз в
+       * начале тика, чтобы все решения «пора / не пора» были приняты в одной точке, а не
+       * разбросаны счётчиками по трём тысячам строк.
+       */
+      const slowRuns = advanceSchedule(tickSchedule, dt);
 
       const debugState = (state as any).debug as
         | {
@@ -5464,7 +5517,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               const need = D(perSecond).mul(dtFacilities);
               if (need.lte(0)) continue;
 
-              let currentAvailable = getBuf(buffers, tileKey, rType);
+              const currentAvailable = getBuf(buffers, tileKey, rType);
               // Держим буфер на 5 секунд работы вместо одного тика
               const targetBuffer = D(perSecond).mul(5);
               let shortfall = targetBuffer.sub(currentAvailable).max(D(0));
@@ -7118,7 +7171,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
       
       const finalPlatforms = survivingPlatforms.map(platform => {
-        let updatedPlatform = { ...platform };
+        const updatedPlatform = { ...platform };
         
         if (state.galaxies.autoTransportEnabled) {
           const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
@@ -7216,104 +7269,46 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
 
-      // Фаза 8.1: Pollution system
-      let nextPollution = { 
-        ...state.pollution,
-        wasteAmount: D(state.pollution.wasteAmount),
-        radioactiveWasteAmount: D(state.pollution.radioactiveWasteAmount),
-      };
-      
-      // Generate waste from production buildings
-      let wasteGenerated = D(0);
-      let radioactiveWasteGenerated = D(0);
-      
       /*
-       * Раньше здесь по id проверялась политика `eco_friendly` — единственный спецэффект,
-       * который вообще что-то делал, и делал это захардкоженной строкой внутри цикла по зданиям.
-       * Теперь смотрим на объявленный флаг: политика, которая его объявляет, всё та же, но
-       * gameStore больше не знает её имени, а проверка снята из тела цикла.
+       * ЗАГРЯЗНЕНИЕ (bigplan.md, пункт 22). Подсистема вынесена в core/systems/pollution.ts
+       * и запускается РАЗ В СЕКУНДУ, а не 20: мусор копится единицами в секунду, и считать
+       * его на каждом кадре — платить за одну и ту же цифру. dt приходит накопленный за
+       * интервал, поэтому итог за минуту прежний.
+       *
+       * Когда не пора — берём предыдущее значение ПО ССЫЛКЕ. Раньше здесь безусловно
+       * создавался новый объект, и каждый подписчик загрязнения перерисовывался всегда.
        */
-      const autoRecycleWaste = policyEffects.specialEffects.has('auto_recycle_waste');
+      const nextPollution = slowRuns.pollution.due
+        ? stepPollution(state.pollution, {
+            buildings: buildingsWithProximity,
+            tiles: state.grid.tiles,
+            tileEvolutionLevels: state.grid.tileEvolutionLevels,
+            // Тот же множитель скорости, что у остальных производственных расчётов.
+            dt: slowRuns.pollution.dt * (dtFacilities / (dt || 1)),
+            autoRecycleWaste: policyEffects.specialEffects.has('auto_recycle_waste'),
+          })
+        : state.pollution;
 
-      buildingsWithProximity.forEach((b) => {
-        if (b.count <= 0) return;
-
-        const placedCount = Object.values(state.grid.tiles).filter((id) => id === b.id).length;
-        if (placedCount === 0) return;
-
-        // Different buildings generate different amounts of waste
-        let wastePerBuilding = D(0);
-        let radioactiveWastePerBuilding = D(0);
-
-        // Production buildings generate waste (0.01 waste per production cycle)
-        if (b.production && !b.id.includes('generator') && !b.id.includes('solar')) {
-          const productionTotal = Object.values(b.production).reduce((sum, amount) => sum.add(amount), D(0));
-          wastePerBuilding = productionTotal.mul(0.01).mul(dtFacilities);
-        }
-        
-        // Nuclear buildings generate radioactive waste
-        if (b.id.includes('nuclear') || b.id.includes('enriched_uranium')) {
-          radioactiveWastePerBuilding = D(0.05).mul(dtFacilities).mul(placedCount);
-        }
-        
-        // Автопереработка отходов: -50% к образованию мусора и радиоактивных отходов
-        if (autoRecycleWaste) {
-          wastePerBuilding = wastePerBuilding.mul(0.5);
-          radioactiveWastePerBuilding = radioactiveWastePerBuilding.mul(0.5);
-        }
-        
-        wasteGenerated = wasteGenerated.add(wastePerBuilding.mul(placedCount));
-        radioactiveWasteGenerated = radioactiveWasteGenerated.add(radioactiveWastePerBuilding);
-      });
-      
-      // Add generated waste to totals
-      nextPollution.wasteAmount = nextPollution.wasteAmount.add(wasteGenerated);
-      nextPollution.radioactiveWasteAmount = nextPollution.radioactiveWasteAmount.add(radioactiveWasteGenerated);
-      
-      // Waste Recycler buildings reduce waste
-      // NOTE: Building id is `recycler_mk1` (not `waste_recycler`).
-      const recyclerBuilding = buildingsWithProximity.find((b) => b.id === 'recycler_mk1');
-      if (recyclerBuilding && recyclerBuilding.count > 0) {
-        const baseRecyclerPower = D(2).mul(dtFacilities); // 2 waste per second per recycler
-
-        // Find all placed recyclers and create pollution zones
-        const pollutionZones: Array<{ x: number; y: number; radius: number; intensity: number }> = [];
-        for (const [tileKey, buildingId] of Object.entries(state.grid.tiles)) {
-          if (buildingId === 'recycler_mk1') {
-            const pos = parseKey(tileKey);
-            if (pos) {
-              pollutionZones.push({
-                x: pos.x,
-                y: pos.y,
-                radius: 3,
-                intensity: 0.8, // 80% waste reduction in radius
-              });
-
-              const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
-              const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
-              const recyclerPower = baseRecyclerPower.mul(evolutionMult);
-
-              // Recycle waste in the area
-              nextPollution.wasteAmount = nextPollution.wasteAmount.sub(recyclerPower).max(D(0));
-            }
-          }
-        }
-
-        nextPollution.pollutionZones = pollutionZones;
-      }
-      
-      // Calculate efficiency penalty from pollution
-      // -5% efficiency per 1000 waste
-      const wastePenalty = nextPollution.wasteAmount.div(1000).mul(0.05).toNumber();
-      const radioactivePenalty = nextPollution.radioactiveWasteAmount.div(500).mul(0.1).toNumber();
-      nextPollution.efficiencyMultiplier = Math.max(0.1, 1.0 - wastePenalty - radioactivePenalty);
-
-      // Process intergalactic caravans
-      const nextIntergalacticLogistics = { ...state.intergalacticLogistics };
-      const updatedCaravans = [...nextIntergalacticLogistics.caravans];
+      /*
+       * МЕЖГАЛАКТИЧЕСКИЕ КАРАВАНЫ (bigplan.md, пункт 22).
+       *
+       * Считаются РАЗ В СЕКУНДУ, а не 20: караван едет минуты, и пересчитывать его прогресс
+       * на каждом кадре незачем. `dtLogistics` — накопленное за интервал время, поэтому
+       * скорость движения, шанс нападения и урон в бою остаются прежними.
+       *
+       * Пустой список пропускается ЦЕЛИКОМ, с сохранением исходной ссылки: раньше здесь
+       * безусловно копировались объект и массив — две аллокации 20 раз в секунду у игрока,
+       * который караванов вообще не отправлял.
+       */
+      const dtLogistics = slowRuns.logistics.dt;
+      const runCaravans = slowRuns.logistics.due && state.intergalacticLogistics.caravans.length > 0;
+      const nextIntergalacticLogistics = runCaravans
+        ? { ...state.intergalacticLogistics }
+        : state.intergalacticLogistics;
+      const updatedCaravans = runCaravans ? [...nextIntergalacticLogistics.caravans] : [];
       const caravansToRemove: string[] = [];
-      
-      for (let i = 0; i < updatedCaravans.length; i++) {
+
+      for (let i = 0; runCaravans && i < updatedCaravans.length; i++) {
         const caravan = { ...updatedCaravans[i] };
         
         if (caravan.status === 'traveling') {
@@ -7323,7 +7318,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           caravan.progress = Math.min(1, elapsed / totalTime);
           
           // Check for random attacks
-          if (Math.random() < caravan.riskLevel * dt * 0.1) { // 10% chance per second scaled by risk
+          if (Math.random() < caravan.riskLevel * dtLogistics * 0.1) { // 10% chance per second scaled by risk
             caravan.status = 'under_attack';
             caravan.underAttackBy = [
               createPlatformEnemy('pirate_raider', Math.floor(Math.random() * 10) + 5), // Random pirate level 5-15
@@ -7393,7 +7388,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         } else if (caravan.status === 'under_attack' && caravan.underAttackBy) {
           // Process combat
           const totalEnemyDps = caravan.underAttackBy.reduce((sum, enemy) => sum.add(enemy.dps), D(0));
-          const damage = totalEnemyDps.mul(dt);
+          const damage = totalEnemyDps.mul(dtLogistics);
           
           // Caravan takes damage (reduce defense)
           caravan.defense = caravan.defense.sub(damage).max(D(0));
@@ -7415,7 +7410,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             // Caravan fights back
             const caravanDps = caravan.defense.mul(0.5); // 50% of defense rating as DPS
             caravan.underAttackBy = caravan.underAttackBy.filter(enemy => {
-              const enemyDamage = caravanDps.mul(dt);
+              const enemyDamage = caravanDps.mul(dtLogistics);
               enemy.hp = enemy.hp.sub(enemyDamage);
               return enemy.hp.gt(0);
             });
@@ -7438,14 +7433,23 @@ export const useGameStore = create<GameState>((set, get) => ({
         updatedCaravans[i] = caravan;
       }
       
-      // Remove completed/destroyed caravans
-      nextIntergalacticLogistics.caravans = updatedCaravans.filter(c => !caravansToRemove.includes(c.id));
+      // Убираем доставленные и уничтоженные. Только если что-то реально изменилось —
+      // иначе новый массив на каждом прогоне сбрасывал бы мемоизацию подписчиков.
+      if (runCaravans && caravansToRemove.length > 0) {
+        nextIntergalacticLogistics.caravans = updatedCaravans.filter(
+          (c) => !caravansToRemove.includes(c.id),
+        );
+      } else if (runCaravans) {
+        nextIntergalacticLogistics.caravans = updatedCaravans;
+      }
 
       // =======================================
       // Фаза 8.6: Обработка случайных событий
       // =======================================
       
-      let nextRandomEvents = { ...state.randomEvents };
+      // Копия создаётся только теми ветками, которые реально что-то меняют: без этого
+      // новый объект уходил в стор каждый тик (bigplan.md, пункт 22).
+      let nextRandomEvents = state.randomEvents;
       
       // Проверяем, пора ли генерировать новое событие
       if (nextRandomEvents.eventsEnabled && now >= nextRandomEvents.nextEventAt) {
@@ -7511,46 +7515,42 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
-      // Обрабатываем активные события с временными эффектами
-      const updatedActiveEvents = nextRandomEvents.activeEvents.map(event => {
-        if (event.expiresAt && now >= event.expiresAt) {
-          return { ...event, status: 'expired' as const };
-        }
-        return event;
-      }).filter(event => event.status !== 'expired');
-      
-      nextRandomEvents = {
-        ...nextRandomEvents,
-        activeEvents: updatedActiveEvents,
-      };
+      /*
+       * Истёкшие события. Новый массив создаётся ТОЛЬКО когда что-то действительно истекло
+       * (bigplan.md, пункт 22): раньше map+filter отрабатывали 20 раз в секунду и отдавали
+       * новую ссылку даже на пустом списке, из-за чего панель событий перерисовывалась
+       * всегда.
+       */
+      const hasExpiredEvents = nextRandomEvents.activeEvents.some(
+        (event) => event.expiresAt && now >= event.expiresAt,
+      );
+      if (hasExpiredEvents) {
+        nextRandomEvents = {
+          ...nextRandomEvents,
+          activeEvents: nextRandomEvents.activeEvents.filter(
+            (event) => !(event.expiresAt && now >= event.expiresAt),
+          ),
+        };
+      }
 
       // =======================================
       // Фаза 9: Обработка строительства мегаструктур
       // =======================================
       
-      let nextMegastructures = { ...state.megastructures };
+      let nextMegastructures = state.megastructures;
       
-      // Обработка строительства мегаструктур в очереди
-      const updatedQueue = nextMegastructures.constructionQueue.map(construction => {
-        const megastructure = MEGASTRUCTURES[construction.megastructureId];
-        if (!megastructure) return construction;
-        
-        // Увеличение прогресса строительства (100% за buildTime секунд)
-        const progressPerSecond = 100 / megastructure.buildTime;
-        const newProgress = Math.min(100, construction.progress + progressPerSecond * dt);
-        
-        return {
-          ...construction,
-          progress: newProgress,
-        };
-      });
-      
-      // Проверяем завершенные постройки
-      const completedMegastructures = updatedQueue.filter(c => c.progress >= 100);
-      const remainingQueue = updatedQueue.filter(c => c.progress < 100);
-      
+      /*
+       * Единый движок отложенных задач (bigplan.md, пункт 25): прогресс не накапливается
+       * в тике, а вычисляется из startedAt + duration. Поэтому мегаструктура достраивается
+       * за оффлайн и не замирает в свёрнутой вкладке — как и стройка зданий.
+       */
+      const megaSplit = splitCompleted(nextMegastructures.constructionQueue, now);
+      const completedMegastructures = megaSplit.done;
+      const remainingQueue = megaSplit.pending as typeof nextMegastructures.constructionQueue;
+
       // Перемещаем завершенные мегаструктуры в список построенных
-      let newBuiltMegastructures = { ...nextMegastructures.built };
+      let newBuiltMegastructures = nextMegastructures.built;
+      if (completedMegastructures.length > 0) newBuiltMegastructures = { ...newBuiltMegastructures };
       
       completedMegastructures.forEach(construction => {
         const megastructure = MEGASTRUCTURES[construction.megastructureId];
@@ -7579,11 +7579,59 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       });
       
-      nextMegastructures = {
-        ...nextMegastructures,
-        built: newBuiltMegastructures,
-        constructionQueue: remainingQueue,
-      };
+      // Новая ссылка — только когда мегаструктура реально достроилась.
+      if (completedMegastructures.length > 0) {
+        nextMegastructures = {
+          ...nextMegastructures,
+          built: newBuiltMegastructures,
+          constructionQueue: remainingQueue,
+        };
+      }
+
+      /*
+       * Готовые корабли (bigplan.md, пункт 25) — тот же движок и тот же обработчик, что и
+       * у мегаструктур. Стоимость списана при постановке в очередь, поэтому здесь только
+       * создание корабля.
+       *
+       * `nextFleet` остаётся ИСХОДНОЙ ссылкой, если ничего не готово: очередь пуста почти
+       * всегда, а новая ссылка на fleet каждый тик перерисовывала бы панель флота впустую.
+       */
+      const shipSplit = splitCompleted(state.fleet.buildQueue, now);
+      let nextFleet = state.fleet;
+      let shipsBuiltThisTick = 0;
+      if (shipSplit.done.length > 0) {
+        const builtShips: import('../core/gameTypes').Ship[] = [];
+        for (const job of shipSplit.done) {
+          const shipType = job.target as import('../core/gameTypes').ShipType;
+          if (!SHIP_DEFINITIONS[shipType]) continue;
+          const stats = calculateShipStats(shipType, 1, 0);
+          builtShips.push({
+            id: `ship_${job.id}`,
+            type: shipType,
+            name: generateShipName(),
+            level: 1,
+            maxHp: stats.maxHp,
+            hp: stats.maxHp,
+            dps: stats.dps,
+            armor: stats.armor,
+            speed: stats.speed,
+            status: 'idle',
+            experience: 0,
+            upgradeLevel: 0,
+          });
+          newNotifications.push({
+            type: 'success',
+            title: '🚀 Корабль готов',
+            message: `${SHIP_DEFINITIONS[shipType].name} присоединился к флоту.`,
+          });
+        }
+        nextFleet = {
+          ...state.fleet,
+          ships: [...state.fleet.ships, ...builtShips],
+          buildQueue: shipSplit.pending as Job[],
+        };
+        shipsBuiltThisTick = builtShips.length;
+      }
 
       const debugLastFlow = traceFlows
         ? (() => {
@@ -7704,7 +7752,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       // ========================================================================
       // CULTURE & SCIENCE SYSTEM (Phase 7)
       // ========================================================================
-      let nextCulture = { ...state.culture };
+      /*
+       * КУЛЬТУРА И СЧАСТЬЕ (bigplan.md, пункт 22). Прогоняется РАЗ В 2 СЕКУНДЫ.
+       *
+       * Раньше блок выполнялся 20 раз в секунду и на каждом прогоне создавал новый объект
+       * культуры, новый массив `unlockedCultureBuildings` (полный обход каталога) и полный
+       * пересчёт счастья — то есть панель культуры перерисовывалась всегда, даже когда в
+       * состоянии не менялось ничего.
+       *
+       * Замедление здесь безопасно по построению: счастье и так сглажено
+       * (smoothHappinessTransition ограничивает шаг по dt и не проскакивает цель), а
+       * культура и наука накапливаются по `dtCulture` — времени, прошедшему с прошлого
+       * прогона, поэтому итог за минуту тот же.
+       */
+      const runCulture = slowRuns.culture.due;
+      const dtCulture = slowRuns.culture.dt;
+      const nextCulture = runCulture ? { ...state.culture } : state.culture;
+      if (runCulture) {
       
       // Calculate culture production from culture buildings
       let cultureProducedTick = D_ZERO;
@@ -7722,10 +7786,10 @@ export const useGameStore = create<GameState>((set, get) => ({
             const happinessMult = nextCulture.happiness.productivityMultiplier;
             
             cultureProducedTick = cultureProducedTick.add(
-              cultureDef.culturePerSecond.mul(building.count).mul(dt).mul(happinessMult)
+              cultureDef.culturePerSecond.mul(building.count).mul(dtCulture).mul(happinessMult)
             );
             scienceProducedTick = scienceProducedTick.add(
-              cultureDef.sciencePerSecond.mul(building.count).mul(dt).mul(happinessMult)
+              cultureDef.sciencePerSecond.mul(building.count).mul(dtCulture).mul(happinessMult)
             );
           }
         }
@@ -7738,8 +7802,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       nextCulture.totalScienceProduced = nextCulture.totalScienceProduced.add(scienceProducedTick);
       
       // Update production rates for display
-      nextCulture.culturePerSecond = dt > 0 ? cultureProducedTick.div(dt) : D_ZERO;
-      nextCulture.sciencePerSecond = dt > 0 ? scienceProducedTick.div(dt) : D_ZERO;
+      nextCulture.culturePerSecond = dtCulture > 0 ? cultureProducedTick.div(dtCulture) : D_ZERO;
+      nextCulture.sciencePerSecond = dtCulture > 0 ? scienceProducedTick.div(dtCulture) : D_ZERO;
       
       // Check for culture level up
       const cultureLevelData = getCultureLevel(nextCulture.culture);
@@ -7779,7 +7843,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const calculatedHappiness = calculateHappiness(happinessInputs);
       const previousHappiness = nextCulture.happiness.current;
       const targetHappiness = calculatedHappiness.current;
-      const smoothedHappiness = smoothHappinessTransition(previousHappiness, targetHappiness, dt);
+      const smoothedHappiness = smoothHappinessTransition(previousHappiness, targetHappiness, dtCulture);
       const trend = calculateHappinessTrend(previousHappiness, smoothedHappiness);
       
       nextCulture.happiness = {
@@ -7799,6 +7863,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       nextCulture.unlockedCultureBuildings = unlockedBuildings;
       // ========================================================================
+      }
       // END CULTURE SYSTEM
       // ========================================================================
 
@@ -7839,6 +7904,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       let nextTileJobs = state.grid.tileJobs;
       let nextTileLevelsAfterJobs = state.grid.tileLevels;
       let questsAfterJobs = nextQuests;
+      /*
+       * Квест «построить корабль» закрывается по ФАКТУ готовности (bigplan.md, пункт 25),
+       * а не по клику: корабль не ставится на сетку, поэтому обработчик построек его не
+       * видит, и раньше квест засчитывался за намерение.
+       */
+      if (shipsBuiltThisTick > 0) {
+        questsAfterJobs = advanceQuests(
+          questsAfterJobs,
+          (quest) => quest.type === 'build' && quest.target === 'ship',
+          shipsBuiltThisTick,
+        );
+      }
       const completedJobKeys = collectCompletedJobs(state.grid.tileJobs, now);
 
       if (completedJobKeys.length > 0) {
@@ -7982,17 +8059,30 @@ export const useGameStore = create<GameState>((set, get) => ({
           lastDtSeconds: dt
         },
         demons: nextDemons,
-        meta: { ...state.meta, lifetimeEnergyProduced, blueprints },
+        // meta — только когда счётчики реально изменились (bigplan.md, пункт 22):
+        // безусловная копия подменяла объект 20 раз в секунду.
+        ...(lifetimeEnergyProduced !== state.meta.lifetimeEnergyProduced ||
+        blueprints !== state.meta.blueprints
+          ? { meta: { ...state.meta, lifetimeEnergyProduced, blueprints } }
+          : {}),
         expedition: nextExpedition,
         nanoSwarm: state.nanoSwarm,
         productionMatrix: state.productionMatrix,
         quantumNet: state.quantumNet,
         galaxies: nextGalaxies,
-        pollution: nextPollution,
-        intergalacticLogistics: nextIntergalacticLogistics,
-        randomEvents: nextRandomEvents,
-        megastructures: nextMegastructures,
-        culture: nextCulture,
+        // И загрязнение — только когда подсистема отработала и что-то изменила.
+        ...(nextPollution !== state.pollution ? { pollution: nextPollution } : {}),
+        // Караваны — только когда прогон реально был (bigplan.md, пункт 22).
+        ...(nextIntergalacticLogistics !== state.intergalacticLogistics
+          ? { intergalacticLogistics: nextIntergalacticLogistics }
+          : {}),
+        ...(nextRandomEvents !== state.randomEvents ? { randomEvents: nextRandomEvents } : {}),
+        ...(nextMegastructures !== state.megastructures ? { megastructures: nextMegastructures } : {}),
+        // Культура — только когда подсистема отработала (bigplan.md, пункт 22).
+        ...(nextCulture !== state.culture ? { culture: nextCulture } : {}),
+        // Флот — только когда корабль реально достроился (bigplan.md, пункт 25):
+        // новая ссылка каждый тик перерисовывала бы панель флота впустую.
+        ...(nextFleet !== state.fleet ? { fleet: nextFleet } : {}),
         // research возвращаем только когда политика выдала бесплатную технологию: иначе
         // каждый тик подменял бы объект и заставлял перерисовываться всё дерево технологий.
         ...(nextResearchTechnologies
@@ -8050,6 +8140,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           saveType: 'auto',
           data: save,
           saveId: currentSaveId,
+          // Версия, поверх которой мы пишем (bigplan.md, пункт 30.3).
+          baseRevision: getSaveRevisionFor(currentSaveId),
         }),
       });
 
@@ -8061,11 +8153,37 @@ export const useGameStore = create<GameState>((set, get) => ({
        */
       if (!response.ok) {
         let detail = `HTTP ${response.status}`;
+        let body: any = null;
         try {
-          const body = await response.json();
+          body = await response.json();
           if (body?.error) detail = String(body.error);
         } catch {
           /* non-JSON error body — the status code is all we have */
+        }
+
+        /*
+         * КОНФЛИКТ ВЕРСИЙ (bigplan.md, пункт 30.3). Сохранение изменено не нами: вторая
+         * вкладка или админская выдача. Записывать поверх нельзя — это и есть та самая
+         * тихая потеря прогресса, от которой версия и защищает.
+         *
+         * Перезагружаем состояние из БД. Да, несохранённое с последнего автосохранения
+         * теряется — но альтернатива хуже: мы бы затёрли ЧУЖУЮ запись, и потерял бы её
+         * автор, ничего об этом не узнав.
+         */
+        if (response.status === 409 && detail === 'SAVE_OUTDATED') {
+          console.warn('[save] версия сохранения устарела, перезагружаем состояние', body);
+          rememberSaveRevision(body?.saveId, body?.revision);
+          get().addNotification({
+            type: 'warning',
+            title: 'Состояние изменено',
+            message: 'Сохранение обновлено из другой вкладки. Загружаю актуальное состояние.',
+          });
+          try {
+            await get().loadGame();
+          } catch (e) {
+            console.error('[save] не удалось перезагрузить состояние после конфликта', e);
+          }
+          return { ok: false as const, error: detail };
         }
 
         console.error('[save] autosave rejected by server:', detail);
@@ -8079,6 +8197,14 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         get().addNotification({ type: 'warning', title: 'Ошибка сохранения', message });
         return { ok: false as const, error: detail };
+      }
+
+      try {
+        const body = await response.json();
+        rememberSaveRevision(body?.save?.id, body?.save?.revision);
+      } catch {
+        /* тело успешного ответа не разобралось — версия останется прежней, следующая
+           запись просто получит 409 и перезагрузится */
       }
 
       return { ok: true as const };
@@ -8134,6 +8260,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Обновляем текущее активное сохранение
       await saveCurrentSaveIdToServer(result.save.id);
+      rememberSaveRevision(result.save.id, result.save.revision);
       return { ok: true, save: result.save };
     } catch (e) {
       console.error('Manual save failed', e);
@@ -8181,6 +8308,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       console.log('✅ Данные получены, начинаем применение...');
       const save = result.save.data;
+      // С этого момента пишем поверх известной версии (bigplan.md, пункт 30.3).
+      rememberSaveRevision(result.save.id, result.save.revision);
       
       // Применяем загруженное состояние (используем ту же логику что в loadGame)
       console.log('🔧 Начинаем set() для применения состояния...');
@@ -8422,7 +8551,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           });
         }
 
-        let newCurrency = { ...state.currency };
+        const newCurrency = { ...state.currency };
         if (save.currency) {
           newCurrency.credits = D(save.currency.credits ?? '0');
           newCurrency.influence = D(save.currency.influence ?? '0');
@@ -8590,6 +8719,15 @@ export const useGameStore = create<GameState>((set, get) => ({
            * сбрасывалась бы на первый шаг при каждой загрузке, и ориентир стал бы шумом.
            */
           scenario: restored.scenario ?? { ...INITIAL_SCENARIO },
+          /*
+           * Настройки интерфейса (bigplan.md, пункт 30.2). Сейв старее этой правки
+           * секции не содержит — тогда берём умолчания, а реальные пины подтянет
+           * разовый перенос из аккаунта (accountPinsImported).
+           */
+          uiPrefs: restored.uiPrefs ?? {
+            ...INITIAL_UI_PREFS,
+            buildPanel: { ...INITIAL_UI_PREFS.buildPanel },
+          },
           stats: {
             ...INITIAL_PLAYER_STATS,
             ...(restored.stats ?? {}),
@@ -8707,6 +8845,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           saveType: 'manual',
           data: save,
           saveId: saveId, // Передаем ID для перезаписи
+          // Версия — только если перезаписываем ИМЕННО тот сейв, который загружали
+          // (bigplan.md, пункт 30.3). Для любого другого она неизвестна и не шлётся.
+          baseRevision: getSaveRevisionFor(saveId),
         }),
       });
 
@@ -8715,6 +8856,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         throw new Error(result.error);
       }
 
+      rememberSaveRevision(result.save?.id, result.save?.revision);
       return { ok: true, save: result.save };
     } catch (e) {
       console.error('Overwrite save failed', e);
@@ -8764,6 +8906,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       
       save = payload.save.data;
+      // С этого момента пишем поверх известной версии (bigplan.md, пункт 30.3).
+      rememberSaveRevision(payload.save.id, payload.save.revision);
       // Логируем загруженные maps данные для отладки
       console.log('📂 Loaded save info:', {
         saveId: payload.save.id,
@@ -9584,6 +9728,15 @@ export const useGameStore = create<GameState>((set, get) => ({
            * сбрасывалась бы на первый шаг при каждой загрузке, и ориентир стал бы шумом.
            */
           scenario: restored.scenario ?? { ...INITIAL_SCENARIO },
+          /*
+           * Настройки интерфейса (bigplan.md, пункт 30.2). Сейв старее этой правки
+           * секции не содержит — тогда берём умолчания, а реальные пины подтянет
+           * разовый перенос из аккаунта (accountPinsImported).
+           */
+          uiPrefs: restored.uiPrefs ?? {
+            ...INITIAL_UI_PREFS,
+            buildPanel: { ...INITIAL_UI_PREFS.buildPanel },
+          },
           stats: {
             ...INITIAL_PLAYER_STATS,
             ...(restored.stats ?? {}),
@@ -9972,23 +10125,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
-      // Create ship
-      const stats = calculateShipStats(shipType, 1, 0);
-      const newShip: import('../core/gameTypes').Ship = {
-        id: `ship_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        type: shipType,
-        name: generateShipName(),
-        level: 1,
-        maxHp: stats.maxHp,
-        hp: stats.maxHp,
-        dps: stats.dps,
-        armor: stats.armor,
-        speed: stats.speed,
-        status: 'idle',
-        experience: 0,
-        upgradeLevel: 0,
-      };
-      
+      /*
+       * Корабль встаёт В ОЧЕРЕДЬ, а не появляется мгновенно (bigplan.md, пункт 25).
+       * `buildTime` лежал в каталоге кораблей с самого начала и не читался никем —
+       * то есть время постройки было объявлено, но не существовало.
+       *
+       * Ресурсы списываются СЕЙЧАС, при постановке в очередь: иначе можно было бы
+       * поставить сто кораблей бесплатно и ждать. Возврат — в cancelShipJob.
+       *
+       * Квест на первый корабль закрывается по ФАКТУ готовности (см. тик), а не по клику:
+       * иначе он засчитывался бы за намерение.
+       */
+      const now = Date.now();
       return {
         resources: newResources,
         currency: {
@@ -9997,14 +10145,67 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         fleet: {
           ...state.fleet,
-          ships: [...state.fleet.ships, newShip],
+          buildQueue: [
+            ...state.fleet.buildQueue,
+            createJob({
+              id: `shipjob_${now}_${Math.random().toString(36).slice(2, 11)}`,
+              kind: 'ship',
+              target: shipType,
+              durationMs: def.buildTime,
+              now,
+            }),
+          ],
         },
-        // Как и с платформой: quest_first_ship объявлен как build/'ship', но корабль не
-        // ставится на сетку, поэтому обработчик постройки зданий его не видел.
-        quests: advanceQuests(
-          state.quests,
-          (quest) => quest.type === 'build' && quest.target === 'ship',
-        ),
+      };
+    });
+  },
+
+  /**
+   * Отмена постройки корабля с возвратом (bigplan.md, пункт 25).
+   *
+   * Без отмены ошибочный клик по дорогому кораблю замораживал бы ресурсы до конца
+   * стройки — ровно та же причина, по которой отмена есть у зданий.
+   *
+   * Стоимость берётся из каталога, а не из сохранённой копии: она детерминирована по типу
+   * корабля, и вторая копия тех же чисел означала бы второе место, где они могут разойтись.
+   * Возврат обрезается по вместимости склада — как любой другой доход.
+   */
+  cancelShipJob: (jobId: string) => {
+    set((state) => {
+      const job = state.fleet.buildQueue.find((j) => j.id === jobId);
+      if (!job) return state;
+
+      const def = SHIP_DEFINITIONS[job.target as import('../core/gameTypes').ShipType];
+      if (!def) {
+        // Тип корабля исчез из каталога: работу всё равно убираем, иначе она вечная.
+        return {
+          fleet: { ...state.fleet, buildQueue: state.fleet.buildQueue.filter((j) => j.id !== jobId) },
+        };
+      }
+
+      const newResources = { ...state.resources };
+      const buffers = { ...state.grid.buffers, base: { ...(state.grid.buffers.base ?? {}) } };
+      let newCredits = state.currency.credits;
+
+      for (const [resource, cost] of Object.entries(def.buildCost)) {
+        if (resource === 'credits') {
+          newCredits = newCredits.add(cost as never);
+          continue;
+        }
+        const resType = resource as ResourceType;
+        const entry = newResources[resType];
+        if (!entry) continue;
+        const current = D(buffers.base[resType] ?? '0');
+        const restored = current.add(cost as never).min(entry.max).max(D(0));
+        buffers.base[resType] = restored.toString();
+        newResources[resType] = { ...entry, amount: restored };
+      }
+
+      return {
+        resources: newResources,
+        currency: { ...state.currency, credits: newCredits },
+        grid: { ...state.grid, buffers },
+        fleet: { ...state.fleet, buildQueue: state.fleet.buildQueue.filter((j) => j.id !== jobId) },
       };
     });
   },
@@ -10314,8 +10515,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       const deadEnemies = updatedEnemies.filter(e => e.hp.lte(0));
       const aliveEnemies = updatedEnemies.filter(e => e.hp.gt(0));
       
-      let newCurrency = { ...state.currency };
-      let newResources = { ...state.resources };
+      const newCurrency = { ...state.currency };
+      const newResources = { ...state.resources };
       
       // Grant loot from dead enemies
       deadEnemies.forEach(enemy => {
@@ -10597,6 +10798,67 @@ export const useGameStore = create<GameState>((set, get) => ({
     );
   },
 
+  /**
+   * Пер-слотовые настройки интерфейса (bigplan.md, пункт 30.2).
+   *
+   * Нормализация пинов живёт здесь, а не в вызывающем хуке: сейв — внешние данные,
+   * и после ручной правки или старой версии в нём может оказаться что угодно.
+   * Правила те же, что были в usePinnedResources: только известные ресурсы, без
+   * дублей, энергия всегда, не больше лимита.
+   *
+   * Возвращаем ПРЕЖНЮЮ ссылку, если ничего не изменилось: настройки лежат в том же
+   * сторе, что и тик, и лишняя новая ссылка означала бы перерисовку всех подписчиков.
+   */
+  setUiPrefs: (patch) => {
+    set((state) => {
+      const current = state.uiPrefs;
+
+      let pinned = current.pinnedResources;
+      if (patch.pinnedResources) {
+        const next: ResourceType[] = [];
+        for (const id of patch.pinnedResources) {
+          if (typeof id !== 'string') continue;
+          if (!(id in RESOURCE_LABEL)) continue;
+          if (next.includes(id as ResourceType)) continue;
+          next.push(id as ResourceType);
+        }
+        // Энергия — единственный ресурс, нужный всегда: без неё не читается ни один дефицит.
+        if (!next.includes('energy')) next.unshift('energy');
+        pinned = next.slice(0, MAX_PINNED_RESOURCES);
+      }
+
+      const buildPanel = patch.buildPanel
+        ? { ...current.buildPanel, ...patch.buildPanel }
+        : current.buildPanel;
+
+      const imported =
+        patch.accountPinsImported === undefined
+          ? current.accountPinsImported
+          : patch.accountPinsImported === true;
+
+      const pinnedSame =
+        pinned === current.pinnedResources ||
+        (pinned.length === current.pinnedResources.length &&
+          pinned.every((id, i) => id === current.pinnedResources[i]));
+      const panelSame =
+        buildPanel === current.buildPanel ||
+        (buildPanel.onlyPositive === current.buildPanel.onlyPositive &&
+          buildPanel.onlyAffordable === current.buildPanel.onlyAffordable &&
+          buildPanel.onlyUnlocked === current.buildPanel.onlyUnlocked &&
+          buildPanel.sortBy === current.buildPanel.sortBy);
+
+      if (pinnedSame && panelSame && imported === current.accountPinsImported) return state;
+
+      return {
+        uiPrefs: {
+          pinnedResources: pinnedSame ? current.pinnedResources : pinned,
+          accountPinsImported: imported,
+          buildPanel: panelSame ? current.buildPanel : buildPanel,
+        },
+      };
+    });
+  },
+
   addNotification: (notification: Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>) => {
     set((state) => {
       const newNotification: import('../core/gameTypes').Notification = {
@@ -10722,7 +10984,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Deduct fuel
       let remainingFuelCost = fuelCost;
-      let newResources = { ...state.resources };
+      const newResources = { ...state.resources };
       if (liquidFuel.gte(remainingFuelCost)) {
         newResources.liquid_fuel = {
           ...newResources.liquid_fuel!,
@@ -11183,7 +11445,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         return state;
       }
       
-      let currentLevel = tileLevels[tileKey] || 1;
+      const currentLevel = tileLevels[tileKey] || 1;
       
       if (currentLevel >= 500) {
         console.warn('Building is already at max level (500)');
@@ -11210,7 +11472,7 @@ export const useGameStore = create<GameState>((set, get) => ({
        * правды при загрузке (syncResourcesFromBase перетирает amount), поэтому старое
        * списание «только в resources» возвращало игроку всю стоимость при перезагрузке.
        */
-      let availableResources = { ...state.resources };
+      const availableResources = { ...state.resources };
       let buffers = state.grid.buffers;
       let availableCredits = state.currency.credits;
       let upgradesPerformed = 0;
@@ -11344,6 +11606,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const now = Date.now();
 
     /*
+     * Расписание медленных подсистем — с чистого листа (bigplan.md, пункт 22). Иначе новая
+     * игра унаследовала бы накопленное время предыдущей и первый же тик прогнал бы всё
+     * разом по чужому dt.
+     */
+    resetTickSchedule();
+
+    /*
      * Финансы живут в отдельном сторе, и resetGame их не трогал — новая игра начиналась
      * с кредитами, долгом и портфелем предыдущей партии.
      */
@@ -11351,7 +11620,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const capsMult = computeCapsMultiplier(INITIAL_RESEARCH.levels, INITIAL_META.qubits);
     let resources = recomputeCaps({ ...INITIAL_RESOURCES }, BUILDINGS_WITH_PROXIMITY, capsMult, {}, {});
-    let buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
+    const buffers = clampBaseBufferToCaps(DEFAULT_GRID.buffers, resources);
     resources = syncResourcesFromBase(resources, buffers);
 
     // Создаём полностью новый grid с чистыми tiles
@@ -11552,7 +11821,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const newUnlocked = { ...state.achievements.unlocked };
       const newRecentlyUnlocked = [...state.achievements.recentlyUnlocked];
-      let newCurrency = { ...state.currency };
+      const newCurrency = { ...state.currency };
       const notifications: import('../core/gameTypes').Notification[] = [
         ...state.galaxies.notifications,
       ];
@@ -11638,14 +11907,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Оплата стоимости
-      let newCurrency = {
+      const newCurrency = {
         ...state.currency,
         credits: state.currency.credits.sub(megastructure.buildCost.credits),
         researchPoints: state.currency.researchPoints.sub(megastructure.buildCost.researchPoints),
         influence: state.currency.influence.sub(megastructure.buildCost.influence),
       };
 
-      let newResources = { ...state.resources };
+      const newResources = { ...state.resources };
       let buffers = state.grid.buffers;
 
       for (const [resType, amount] of Object.entries(megastructure.buildCost.resources)) {
@@ -11657,12 +11926,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       // Добавить в очередь строительства
+      // Абсолютное время вместо накопителя прогресса (bigplan.md, пункт 25):
+      // buildTime в каталоге задан в СЕКУНДАХ.
       const newQueue = [
         ...state.megastructures.constructionQueue,
         {
           megastructureId,
           startedAt: Date.now(),
-          progress: 0,
+          duration: Math.max(0, megastructure.buildTime * 1000),
         },
       ];
 
@@ -11949,7 +12220,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       const startingInfluence = runStart.influence;
 
       // Разблокируем технологии Эры 1-3 если куплено улучшение
-      let unlockedTechs = { ...INITIAL_RESEARCH.technologies };
+      const unlockedTechs = { ...INITIAL_RESEARCH.technologies };
       if (newPrestige.upgrades['quantum_tech_unlock']) {
         // Автоматически разблокировать технологии Эры 1-3
         Object.values(TECHNOLOGIES).forEach(tech => {
@@ -13466,18 +13737,46 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
+  /**
+   * Засчитать прохождение текущей карты.
+   *
+   * ЧТО ИЗМЕНИЛОСЬ. Раньше эта функция не вызывалась НИОТКУДА: `mapProgress` не рос,
+   * `unlockedMaps` навсегда оставался стартовой парой карт, а понятия «пройти карту» в
+   * игре не существовало. Теперь критерий определён явно (mapCompletionGoal — развёрнутая
+   * база, число зданий по сложности) и проверяется в тике.
+   *
+   * Прохождение НЕ заканчивает партию: `activeMapData` остаётся на месте, игрок продолжает
+   * строить здесь же. Раньше здесь стояло `activeMapData: null`, что для бесконечной игры
+   * означало бы «карта исчезла из-под ног» ровно в момент успеха.
+   *
+   * Порядок карт берётся из каталога (`nextMapAfter`), а не из захардкоженного списка id:
+   * новая карта в каталоге раньше в этот список не попадала, и цепочка молча обрывалась.
+   */
   completeMap: () => {
     set((state) => {
-      const { currentMapId, mapProgress } = state.maps;
+      const { currentMapId, mapProgress, activeMapData } = state.maps;
       if (!currentMapId) return state;
+      // Повторный вызов за ту же партию ничего не делает: критерий проверяется каждый
+      // прогон тика, и без этого счётчик прохождений рос бы бесконечно.
+      if (activeMapData?.completedAt) return state;
 
-      // Обновляем прогресс
-      const progress = mapProgress[currentMapId] || { completions: 0, bestTime: null, discovered: true };
-      
-      // Следующая карта для разблокировки
-      const mapOrder = ['map_training_ground', 'map_barren_moon', 'map_crystal_caves', 'map_volcanic_world', 'map_ice_giant', 'map_toxic_swamp', 'map_asteroid_belt', 'map_ancient_ruins'];
-      const currentIndex = mapOrder.indexOf(currentMapId);
-      const nextMapId = mapOrder[currentIndex + 1];
+      const progress = mapProgress[currentMapId] ?? {
+        completions: 0,
+        bestTime: null,
+        discovered: true,
+      };
+
+      const now = Date.now();
+      const elapsed = activeMapData?.startedAt ? now - activeMapData.startedAt : null;
+      const bestTime =
+        elapsed !== null && (progress.bestTime === null || elapsed < progress.bestTime)
+          ? elapsed
+          : progress.bestTime;
+
+      const nextMapId = nextMapAfter(currentMapId);
+      const unlocksNext =
+        nextMapId !== null &&
+        !state.maps.unlockedMaps.includes(nextMapId as import('../core/gameTypes.maps').MapId);
 
       return {
         maps: {
@@ -13487,14 +13786,29 @@ export const useGameStore = create<GameState>((set, get) => ({
             [currentMapId]: {
               ...progress,
               completions: progress.completions + 1,
+              bestTime,
             },
           },
-          unlockedMaps: nextMapId && !state.maps.unlockedMaps.includes(nextMapId as any)
+          unlockedMaps: unlocksNext
             ? [...state.maps.unlockedMaps, nextMapId as import('../core/gameTypes.maps').MapId]
             : state.maps.unlockedMaps,
-          activeMapData: null,
+          activeMapData: activeMapData ? { ...activeMapData, completedAt: now } : null,
         },
       };
+    });
+
+    // Уведомление — ПОСЛЕ set: сайд-эффект внутри апдейтера уже однажды стоил проекту
+    // потерянных начислений (пункт 36).
+    const { currentMapId } = get().maps;
+    const mapDef = currentMapId ? getMapDefinition(currentMapId) : null;
+    const nextId = currentMapId ? nextMapAfter(currentMapId) : null;
+    const nextDef = nextId ? getMapDefinition(nextId) : null;
+    get().addNotification({
+      type: 'success',
+      title: '🏁 Карта пройдена',
+      message: nextDef
+        ? `${mapDef?.name ?? 'Карта'} освоена. Открыта карта «${nextDef.name}».`
+        : `${mapDef?.name ?? 'Карта'} освоена. Это последняя карта в списке.`,
     });
   },
 
@@ -14039,21 +14353,24 @@ function canGenerateEvent(eventType: import('../core/gameTypes').RandomEventType
     case 'pirate_raid':
       // Пиратский рейд только если есть платформы
       return state.galaxies.platforms.length > 0;
-    case 'synergy_discovery':
+    case 'synergy_discovery': {
       // Синергетическое открытие только если есть неисследованные технологии
       const unlockedCount = Object.values(state.research.technologies).filter(Boolean).length;
       const totalTechs = Object.keys(TECHNOLOGIES).length;
       return unlockedCount < totalTechs;
-    case 'power_outage':
+    }
+    case 'power_outage': {
       // Перегрузка сети только если есть энергия
       const currentEnergy = getBuf(state.grid.buffers, 'base', 'energy');
       return currentEnergy.gt(0);
-    case 'solar_flare':
+    }
+    case 'solar_flare': {
       // Солнечная вспышка только если есть электроника
       const hasSemiconductors = getBuf(state.grid.buffers, 'base', 'semiconductors').gt(0);
       const hasComputers = getBuf(state.grid.buffers, 'base', 'computer').gt(0);
       const hasDisplays = getBuf(state.grid.buffers, 'base', 'display').gt(0);
       return hasSemiconductors || hasComputers || hasDisplays;
+    }
     default:
       return true;
   }

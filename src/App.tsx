@@ -239,10 +239,9 @@ function App() {
    */
   useAudio();
 
-  // Initialize hotkeys (только для desktop)
-  if (device.isDesktop) {
-    useGameHotkeys();
-  }
+  // Горячие клавиши — только на desktop. Хук вызывается ВСЕГДА, а «только для desktop»
+  // передаётся флагом: условный вызов хука менял их порядок при смене размера окна.
+  useGameHotkeys(device.isDesktop);
 
   // Проверяем авторизацию при загрузке
   useEffect(() => {

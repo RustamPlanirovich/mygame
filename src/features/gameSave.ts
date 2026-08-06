@@ -143,6 +143,16 @@ import {
   TRADEABLE,
 } from './gameStore';
 import { INITIAL_NANO_SWARM } from '../core/constants/nanoSwarm';
+import { MEGASTRUCTURES } from '../core/constants/megastructures';
+import type { JobKind } from '../core/systems/jobs';
+
+/**
+ * Время постройки мегаструктур из каталога, в секундах. Нужно для миграции старых сейвов,
+ * где очередь хранила `progress`, а не `duration` (bigplan.md, пункт 25).
+ */
+const MEGASTRUCTURE_BUILD_SECONDS: Partial<Record<MegastructureId, number>> = Object.fromEntries(
+  Object.entries(MEGASTRUCTURES).map(([id, m]) => [id, m.buildTime]),
+) as Partial<Record<MegastructureId, number>>;
 
 // ============================================================================
 // Version
@@ -1625,16 +1635,19 @@ const decShipUnit = (raw: AnyRec): Ship => {
 interface SavedFleet {
   ships: SavedShipUnit[];
   autoDefend: boolean;
-  productionQueue: Array<{ shipType: ShipType; progress: number; timeRemaining: number }>;
+  /** Очередь постройки кораблей — обычные задачи движка (bigplan.md, пункт 25). */
+  buildQueue: Array<{ id: string; kind: JobKind; target: ShipType; startedAt: number; duration: number }>;
 }
 
 const encFleet = (src: FleetState): SavedFleet => ({
   ships: encArray(src.ships, encShipUnit),
   autoDefend: bool(src.autoDefend, INITIAL_FLEET.autoDefend),
-  productionQueue: encArray(src.productionQueue, (q) => ({
-    shipType: oneOf(q.shipType, SHIP_TYPES, 'fighter'),
-    progress: frac01(q.progress, 0),
-    timeRemaining: Math.max(0, num(q.timeRemaining, 0)),
+  buildQueue: encArray(src.buildQueue, (q) => ({
+    id: str(q.id, ''),
+    kind: 'ship' as JobKind,
+    target: oneOf(q.target, SHIP_TYPES, 'fighter'),
+    startedAt: num(q.startedAt, 0),
+    duration: Math.max(0, num(q.duration, 0)),
   })),
 });
 
@@ -1643,11 +1656,19 @@ const decFleet = (raw: unknown): FleetState => {
   return {
     ships: decArray(r.ships, decShipUnit),
     autoDefend: bool(r.autoDefend, INITIAL_FLEET.autoDefend),
-    productionQueue: decArray(r.productionQueue, (q) => ({
-      shipType: oneOf(q.shipType, SHIP_TYPES, 'fighter'),
-      progress: frac01(q.progress, 0),
-      timeRemaining: Math.max(0, num(q.timeRemaining, 0)),
-    })),
+    /*
+     * Старый сейв содержит `productionQueue` с полями progress/timeRemaining — очередь,
+     * которую НИКТО никогда не заполнял (buildShip создавал корабль мгновенно). Читать
+     * её незачем: там гарантированно пусто. Запись без id выбрасывается — по id идёт
+     * отмена, и работа без него была бы неотменяемой навсегда.
+     */
+    buildQueue: decArray(r.buildQueue, (q) => ({
+      id: str(q.id, ''),
+      kind: 'ship' as JobKind,
+      target: oneOf(q.target, SHIP_TYPES, 'fighter'),
+      startedAt: num(q.startedAt, 0),
+      duration: Math.max(0, num(q.duration, 0)),
+    })).filter((q) => q.id.length > 0 && q.duration > 0),
   };
 };
 
@@ -1971,7 +1992,7 @@ const encMegastructures = (src: MegastructuresState) => {
     constructionQueue: encArray(src.constructionQueue, (q) => ({
       megastructureId: String(q.megastructureId),
       startedAt: num(q.startedAt, 0),
-      progress: num(q.progress, 0),
+      duration: num(q.duration, 0),
     })),
   };
 };
@@ -1989,11 +2010,31 @@ const decMegastructures = (raw: unknown): MegastructuresState => {
   }
   return {
     built,
-    constructionQueue: decArray(r.constructionQueue, (q) => ({
-      megastructureId: str(q.megastructureId, 'dyson_sphere') as MegastructureId,
-      startedAt: num(q.startedAt, 0),
-      progress: num(q.progress, 0),
-    })),
+    /*
+     * Миграция очереди мегаструктур (bigplan.md, пункт 25). В старом сейве лежат
+     * `progress` (0-100) и `startedAt`, а duration нет. Восстанавливаем недостающее из
+     * каталога: оставшаяся доля × полное время. `startedAt` при этом сдвигаем в
+     * ПРОШЛОЕ ровно на уже пройденную часть — иначе стройка, начатая час назад и
+     * доведённая до 90%, при загрузке отсчитала бы полное время заново.
+     *
+     * Запись без megastructureId из каталога выбрасывается: держать в очереди то, что
+     * никогда не достроится, хуже, чем потерять запись.
+     */
+    constructionQueue: decArray(r.constructionQueue, (q) => {
+      const id = str(q.megastructureId, 'dyson_sphere') as MegastructureId;
+      const startedAt = num(q.startedAt, 0);
+      const stored = num(q.duration, 0);
+      if (stored > 0) return { megastructureId: id, startedAt, duration: stored };
+
+      const catalogSeconds = MEGASTRUCTURE_BUILD_SECONDS[id] ?? 0;
+      const full = catalogSeconds * 1000;
+      const doneFraction = Math.min(1, Math.max(0, num(q.progress, 0) / 100));
+      return {
+        megastructureId: id,
+        startedAt: Date.now() - full * doneFraction,
+        duration: full,
+      };
+    }).filter((q) => MEGASTRUCTURE_BUILD_SECONDS[q.megastructureId] !== undefined),
   };
 };
 
@@ -2470,6 +2511,59 @@ const decScenario = (raw: unknown): import('../core/gameTypes.tutorial').Scenari
   };
 };
 
+// ----------------------------------------------------------------- uiPrefs --
+
+/*
+ * Настройки интерфейса, привязанные к слоту (bigplan.md, пункт 30.2).
+ *
+ * Раньше закреплённые ресурсы жили в колонке users.pinned_resources — одной на аккаунт,
+ * а фильтры панели строительства в localStorage — одном на браузер. Оба переезжали между
+ * картами вместе с игроком.
+ *
+ * Нормализация СПИСКА пинов здесь намеренно минимальна (только «это строки»): полное
+ * правило — известный ресурс, без дублей, энергия всегда, лимит — живёт в setUiPrefs,
+ * и дублировать его тут значило бы завести второе место, где оно может разойтись.
+ */
+const encUiPrefs = (src: import('../core/gameTypes').UiPrefsState | undefined) => ({
+  pinnedResources: Array.isArray(src?.pinnedResources)
+    ? src!.pinnedResources.filter((id): id is ResourceType => typeof id === 'string')
+    : [],
+  accountPinsImported: bool(src?.accountPinsImported, false),
+  buildPanel: {
+    onlyPositive: bool(src?.buildPanel?.onlyPositive, false),
+    onlyAffordable: bool(src?.buildPanel?.onlyAffordable, false),
+    onlyUnlocked: bool(src?.buildPanel?.onlyUnlocked, true),
+    sortBy: str(src?.buildPanel?.sortBy, 'name'),
+  },
+});
+
+const decUiPrefs = (raw: unknown): import('../core/gameTypes').UiPrefsState | undefined => {
+  /*
+   * undefined, а не значение по умолчанию: сейв старее этой правки НЕ должен молча
+   * затирать пины, которые у игрока ещё лежат в аккаунте. Отличить «настроек нет» от
+   * «настройки пустые» может только вызывающий — он и решает, переносить ли старые.
+   */
+  if (raw == null || typeof raw !== 'object') return undefined;
+  const r = rec(raw);
+  const panel = rec(r.buildPanel);
+  const sortBy = str(panel.sortBy, 'name');
+  return {
+    pinnedResources: Array.isArray(r.pinnedResources)
+      ? r.pinnedResources.filter((id): id is ResourceType => typeof id === 'string')
+      : [],
+    accountPinsImported: bool(r.accountPinsImported, false),
+    buildPanel: {
+      onlyPositive: bool(panel.onlyPositive, false),
+      onlyAffordable: bool(panel.onlyAffordable, false),
+      onlyUnlocked: bool(panel.onlyUnlocked, true),
+      sortBy:
+        sortBy === 'cost' || sortBy === 'placed' || sortBy === 'name'
+          ? (sortBy as import('../core/gameTypes').BuildPanelSort)
+          : 'name',
+    },
+  };
+};
+
 // ---------------------------------------------------------------- retention --
 
 const encRetention = (src: RetentionState) => ({
@@ -2824,6 +2918,8 @@ export interface GameSaveV1 {
   grid: SavedGrid;
   /** Прогресс сценария (bigplan.md, пункты 20, 29). Пер-слотовый. */
   scenario: ReturnType<typeof encScenario>;
+  /** Настройки интерфейса (bigplan.md, пункт 30.2). Пер-слотовые. */
+  uiPrefs: ReturnType<typeof encUiPrefs>;
   research: SavedResearch;
   demons: SavedDemons;
   meta: SavedMeta;
@@ -2875,6 +2971,7 @@ export function serializeGame(state: GameState): GameSaveV1 {
     combat: encCombat(state.combat),
     grid: encGrid(state.grid),
     scenario: encScenario(state.scenario),
+    uiPrefs: encUiPrefs(state.uiPrefs),
     research: encResearch(state.research),
     demons: encDemons(state.demons),
     meta: encMeta(state.meta),
@@ -3027,6 +3124,7 @@ export function deserializeGame(raw: unknown): Partial<GameState> {
     combat: decCombat(save.combat),
     grid: decGrid(save.grid, DEFAULT_GRID as unknown as GridState),
     scenario: decScenario(save.scenario),
+    uiPrefs: decUiPrefs(save.uiPrefs),
     research: decResearch(save.research),
     demons: decDemons(save.demons),
     meta: decMeta(save.meta),

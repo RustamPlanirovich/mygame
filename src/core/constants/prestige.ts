@@ -433,7 +433,7 @@ export function getTotalPrestigeBonuses(state: PrestigeState): {
   startingCredits: Decimal;
   startingInfluence: Decimal;
 } {
-  let totalBonuses = {
+  const totalBonuses = {
     productionMultiplier: 1,
     researchMultiplier: 1,
     energyEfficiency: 0,

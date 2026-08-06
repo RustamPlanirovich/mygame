@@ -65,7 +65,7 @@ export const AuthForm = () => {
       // Перезагружаем страницу для чистой инициализации всех сторов
       // Это гарантирует, что Zustand сторы загрузятся из чистого состояния
       window.location.reload();
-    } catch (err) {
+    } catch {
       setError('Ошибка подключения к серверу');
       setLoading(false);
     }

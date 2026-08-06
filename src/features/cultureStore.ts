@@ -87,8 +87,8 @@ export const useCultureStore = create<CultureStore>((set, get) => ({
       const scienceProduced = state.sciencePerSecond.mul(dt);
       
       // Update totals
-      let newCulture = state.culture.add(cultureProduced);
-      let newScience = state.science.add(scienceProduced);
+      const newCulture = state.culture.add(cultureProduced);
+      const newScience = state.science.add(scienceProduced);
       
       // Check for culture level up
       let newLevel = state.currentLevel;

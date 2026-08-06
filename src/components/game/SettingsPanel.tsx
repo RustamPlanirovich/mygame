@@ -192,7 +192,7 @@ export const SettingsPanel: React.FC = () => {
           localStorage.setItem('gameState', data);
           loadGame();
           showSuccess('Сохранение загружено успешно!', 'Импорт');
-        } catch (err) {
+        } catch {
           showAlert('Ошибка загрузки сохранения', 'Ошибка');
         }
       };

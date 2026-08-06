@@ -549,7 +549,16 @@ app.get('/api/preferences/pinned-resources', authMiddleware, async (req, res) =>
   }
 });
 
-// Обновить pinned resources
+/*
+ * Обновить pinned resources — УСТАРЕВШИЙ маршрут (bigplan.md, пункт 30.2).
+ *
+ * Закреплённые ресурсы теперь часть сейва СЛОТА: колонка users.pinned_resources была одна
+ * на аккаунт, из-за чего пины переезжали между картами. Клиент сюда больше не пишет, GET
+ * остался для разового переноса старого значения в слот.
+ *
+ * Маршрут не удалён: открытая вкладка со старой сборкой продолжит его дёргать, и запись
+ * в колонку аккаунта для неё по-прежнему работает — ломать чужую сессию незачем.
+ */
 app.put('/api/preferences/pinned-resources', authMiddleware, async (req, res) => {
   try {
     const { pinnedResources } = req.body;
@@ -948,7 +957,7 @@ app.get('/api/saves', authMiddleware, async (req, res) => {
     let result;
     if (slotId) {
       result = await pool.query(
-        `SELECT id, name, save_type, slot_id, created_at, updated_at 
+        `SELECT id, name, save_type, slot_id, revision, created_at, updated_at 
          FROM game_save 
          WHERE slot_id = $1 
          ORDER BY updated_at DESC`,
@@ -957,7 +966,7 @@ app.get('/api/saves', authMiddleware, async (req, res) => {
     } else {
       // Для обратной совместимости - сохранения без слота
       result = await pool.query(
-        `SELECT id, name, save_type, slot_id, created_at, updated_at 
+        `SELECT id, name, save_type, slot_id, revision, created_at, updated_at 
          FROM game_save 
          WHERE user_id = $1 AND slot_id IS NULL
          ORDER BY updated_at DESC`,
@@ -975,7 +984,7 @@ app.get('/api/saves', authMiddleware, async (req, res) => {
 app.get('/api/saves/:id', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, save_type, slot_id, data, created_at, updated_at FROM game_save WHERE id = $1 AND user_id = $2',
+      'SELECT id, name, save_type, slot_id, data, revision, created_at, updated_at FROM game_save WHERE id = $1 AND user_id = $2',
       [req.params.id, req.userId]
     );
     
@@ -993,8 +1002,8 @@ app.get('/api/saves/:id', authMiddleware, async (req, res) => {
 // Создать или обновить сохранение
 app.put('/api/saves', authMiddleware, rateLimit(LIMITS.saves), async (req, res) => {
   try {
-    const { name, saveType, data, saveId } = req.body;
-    
+    const { name, saveType, data, saveId, baseRevision } = req.body;
+
     if (!data || typeof data !== 'object') {
       res.status(400).json({ ok: false, error: 'INVALID_SAVE_DATA' });
       return;
@@ -1042,14 +1051,56 @@ app.put('/api/saves', authMiddleware, rateLimit(LIMITS.saves), async (req, res) 
      * новое сохранение для текущего слота. Возвращать 404 здесь нельзя — автосохранение молча
      * перестало бы работать.
      */
+    /*
+     * ВЕРСИЯ СОХРАНЕНИЯ (bigplan.md, пункт 30.3).
+     *
+     * baseRevision — версия, поверх которой клиент считает, что пишет. Если в БД уже
+     * другая (вторая вкладка успела записать, админ применил выдачу), запись
+     * ОТКЛОНЯЕТСЯ с 409, и клиент перезагружает состояние вместо того, чтобы затереть
+     * чужое. Без этого «последний, кто успел» молча съедал чужой прогресс, а игрок
+     * видел откат без единой ошибки.
+     *
+     * baseRevision не обязателен: старый клиент (открытая вкладка со сборкой без этого
+     * поля) продолжает писать по-старому. Отклонять его запись было бы хуже, чем
+     * сохранить: он потеряет прогресс гарантированно, а конфликт — только если кто-то
+     * писал параллельно.
+     */
+    const expectedRevision = Number.isInteger(baseRevision) && baseRevision > 0 ? baseRevision : null;
+
     if (saveId) {
       result = await pool.query(
-        `UPDATE game_save 
-         SET data = $1::jsonb, updated_at = NOW()
+        `UPDATE game_save
+         SET data = $1::jsonb, updated_at = NOW(), revision = revision + 1
          WHERE id = $2 AND user_id = $3 AND slot_id IS NOT DISTINCT FROM $4
-         RETURNING id, name, save_type, slot_id, created_at, updated_at`,
-        [JSON.stringify(data), saveId, req.userId, slotId]
+           AND ($5::int IS NULL OR revision = $5::int)
+         RETURNING id, name, save_type, slot_id, revision, created_at, updated_at`,
+        [JSON.stringify(data), saveId, req.userId, slotId, expectedRevision]
       );
+
+      /*
+       * Ноль строк — это ДВА разных случая, и путать их нельзя:
+       *   - сейв не тот (чужой слот, удалён) — штатная ситуация, ниже создаётся новый;
+       *   - версия разошлась — конфликт, и создавать новый сейв тут было бы худшим
+       *     из возможных исходов: слот раздвоился бы на два расходящихся состояния.
+       */
+      if (result.rowCount === 0 && expectedRevision !== null) {
+        const current = await pool.query(
+          `SELECT revision FROM game_save
+            WHERE id = $1 AND user_id = $2 AND slot_id IS NOT DISTINCT FROM $3`,
+          [saveId, req.userId, slotId]
+        );
+        if (current.rowCount > 0 && current.rows[0].revision !== expectedRevision) {
+          res.status(409).json({
+            ok: false,
+            error: 'SAVE_OUTDATED',
+            message: 'Сохранение изменено из другой вкладки или администратором.',
+            saveId,
+            revision: current.rows[0].revision,
+            baseRevision: expectedRevision,
+          });
+          return;
+        }
+      }
     }
 
     if (!saveId || result.rowCount === 0) {
@@ -1062,7 +1113,7 @@ app.put('/api/saves', authMiddleware, rateLimit(LIMITS.saves), async (req, res) 
       result = await pool.query(
         `INSERT INTO game_save (user_id, slot_id, name, save_type, data)
          VALUES ($1, $2, $3, $4, $5::jsonb)
-         RETURNING id, name, save_type, slot_id, created_at, updated_at`,
+         RETURNING id, name, save_type, slot_id, revision, created_at, updated_at`,
         [req.userId, slotId, saveName, type, JSON.stringify(data)]
       );
     }
@@ -1140,7 +1191,7 @@ app.get('/api/saves/latest/manual', authMiddleware, async (req, res) => {
     
     // Загружаем последнее сохранение для текущего слота
     const result = await pool.query(
-      `SELECT id, name, save_type, slot_id, data, created_at, updated_at 
+      `SELECT id, name, save_type, slot_id, data, revision, created_at, updated_at 
        FROM game_save 
        WHERE slot_id = $1
        ORDER BY updated_at DESC 
@@ -1288,7 +1339,7 @@ app.use((err, req, res, _next) => {
 startMarketMaintenance(pool);
 
 const server = app.listen(PORT, HOST, () => {
-  // eslint-disable-next-line no-console
+   
   console.log(`[server] listening on http://${HOST}:${PORT} (${isProduction ? 'production' : 'development'})`);
 });
 

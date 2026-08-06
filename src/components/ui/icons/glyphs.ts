@@ -1,4 +1,4 @@
-/* eslint-disable */
+ 
 /**
  * Material Icons (filled) path data — the same icon set Industry Idle draws its
  * UI with, taken from Google's Material Design Icons (Apache License 2.0).

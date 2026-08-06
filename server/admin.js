@@ -1268,10 +1268,17 @@ export function createAdminRoutes(app, pool, authMiddleware) {
         return;
       }
 
-      await client.query(
-        'UPDATE game_save SET data = $1::jsonb, updated_at = NOW() WHERE id = $2',
+      /*
+       * revision += 1 (bigplan.md, пункт 30.3): серверный патч — такая же запись, как
+       * автосохранение, и клиент, который писал поверх старой версии, должен получить
+       * 409, а не затереть выдачу. Подключённому игроку новая версия уходит вместе с
+       * дельтой ниже — он применяет её у себя и продолжает писать без конфликта.
+       */
+      const patched = await client.query(
+        'UPDATE game_save SET data = $1::jsonb, updated_at = NOW(), revision = revision + 1 WHERE id = $2 RETURNING revision',
         [JSON.stringify(patch.data), saveRow.id]
       );
+      const newRevision = patched.rows[0]?.revision ?? null;
       await client.query('COMMIT');
 
       /*
@@ -1306,6 +1313,7 @@ export function createAdminRoutes(app, pool, authMiddleware) {
           grantId: `${saveRow.id}:${Date.now()}`,
           saveId: saveRow.id,
           slotId: saveRow.slot_id,
+          revision: newRevision,
           deltas: appliedDeltas,
           clamped: patch.clamped,
         });

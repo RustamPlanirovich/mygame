@@ -1,4 +1,5 @@
 import type Decimal from 'break_eternity.js';
+import type { Job } from './systems/jobs';
 import type { CultureState } from './gameTypes.culture';
 
 export type ResourceType = 
@@ -760,12 +761,16 @@ export interface FleetState {
   ships: Ship[];
   // Auto-assign ships to platforms under attack?
   autoDefend: boolean;
-  // Ship production queue
-  productionQueue: Array<{
-    shipType: ShipType;
-    progress: number; // 0-1
-    timeRemaining: number; // milliseconds
-  }>;
+  /**
+   * Очередь постройки кораблей (bigplan.md, пункт 25).
+   *
+   * До этого здесь лежала `productionQueue` с полями `progress` и `timeRemaining` —
+   * ЧЕТВЁРТОЕ представление таймера в проекте, которое при этом никто не заполнял и не
+   * читал: `buildShip` создавал корабль мгновенно, а `buildTime` в каталоге кораблей был
+   * мёртвым числом. Теперь это обычные задачи общего движка core/systems/jobs.ts,
+   * `target` — тип корабля.
+   */
+  buildQueue: Job[];
 }
 
 export interface PollutionState {
@@ -1118,6 +1123,34 @@ export interface ProductionChainAnalysis {
   efficiency: number;               // Общая эффективность производства
 }
 
+/** Сортировка списка зданий в панели строительства. */
+export type BuildPanelSort = 'name' | 'cost' | 'placed';
+
+/**
+ * Настройки интерфейса, которые обязаны быть пер-слотовыми (bigplan.md, пункт 30.2).
+ * Живут в сейве, а не в аккаунте и не в localStorage: они описывают конкретную партию.
+ */
+export interface UiPrefsState {
+  /** Ресурсы, закреплённые в верхней строке. */
+  pinnedResources: ResourceType[];
+  /**
+   * Перенесены ли пины из старого места — колонки `users.pinned_resources`.
+   *
+   * Явный флаг, а не догадка «список выглядит как умолчание»: у игрока могли быть
+   * закреплены ровно те шесть ресурсов, что стоят по умолчанию, и эвристика затирала бы
+   * его осознанный выбор при каждой загрузке. Флаг живёт в сейве, поэтому перенос
+   * происходит один раз на слот и переживает перезагрузку.
+   */
+  accountPinsImported: boolean;
+  /** Фильтры и сортировка панели строительства. */
+  buildPanel: {
+    onlyPositive: boolean;
+    onlyAffordable: boolean;
+    onlyUnlocked: boolean;
+    sortBy: BuildPanelSort;
+  };
+}
+
 export interface GameState {
   resources: Record<ResourceType, ResourceState>;
   buildings: Building[];
@@ -1157,6 +1190,16 @@ export interface GameState {
    * вместо одноразового обучения из слайдов.
    */
   scenario: import('./gameTypes.tutorial').ScenarioState;
+  /**
+   * Настройки интерфейса, привязанные К СЛОТУ (bigplan.md, пункт 30.2).
+   *
+   * Раньше закреплённые ресурсы лежали в колонке `users.pinned_resources` — одной на
+   * АККАУНТ, а фильтры панели строительства в localStorage — одном на браузер. И то и
+   * другое переезжало между картами вместе с игроком: закрепив на одной карте руду и
+   * лёд, он видел их и на карте, где этих ресурсов нет. Теперь это часть сейва слота,
+   * как и всё остальное состояние партии.
+   */
+  uiPrefs: UiPrefsState;
   maps: import('./gameTypes.maps').ActiveMapState; // New: Map system (Phase 4)
   culture: CultureState; // New: Culture and Science system (Phase 7)
   lastTick: number;
@@ -1248,7 +1291,10 @@ export interface GameState {
   buyFuel: (amount: number) => void;
   setActivePlatform: (platformId: string | null) => void;
   // Fleet system actions
+  /** Поставить корабль в очередь постройки (bigplan.md, пункт 25). Стоимость списывается сразу. */
   buildShip: (shipType: ShipType) => void;
+  /** Отменить постройку корабля с возвратом стоимости. */
+  cancelShipJob: (jobId: string) => void;
   upgradeShip: (shipId: string) => void;
   assignShip: (shipId: string, targetId: string) => void;
   repairShip: (shipId: string) => void;
@@ -1300,6 +1346,15 @@ export interface GameState {
   dismissScenario: () => void;
   /** Вернуть сценарий тем, кто его закрыл. */
   restoreScenario: () => void;
+  /**
+   * Изменить пер-слотовые настройки интерфейса (bigplan.md, пункт 30.2).
+   * Частичный патч: вызывающий меняет только своё поле и не может затереть чужое.
+   */
+  setUiPrefs: (patch: {
+    pinnedResources?: ResourceType[];
+    buildPanel?: Partial<UiPrefsState['buildPanel']>;
+    accountPinsImported?: boolean;
+  }) => void;
   // Megastructures system (Фаза 9)
   startMegastructure: (megastructureId: MegastructureId) => void;
   toggleMegastructure: (megastructureId: MegastructureId, active: boolean) => void;
@@ -1516,11 +1571,20 @@ export interface MegastructuresState {
     buildProgress: number; // 0-100
     active: boolean;
   }>>;
-  // Construction queue
+  /**
+   * Очередь строительства (bigplan.md, пункт 25).
+   *
+   * `progress` БОЛЬШЕ НЕ ХРАНИТСЯ: он вычисляется из startedAt + duration общим движком
+   * (core/systems/jobs.ts). Накопитель `progress += 100/buildTime * dt` замораживал
+   * стройку в свёрнутой вкладке (requestAnimationFrame там глушится) и терял время под
+   * нагрузкой (dt обрезается по maxFrameTime) — мегаструктура строилась дольше, чем
+   * обещал интерфейс, и это невозможно было заметить иначе как секундомером.
+   */
   constructionQueue: Array<{
     megastructureId: MegastructureId;
     startedAt: number;
-    progress: number; // 0-100
+    /** Длительность в миллисекундах. */
+    duration: number;
   }>;
 }
 

@@ -129,7 +129,7 @@ export function updateDailyLogin(state: DailyLoginState): DailyLoginState {
   if (isNewDay(state.lastLoginDate)) {
     const streakContinues = checkStreakContinuity(state.lastLoginDate);
     
-    let newStreak = streakContinues ? state.currentStreak + 1 : 1;
+    const newStreak = streakContinues ? state.currentStreak + 1 : 1;
     let newDay = state.currentDay;
     
     if (streakContinues) {
@@ -188,7 +188,7 @@ export function generateTimeBasedReward(id: string, availableAt: number): TimeBa
  */
 export function updateTimeBasedRewards(state: TimeBasedRewardsState, now: number): TimeBasedRewardsState {
   // Удаляем собранные контейнеры
-  let containers = state.containers.filter(c => !c.collected);
+  const containers = state.containers.filter(c => !c.collected);
   
   // Проверяем, прошёл ли интервал с последнего сбора
   const timeSinceLastCollection = now - state.lastCollectionTime;

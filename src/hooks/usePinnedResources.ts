@@ -1,101 +1,85 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * Закреплённые в TopBar ресурсы (bigplan.md, пункты 14 и 30.2).
+ *
+ * ГДЕ ОНИ ЖИВУТ ТЕПЕРЬ. В сейве слота (`state.uiPrefs.pinnedResources`), а не в колонке
+ * `users.pinned_resources`. Колонка была одна на АККАУНТ: закрепив на одной карте руду и
+ * лёд, игрок видел их и на карте, где этих ресурсов нет, — а любая правка на второй карте
+ * тут же меняла первую. Сейв слота — то же место, где лежит остальное состояние партии,
+ * поэтому пины больше не могут разъехаться со слотом и не требуют отдельного запроса.
+ *
+ * РАЗОВЫЙ ПЕРЕНОС. У существующих игроков пины уже лежат в аккаунте, и терять их нельзя.
+ * Пока в сейве не стоит `accountPinsImported`, хук один раз читает старое значение и
+ * переносит его в слот. Флаг живёт в сейве, поэтому перенос происходит ровно один раз на
+ * слот и не повторяется после перезагрузки. Эвристики «список выглядит как умолчание»
+ * здесь быть не может: у игрока могли быть закреплены ровно те же шесть ресурсов.
+ *
+ * Правила нормализации (только известные ресурсы, без дублей, энергия всегда, лимит)
+ * живут в `setUiPrefs` — в одном месте, а не в каждом вызывающем.
+ */
+
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ResourceType } from '../core/gameTypes';
 import { RESOURCE_LABEL } from '../core/constants/labels';
-import { loadPinnedResourcesFromServer, savePinnedResourcesToServer } from '../utils/settingsApi';
+import { useGameStore, MAX_PINNED_RESOURCES } from '../features/gameStore';
+import { loadPinnedResourcesFromServer } from '../utils/settingsApi';
 
-const DEFAULT_PINS: ResourceType[] = ['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'];
+/** Сохранён для совместимости с местами, которые показывают лимит игроку. */
+export const MAX_PINS = MAX_PINNED_RESOURCES;
 
-/**
- * Сколько ресурсов имеет смысл держать в строке TopBar. Ограничение — визуальное:
- * дальше строка начинает переноситься и вытеснять валюты.
- */
-export const MAX_PINS = 14;
-
-/*
- * Здесь был захардкоженный белый список из шести ресурсов
- * (['energy','ore','ice','carbon','steel','dark_matter']), и normalizePins выбрасывала всё
- * остальное — то есть закрепить пластик, титан или микросхемы было невозможно by design:
- * togglePin добавлял ресурс в массив, normalizePins тут же его удаляла, состояние не менялось,
- * и это выглядело как «кнопка не работает».
- *
- * Единственный корректный источник допустимых значений — ключи RESOURCE_LABEL: это
- * Record<ResourceType, string>, то есть тип гарантирует полноту, и новый ресурс автоматически
- * становится закрепляемым, без правки этого файла.
- */
 const ALLOWED = new Set(Object.keys(RESOURCE_LABEL) as ResourceType[]);
 
 export function isPinnableResource(id: string): id is ResourceType {
   return ALLOWED.has(id as ResourceType);
 }
 
-function normalizePins(pins: unknown): ResourceType[] {
-  if (!Array.isArray(pins)) return DEFAULT_PINS;
-
-  const next: ResourceType[] = [];
-  for (const p of pins) {
-    if (typeof p !== 'string') continue;
-    if (!isPinnableResource(p)) continue;
-    if (next.includes(p)) continue;
-    next.push(p);
-  }
-
-  // Энергия — единственный ресурс, который нужен всегда: без неё не читается ни один дефицит.
-  if (!next.includes('energy')) next.unshift('energy');
-
-  return next.length > 0 ? next.slice(0, MAX_PINS) : DEFAULT_PINS;
-}
-
 export function usePinnedResources() {
-  const [pins, setPins] = useState<ResourceType[]>(DEFAULT_PINS);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pins = useGameStore((s) => s.uiPrefs.pinnedResources);
+  const imported = useGameStore((s) => s.uiPrefs.accountPinsImported);
+  const setUiPrefs = useGameStore((s) => s.setUiPrefs);
+
+  // Перенос запускается один раз за монтирование, даже если рендеров будет много.
+  const migrationStartedRef = useRef(false);
 
   useEffect(() => {
-    // Загружаем pinned resources с сервера при монтировании
-    loadPinnedResourcesFromServer().then((loadedPins) => {
-      setPins(normalizePins(loadedPins));
-    }).catch((err) => {
-      console.error('Ошибка загрузки pinned resources:', err);
-    });
-  }, []);
+    if (imported || migrationStartedRef.current) return;
+    migrationStartedRef.current = true;
 
-  // Снимаем отложенное сохранение при анмаунте, чтобы не писать на сервер после выхода.
-  useEffect(() => () => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-  }, []);
-
-  /*
-   * Дебаунс: клик по звёздочке в списке из сотни ресурсов — это серия кликов, и без него
-   * каждый давал PUT на сервер. Последний выигрывает, промежуточные состояния никому не нужны.
-   */
-  const scheduleSave = useCallback((next: ResourceType[]) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      saveTimerRef.current = null;
-      savePinnedResourcesToServer(next).catch((err) => {
-        console.error('Ошибка сохранения pinned resources:', err);
+    loadPinnedResourcesFromServer()
+      .then((legacy) => {
+        // Пустой ответ — не повод затирать то, что уже есть в слоте.
+        if (Array.isArray(legacy) && legacy.length > 0) {
+          setUiPrefs({ pinnedResources: legacy, accountPinsImported: true });
+        } else {
+          setUiPrefs({ accountPinsImported: true });
+        }
+      })
+      .catch((err) => {
+        /*
+         * Сеть отвалилась — флаг НЕ ставим: перенос попробуем в следующий раз.
+         * Иначе один неудачный запрос навсегда оставил бы игрока без его пинов.
+         */
+        console.error('Не удалось перенести закреплённые ресурсы из аккаунта:', err);
+        migrationStartedRef.current = false;
       });
-    }, 400);
-  }, []);
+  }, [imported, setUiPrefs]);
 
-  const persist = useCallback((next: ResourceType[]) => {
-    const normalized = normalizePins(next);
-    setPins(normalized);
-    scheduleSave(normalized);
-  }, [scheduleSave]);
+  const setPins = useCallback(
+    (next: ResourceType[]) => setUiPrefs({ pinnedResources: next }),
+    [setUiPrefs],
+  );
 
   const togglePin = useCallback(
     (id: ResourceType) => {
-      // Через функциональный setPins, а не через замыкание на `pins`: иначе быстрая серия
-      // кликов считает от одного и того же устаревшего массива и часть пинов теряется.
-      setPins((current) => {
-        const next = normalizePins(
-          current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-        );
-        scheduleSave(next);
-        return next;
+      // Читаем актуальный список из стора, а не из замыкания: серия быстрых кликов
+      // иначе считает от одного и того же устаревшего массива и часть пинов теряется.
+      const current = useGameStore.getState().uiPrefs.pinnedResources;
+      setUiPrefs({
+        pinnedResources: current.includes(id)
+          ? current.filter((x) => x !== id)
+          : [...current, id],
       });
     },
-    [scheduleSave],
+    [setUiPrefs],
   );
 
   const isPinned = useCallback((id: ResourceType) => pins.includes(id), [pins]);
@@ -104,10 +88,10 @@ export function usePinnedResources() {
    * Достигнут ли лимит. Нужен UI, чтобы объяснить, почему следующая звёздочка не сработает,
    * вместо молчаливого игнорирования клика.
    */
-  const isFull = pins.length >= MAX_PINS;
+  const isFull = pins.length >= MAX_PINNED_RESOURCES;
 
   return useMemo(
-    () => ({ pins, setPins: persist, togglePin, isPinned, isFull, maxPins: MAX_PINS }),
-    [pins, persist, togglePin, isPinned, isFull],
+    () => ({ pins, setPins, togglePin, isPinned, isFull, maxPins: MAX_PINNED_RESOURCES }),
+    [pins, setPins, togglePin, isPinned, isFull],
   );
 }

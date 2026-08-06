@@ -117,11 +117,12 @@ export async function decompressSave(
       case 'lz-string-uri':
         decompressed = LZString.decompressFromEncodedURIComponent(compressedData);
         break;
-      case 'lz-string-utf16':
+      case 'lz-string-utf16': {
         // Декодируем base64 обратно в UTF-16
         const utf16 = decodeURIComponent(escape(atob(compressedData)));
         decompressed = LZString.decompress(utf16);
         break;
+      }
       default:
         // Пробуем автоопределение
         decompressed = LZString.decompressFromBase64(compressedData);

@@ -4,7 +4,7 @@ import type Decimal from 'break_eternity.js';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore, calculateCost } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
-import type { Building, DepositType, ResourceType } from '../../core/gameTypes';
+import type { Building, BuildPanelSort, DepositType, ResourceType, UiPrefsState } from '../../core/gameTypes';
 import { RESOURCE_LABEL, RESOURCE_SHORT } from '../../core/constants/labels';
 import { isBuildingUnlocked, getTechnologyForBuilding } from '../../core/constants/technologies';
 import { getBuildingEmoji, getDepositEmoji } from '../../core/constants/buildingEmoji';
@@ -57,43 +57,14 @@ const DEPOSIT_LABEL: Record<DepositType, string> = {
   copper: 'Медь',
 };
 
-type SortBy = 'name' | 'cost' | 'placed';
-
-interface Filters {
-  onlyPositive: boolean;
-  onlyAffordable: boolean;
-  onlyUnlocked: boolean;
-  sortBy: SortBy;
-}
-
-const FILTERS_KEY = 'buildPanelFilters';
-
-const DEFAULT_FILTERS: Filters = {
-  onlyPositive: false,
-  onlyAffordable: false,
-  onlyUnlocked: true,
-  sortBy: 'name',
-};
-
-function loadFilters(): Filters {
-  try {
-    const raw = localStorage.getItem(FILTERS_KEY);
-    if (!raw) return DEFAULT_FILTERS;
-    const parsed = JSON.parse(raw) as Partial<Filters>;
-    return {
-      onlyPositive: typeof parsed.onlyPositive === 'boolean' ? parsed.onlyPositive : DEFAULT_FILTERS.onlyPositive,
-      onlyAffordable:
-        typeof parsed.onlyAffordable === 'boolean' ? parsed.onlyAffordable : DEFAULT_FILTERS.onlyAffordable,
-      onlyUnlocked: typeof parsed.onlyUnlocked === 'boolean' ? parsed.onlyUnlocked : DEFAULT_FILTERS.onlyUnlocked,
-      sortBy:
-        parsed.sortBy === 'name' || parsed.sortBy === 'cost' || parsed.sortBy === 'placed'
-          ? parsed.sortBy
-          : DEFAULT_FILTERS.sortBy,
-    };
-  } catch {
-    return DEFAULT_FILTERS;
-  }
-}
+/*
+ * Фильтры панели живут в сейве СЛОТА (bigplan.md, пункт 30.2), а не в localStorage.
+ * Ключ localStorage был один на браузер: настройки одной партии применялись ко всем
+ * остальным, а на другом устройстве не применялись вовсе. Старый ключ подчищает
+ * cleanupLegacyLocalStorage().
+ */
+type SortBy = BuildPanelSort;
+type Filters = UiPrefsState['buildPanel'];
 
 /** Ползунок как в референсе: подпись слева, переключатель справа. */
 function Switch({
@@ -171,16 +142,11 @@ export function BuildPanel() {
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [filters, setFilters] = useState<Filters>(loadFilters);
-  const patch = (next: Partial<Filters>) => setFilters((f) => ({ ...f, ...next }));
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
-    } catch {
-      // Приватный режим — фильтры просто не переживут перезагрузку.
-    }
-  }, [filters]);
+  const filters = useGameStore((s) => s.uiPrefs.buildPanel);
+  const setUiPrefs = useGameStore((s) => s.setUiPrefs);
+  // Никакого локального состояния и никакой записи в localStorage: значение и его
+  // хранение — одно и то же место, поэтому разъехаться им негде.
+  const patch = (next: Partial<Filters>) => setUiPrefs({ buildPanel: next });
 
   // Поиск дебаунсится: список перерисовывается вместе с тиком игры.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);

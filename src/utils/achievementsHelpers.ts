@@ -230,10 +230,11 @@ function checkSpecialRequirement(state: GameState, customCheck: string, target: 
   const technologies = state.research.technologies;
 
   switch (customCheck) {
-    case 'max_building_level':
+    case 'max_building_level': {
       // Check max level of any building
       const maxLevel = Math.max(...Object.values(grid.tileLevels || {}));
       return maxLevel >= target;
+    }
 
     case 'platform_count':
       return galaxies.platforms.length >= target;

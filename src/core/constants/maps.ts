@@ -3,7 +3,7 @@
  * 8 уникальных карт с разными характеристиками
  */
 
-import type { MapDefinition } from '../gameTypes.maps';
+import type { MapDefinition, MapDifficulty } from '../gameTypes.maps';
 
 /**
  * Все доступные карты в игре
@@ -483,6 +483,54 @@ export function getMapsByDifficulty(difficulty: string): MapDefinition[] {
  */
 export function getMapsByGridType(gridType: 'square' | 'hex'): MapDefinition[] {
   return MAP_DEFINITIONS.filter(m => m.gridType === gridType);
+}
+
+// ============================================================================
+// ПРОХОЖДЕНИЕ КАРТЫ
+// ============================================================================
+
+/*
+ * ЧТО ЗНАЧИТ «ПРОЙТИ КАРТУ» (bigplan.md, замечание к итерации 11).
+ *
+ * Раньше этого понятия не существовало: `completeMap` был написан, но не вызывался
+ * ниоткуда, `mapProgress` не рос, а `unlockedMaps` навсегда оставался стартовой парой.
+ *
+ * Критерий — РАЗВЁРНУТАЯ БАЗА, то есть число построенных зданий на карте. Почему именно
+ * он, а не «победить босса» или «накопить X ресурса»:
+ *   - его видно прямо в состоянии (`grid.tiles`), не нужен ни один новый счётчик, который
+ *     мог бы разойтись с реальностью;
+ *   - он не зависит от боя: мирные карты проходимы так же, как враждебные;
+ *   - он растёт монотонно и не «отваливается» от сноса одного здания задним числом —
+ *     прохождение засчитывается один раз и навсегда.
+ *
+ * Игра бесконечная, поэтому прохождение НЕ заканчивает партию: оно отмечает веху и
+ * открывает следующую карту, а игрок продолжает строить здесь же.
+ */
+export const MAP_COMPLETION_BUILDINGS: Record<MapDifficulty, number> = {
+  easy: 15,
+  normal: 25,
+  hard: 40,
+  extreme: 60,
+  nightmare: 80,
+};
+
+/** Сколько зданий нужно построить, чтобы карта считалась пройденной. */
+export function mapCompletionGoal(map: MapDefinition | undefined | null): number {
+  if (!map) return Number.POSITIVE_INFINITY;
+  return MAP_COMPLETION_BUILDINGS[map.difficulty] ?? MAP_COMPLETION_BUILDINGS.normal;
+}
+
+/**
+ * Порядок карт для разблокировки «следующей».
+ *
+ * Берётся из самого каталога, а не из отдельного списка id: раньше такой список был
+ * захардкожен внутри `completeMap`, и новая карта в каталоге в него не попадала —
+ * то есть цепочка молча обрывалась.
+ */
+export function nextMapAfter(mapId: string): string | null {
+  const index = MAP_DEFINITIONS.findIndex((m) => m.id === mapId);
+  if (index === -1) return null;
+  return MAP_DEFINITIONS[index + 1]?.id ?? null;
 }
 
 // Экспорт ID карт для типизации

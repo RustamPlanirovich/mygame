@@ -6,6 +6,8 @@ import type { Ship, ShipType } from '../../core/gameTypes';
 import { Anchor, Award, Heart, Shield, Sword, Settings, Trash2, Wrench } from 'lucide-react';
 import { notify } from '../../utils/notifications';
 import { GameIcon, IconText } from '../ui/icons';
+import { formatRemaining, progressOf, remainingMs } from '../../core/systems/jobs';
+import { useNowTicker } from '../../hooks/useNowTicker';
 
 export function FleetPanel() {
   const ships = useGameStore((s) => s.fleet.ships);
@@ -14,7 +16,16 @@ export function FleetPanel() {
   const resources = useGameStore((s) => s.resources);
   const platforms = useGameStore((s) => s.galaxies.platforms);
   
+  const buildQueue = useGameStore((s) => s.fleet.buildQueue);
   const buildShip = useGameStore((s) => s.buildShip);
+  const cancelShipJob = useGameStore((s) => s.cancelShipJob);
+
+  /*
+   * Прогресс очереди вычисляется из startedAt + duration (bigplan.md, пункт 25), то есть
+   * состояние во время ожидания не меняется. Без своего источника «сейчас» полоса стояла
+   * бы на месте до самого конца. Раз в секунду — постройка идёт десятками секунд.
+   */
+  const now = useNowTicker(1000);
   const upgradeShip = useGameStore((s) => s.upgradeShip);
   const assignShip = useGameStore((s) => s.assignShip);
   const repairShip = useGameStore((s) => s.repairShip);
@@ -156,6 +167,10 @@ export function FleetPanel() {
                         <IconText>{res === 'credits' ? '💰' : res}</IconText>: {formatNumber(cost)}
                       </span>
                     ))}
+                    {/* Время постройки видно ДО клика: раньше buildTime вообще не работал. */}
+                    <span className="whitespace-nowrap text-cyan-300">
+                      ⏱ {formatRemaining(def.buildTime)}
+                    </span>
                   </div>
                 </div>
               </button>
@@ -163,6 +178,47 @@ export function FleetPanel() {
           })}
         </div>
       </div>
+
+      {/* Очередь постройки (bigplan.md, пункт 25) */}
+      {buildQueue.length > 0 && (
+        <div className="bg-gray-800/50 rounded-lg p-3 border border-cyan-800/50">
+          <h3 className="text-base font-bold text-white mb-2 flex items-center gap-1.5">
+            <Settings size={14} className="text-cyan-400" />
+            Строится ({buildQueue.length})
+          </h3>
+          <div className="space-y-1.5">
+            {buildQueue.map((job) => {
+              const def = SHIP_DEFINITIONS[job.target as ShipType];
+              if (!def) return null;
+              const pct = progressOf(job, now) * 100;
+              return (
+                <div key={job.id} className="rounded-lg border border-gray-700 bg-gray-900/40 p-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg flex-shrink-0"><GameIcon icon={def.icon} /></span>
+                    <span className="flex-1 text-sm font-semibold text-white truncate">{def.name}</span>
+                    <span className="text-[10px] text-cyan-300 flex-shrink-0">
+                      {formatRemaining(remainingMs(job, now))}
+                    </span>
+                    <button
+                      onClick={() => cancelShipJob(job.id)}
+                      title="Отменить постройку с возвратом ресурсов"
+                      className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-red-300 hover:bg-red-900/40"
+                    >
+                      Отменить
+                    </button>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full rounded-full bg-gray-700">
+                    <div
+                      className="h-1.5 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-300"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Ships List */}
       {ships.length === 0 ? (

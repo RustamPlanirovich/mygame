@@ -864,7 +864,7 @@ export const useAdvisorStore = create<AdvisorStore>()(
         }
         
         // Используем меньшее из: эффективный капитал, % от баланса, абсолютный лимит
-        let maxInvestment = Decimal.min(
+        const maxInvestment = Decimal.min(
           Decimal.min(effectiveTradingCapital, balance.mul(autoTrading.maxInvestmentPercent / 100)),
           ABSOLUTE_MAX_TRADE
         );
@@ -1229,7 +1229,7 @@ export const useAdvisorStore = create<AdvisorStore>()(
             method: 'POST',
             body: JSON.stringify({ slotId }),
           });
-        } catch (error) {
+        } catch {
           // Игнорируем ошибки heartbeat
         }
       },

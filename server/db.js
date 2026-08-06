@@ -133,6 +133,22 @@ export async function initDb() {
     ALTER TABLE game_save ADD COLUMN IF NOT EXISTS slot_id INTEGER REFERENCES game_slots(id) ON DELETE CASCADE;
   `);
 
+  /*
+   * revision — счётчик записей сохранения (bigplan.md, пункт 30.3).
+   *
+   * Растёт на каждую запись: и на автосохранение клиента, и на серверный патч
+   * (админская выдача). Клиент присылает ту версию, поверх которой он писал, и
+   * запись отклоняется, если в БД она уже другая. Без этого две открытые вкладки
+   * (или вкладка + серверный патч) молча затирают друг друга «последним, кто успел»,
+   * а игрок видит откат прогресса без единой ошибки.
+   *
+   * Счётчик, а не updated_at: временная метка зависит от часов и совпадает у двух
+   * записей в одну миллисекунду, а целое число монотонно и сравнивается точно.
+   */
+  await pool.query(`
+    ALTER TABLE game_save ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+  `);
+
   // Индексы для быстрого поиска сохранений
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_game_save_user_id ON game_save(user_id);

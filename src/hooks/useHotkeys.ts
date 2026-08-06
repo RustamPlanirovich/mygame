@@ -8,8 +8,10 @@ interface HotkeyConfig {
   description?: string;
 }
 
-export const useHotkeys = (hotkeys: HotkeyConfig[]) => {
+export const useHotkeys = (hotkeys: HotkeyConfig[], enabled = true) => {
   useEffect(() => {
+    if (!enabled) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Игнорируем если фокус на input/textarea
       const target = e.target as HTMLElement;
@@ -28,11 +30,18 @@ export const useHotkeys = (hotkeys: HotkeyConfig[]) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeys]);
+  }, [hotkeys, enabled]);
 };
 
-// Предустановленные горячие клавиши для игры
-export const useGameHotkeys = () => {
+/**
+ * Горячие клавиши игры.
+ *
+ * `enabled` — параметр, а не условие вызова: в App этот хук вызывался внутри
+ * `if (device.isDesktop)`. При смене устройства (поворот планшета, изменение размера окна)
+ * порядок хуков менялся между рендерами — это ровно то, что React запрещает, и в проде
+ * ломается не предупреждением, а несвязанным состоянием чужих хуков.
+ */
+export const useGameHotkeys = (enabled = true) => {
   const saveGame = useGameStore(state => state.saveGame);
   const loadGame = useGameStore(state => state.loadGame);
 
@@ -67,5 +76,5 @@ export const useGameHotkeys = () => {
     },
   ];
 
-  useHotkeys(hotkeys);
+  useHotkeys(hotkeys, enabled);
 };

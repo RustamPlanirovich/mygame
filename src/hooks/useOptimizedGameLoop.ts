@@ -3,7 +3,33 @@ import { useGameStore } from '../features/gameStore';
 import { useFinanceStore } from '../features/financeStore';
 import { checkAchievements } from '../utils/achievementsHelpers';
 import { playSfx } from '../core/audio/sfx';
+import { getMapDefinition, mapCompletionGoal } from '../core/constants/maps';
 import type { GameState } from '../core/gameTypes';
+
+/**
+ * Пройдена ли текущая карта (bigplan.md, замечание к итерации 11).
+ *
+ * Критерий — развёрнутая база: сколько зданий стоит на карте против цели по сложности.
+ * Проверяется ЗДЕСЬ, в игровом цикле, а не внутри `tick`: `completeMap` — это отдельный
+ * `set`, и вызов его из апдейтера был бы вложенным `set` внутри `set` — тем самым
+ * шаблоном, который в этом проекте уже молча терял начисления (пункт 36).
+ */
+function isCurrentMapCompleted(state: GameState): boolean {
+  const mapId = state.maps.currentMapId;
+  if (!mapId) return false;
+  // Уже засчитано за эту партию.
+  if (state.maps.activeMapData?.completedAt) return false;
+
+  const goal = mapCompletionGoal(getMapDefinition(mapId));
+  if (!Number.isFinite(goal)) return false;
+
+  let placed = 0;
+  for (const _key in state.grid.tiles) {
+    placed++;
+    if (placed >= goal) return true;
+  }
+  return false;
+}
 
 /** Сколько незавершённых работ на базе. Дёшево: в очереди обычно 0-3 записи. */
 function countTileJobs(state: GameState): number {
@@ -33,6 +59,7 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   const achievementCheckRef = useRef<number>(0);
   const signalCheckRef = useRef<number>(0);
   const financeCheckRef = useRef<number>(0);
+  const mapCheckRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   const fpsRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
@@ -115,6 +142,17 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         signalState.spawnNewSignal();
         signalState.updateSignals();
         signalCheckRef.current = 0;
+      }
+
+      /*
+       * Прохождение карты: раз в 2 секунды. Реже нельзя — игрок ждал бы отметки после
+       * последнего здания; чаще незачем — критерий меняется только при постройке.
+       */
+      mapCheckRef.current += dt;
+      if (mapCheckRef.current >= 2) {
+        mapCheckRef.current = 0;
+        const mapState = useGameStore.getState();
+        if (isCurrentMapCompleted(mapState)) mapState.completeMap();
       }
 
       // Finance update: раз в 5 секунд (обновление акций, процентов, кредитов)

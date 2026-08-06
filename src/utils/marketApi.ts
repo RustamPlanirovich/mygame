@@ -472,13 +472,6 @@ export interface PendingTransactionsResponse {
   error?: string;
 }
 
-export interface ApplyTransactionsResponse {
-  ok: boolean;
-  appliedCount: number;
-  appliedIds: string[];
-  error?: string;
-}
-
 /**
  * Получить ожидающие транзакции биржи
  */
@@ -489,19 +482,10 @@ export async function getPendingTransactions(): Promise<PendingTransactionsRespo
   return response.json();
 }
 
-/**
- * Подтвердить применение транзакций
+/*
+ * applyTransactions УДАЛЁН (bigplan.md, пункт 33): расчёт сделок целиком серверный,
+ * подтверждать со стороны клиента больше нечего. Маршрут отвечает 410.
  */
-export async function applyTransactions(
-  transactionIds: string[]
-): Promise<ApplyTransactionsResponse> {
-  const response = await fetch(`${API_URL}/api/market/apply-transactions`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ transactionIds }),
-  });
-  return response.json();
-}
 
 // ==========================================
 // СЕЙФ БИРЖИ

@@ -2,8 +2,8 @@
  * ВРЕМЯ ПОСТРОЙКИ И УЛУЧШЕНИЯ ЗДАНИЙ (bigplan.md, пункты 18–19).
  *
  * Раньше здания ставились и улучшались мгновенно. Здесь — единственный источник правды о том,
- * сколько это должно занимать, и одна очередь задач вместо третьей реализации таймеров
- * (в проекте уже были две: `megastructures.constructionQueue` и `buildTime` у кораблей).
+ * СКОЛЬКО это должно занимать. Сам учёт времени (прогресс, остаток, готовность) живёт в общем
+ * движке ./jobs.ts, которым пользуются и корабли, и мегаструктуры (bigplan.md, пункт 25).
  *
  * ПОЧЕМУ АБСОЛЮТНОЕ ВРЕМЯ, А НЕ НАКОПЛЕНИЕ ПРОГРЕССА
  * Задача хранит `startedAt` + `duration`, а не «сколько процентов набежало». Причина
@@ -23,6 +23,7 @@
  */
 
 import type { Building, ResourceType } from '../gameTypes';
+import { isComplete, progressOf, remainingMs } from './jobs';
 
 // ============================================================================
 // ТИПЫ
@@ -162,21 +163,24 @@ function clampSeconds(value: number, min: number, max: number): number {
 // СОСТОЯНИЕ ОЧЕРЕДИ
 // ============================================================================
 
+/*
+ * Прогресс, остаток и готовность считает ОБЩИЙ движок (bigplan.md, пункт 25).
+ * Держать здесь свою копию тех же трёх формул значило бы гарантировать, что однажды
+ * они разойдутся с очередями кораблей и мегаструктур.
+ */
+
 /** Доля выполнения от 0 до 1. */
 export function jobProgress(job: TileJob, now: number): number {
-  if (job.duration <= 0) return 1;
-  const elapsed = now - job.startedAt;
-  if (elapsed <= 0) return 0;
-  return Math.min(1, elapsed / job.duration);
+  return progressOf(job, now);
 }
 
 /** Сколько миллисекунд осталось (0, если уже готово). */
 export function jobRemainingMs(job: TileJob, now: number): number {
-  return Math.max(0, job.startedAt + job.duration - now);
+  return remainingMs(job, now);
 }
 
 export function isJobComplete(job: TileJob, now: number): boolean {
-  return now >= job.startedAt + job.duration;
+  return isComplete(job, now);
 }
 
 /**

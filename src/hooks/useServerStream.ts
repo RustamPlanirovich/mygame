@@ -11,6 +11,7 @@ import { connectServerStream, type MarketOrderPayload } from '../utils/serverStr
 import { useChatStore } from '../features/chatStore';
 import { useUiStore } from '../features/uiStore';
 import { useGameStore } from '../features/gameStore';
+import { rememberSaveRevision } from '../features/saveRevision';
 import { resourceLabel } from '../core/i18n/label';
 import { describeGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { notify } from '../utils/notifications';
@@ -79,6 +80,13 @@ export function useServerStream(): StreamStatus {
               .getState()
               .applyAdminGrant(event.payload.grantId, event.payload.deltas);
             if (!applied) break;
+
+            /*
+             * Дельта учтена — значит наше состояние снова соответствует записи в БД.
+             * Двигаем известную версию (bigplan.md, пункт 30.3), иначе ближайшее
+             * автосохранение упёрлось бы в 409 из-за изменения, которое мы уже применили.
+             */
+            rememberSaveRevision(event.payload.saveId, event.payload.revision);
 
             const summary = describeGrant(parsed, resourceLabel);
             notify.success(

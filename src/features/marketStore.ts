@@ -177,9 +177,11 @@ interface MarketActions {
   fetchGuildChat: () => Promise<void>;
   sendGuildMessage: (message: string) => Promise<boolean>;
   
-  // Pending транзакции
+  /**
+   * Pending-транзакции: ТОЛЬКО ЧТЕНИЕ (bigplan.md, пункт 33). Расчёт делает сервер,
+   * клиент этот список не применяет — обычно он пуст.
+   */
   fetchPendingTransactions: () => Promise<PendingTransaction[]>;
-  markTransactionsApplied: (transactionIds: string[]) => Promise<boolean>;
 
   // Сейф биржи
   fetchVault: () => Promise<void>;
@@ -825,24 +827,6 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
     }
   },
   
-  markTransactionsApplied: async (transactionIds) => {
-    try {
-      const result = await api.applyTransactions(transactionIds);
-      if (result.ok) {
-        // Удаляем примененные транзакции из списка
-        set(state => ({
-          pendingTransactions: state.pendingTransactions.filter(
-            t => !result.appliedIds.includes(t.id)
-          )
-        }));
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('Error applying transactions:', e);
-      return false;
-    }
-  },
 
   // ==========================================
   // СЕЙФ БИРЖИ

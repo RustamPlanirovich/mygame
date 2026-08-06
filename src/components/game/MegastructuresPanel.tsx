@@ -6,6 +6,8 @@ import type { MegastructureId, EndingId } from '../../core/gameTypes';
 import { formatNumber } from '../../core/math/format';
 import Decimal from 'break_eternity.js';
 import { GameIcon, IconText } from '../ui/icons';
+import { formatRemaining, progressOf, remainingMs } from '../../core/systems/jobs';
+import { useNowTicker } from '../../hooks/useNowTicker';
 
 export function MegastructuresPanel() {
   const { 
@@ -17,6 +19,13 @@ export function MegastructuresPanel() {
     toggleMegastructure,
     galaxies,
   } = useGameStore();
+
+  /*
+   * Прогресс больше не хранится в состоянии, а считается из startedAt + duration
+   * (bigplan.md, пункт 25), поэтому панели нужен собственный источник «текущего момента».
+   * Раз в секунду: чаще незачем — стройка идёт часами.
+   */
+  const now = useNowTicker(1000);
 
   const renderMegastructure = (id: MegastructureId) => {
     const megastructure = MEGASTRUCTURES[id];
@@ -75,16 +84,16 @@ export function MegastructuresPanel() {
           <div className="mt-2">
             <div className="flex justify-between text-[10px] text-yellow-300 mb-0.5">
               <span>Строительство...</span>
-              <span>{inProgress.progress.toFixed(1)}%</span>
+              <span>{(progressOf(inProgress, now) * 100).toFixed(1)}%</span>
             </div>
             <div className="w-full bg-gray-700 rounded-full h-1.5">
               <div 
                 className="bg-gradient-to-r from-yellow-500 to-yellow-600 h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${inProgress.progress}%` }}
+                style={{ width: `${progressOf(inProgress, now) * 100}%` }}
               />
             </div>
             <p className="text-[9px] text-gray-400 mt-0.5">
-              Осталось: {((megastructure.buildTime * (100 - inProgress.progress) / 100) / 60).toFixed(1)} мин
+              Осталось: {formatRemaining(remainingMs(inProgress, now))}
             </p>
           </div>
         )}

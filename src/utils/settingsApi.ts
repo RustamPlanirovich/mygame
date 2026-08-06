@@ -3,6 +3,7 @@
 import type { GameSettings } from '../core/gameTypes.settings';
 import type { ResourceType } from '../core/gameTypes';
 import { DEFAULT_SETTINGS } from '../core/gameTypes.settings';
+import { forgetSaveRevision } from '../features/saveRevision';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -215,7 +216,9 @@ export const applySettings = (settings: GameSettings) => {
 // ========== USER PREFERENCES API ==========
 
 /**
- * Загрузить pinned resources с сервера
+ * Прочитать СТАРОЕ место хранения закреплённых ресурсов — колонку users.pinned_resources
+ * (bigplan.md, пункт 30.2). Нужно ровно для одного: разового переноса пинов в сейв слота
+ * при первой загрузке (см. usePinnedResources). Новых записей сюда больше не делается.
  */
 export const loadPinnedResourcesFromServer = async (): Promise<ResourceType[]> => {
   const DEFAULT_PINNED: ResourceType[] = ['energy', 'ore', 'ice', 'carbon', 'steel', 'dark_matter'];
@@ -247,33 +250,11 @@ export const loadPinnedResourcesFromServer = async (): Promise<ResourceType[]> =
   }
 };
 
-/**
- * Сохранить pinned resources на сервер
+/*
+ * savePinnedResourcesToServer УДАЛЁН (bigplan.md, пункт 30.2): пины — часть сейва слота,
+ * и отдельная запись в колонку аккаунта вернула бы ровно ту проблему, из-за которой они
+ * переезжали между картами.
  */
-export const savePinnedResourcesToServer = async (pinnedResources: ResourceType[]): Promise<{ ok: boolean; error?: string }> => {
-  if (!isAuthenticated()) {
-    return { ok: false, error: 'NOT_AUTHENTICATED' };
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/api/preferences/pinned-resources`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ pinnedResources }),
-    });
-
-    if (response.status === 401) {
-      removeAuthToken();
-      return { ok: false, error: 'NOT_AUTHENTICATED' };
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (err) {
-    console.error('Ошибка сохранения pinned resources:', err);
-    return { ok: false, error: 'Ошибка подключения к серверу' };
-  }
-};
 
 /**
  * Загрузить current save ID с сервера
@@ -520,6 +501,13 @@ export const switchGameSlot = async (slotId: number): Promise<{ ok: boolean; slo
     
     // Сохраняем ID текущего слота в localStorage
     if (data.ok) {
+      /*
+       * Версия сейва относится к КОНКРЕТНОЙ строке в БД (bigplan.md, пункт 30.3).
+       * После смены слота она уже не про наш сейв, и держать её опасно: при совпадении
+       * чисел запись прошла бы туда, куда не должна. Забываем — следующая загрузка
+       * поставит правильную.
+       */
+      forgetSaveRevision();
       localStorage.setItem('currentSlotId', slotId.toString());
       // Отправляем событие для обновления UI
       window.dispatchEvent(new CustomEvent('slotChanged', { detail: { slotId } }));

@@ -46,6 +46,12 @@ export interface AdminGrantPayload {
   grantId: string;
   saveId: number;
   slotId: number | null;
+  /**
+   * Версия сохранения ПОСЛЕ патча (bigplan.md, пункт 30.3). Дельту мы применили у себя,
+   * значит наше состояние снова совпадает с БД — двигаем свою версию, иначе следующее
+   * автосохранение получило бы 409 на изменение, которое мы уже учли.
+   */
+  revision?: number | null;
   deltas: Record<string, string>;
   clamped: string[];
 }

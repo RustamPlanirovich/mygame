@@ -427,7 +427,26 @@ function calculateTraderBadges(totalTrades, successfulTrades, totalVolume, isGui
  * Создание роутов для биржи
  */
 export function createMarketRoutes(app, pool, authMiddleware) {
-  
+
+  /**
+   * Пропускает только персонал. Роль читается из БД, а не из запроса: значение из
+   * тела/заголовка подделывается тривиально. Ставится ПОСЛЕ authMiddleware.
+   */
+  async function requireStaff(req, res, next) {
+    try {
+      const row = await pool.query('SELECT role FROM users WHERE id = $1', [req.userId]);
+      const role = row.rows[0]?.role;
+      if (role !== 'admin' && role !== 'moderator') {
+        res.status(403).json({ ok: false, error: 'STAFF_REQUIRED', message: 'Служебная операция биржи.' });
+        return;
+      }
+      next();
+    } catch (e) {
+      console.error('[market] проверка роли не удалась:', describeError(e));
+      res.status(500).json({ ok: false, error: 'INTERNAL', message: 'Не удалось проверить права.' });
+    }
+  }
+
   // ==========================================
   // ОРДЕРА
   // ==========================================
@@ -1309,12 +1328,14 @@ export function createMarketRoutes(app, pool, authMiddleware) {
   /**
    * GET /api/market/pending-transactions - Получить ожидающие транзакции текущего игрока
    *
-   * ОТДАЁТ ТОЛЬКО settlement='client' — расчёты СТАРОЙ модели, которые клиент
-   * действительно должен применить к своему состоянию (такие строки уже лежат в
-   * рабочей БД). Сделки, рассчитанные в сейфе, создаются сразу 'applied' и здесь
-   * не появляются: иначе клиент начислил бы себе то, что биржа уже начислила в сейф,
-   * то есть двойное начисление. Фильтр по settlement — второй рубеж к фильтру по
-   * status, чтобы это нельзя было сломать случайно.
+   * ТЕПЕРЬ ЭТО ЧТЕНИЕ, А НЕ ЗАДАНИЕ (bigplan.md, пункт 33). Расчёт сделок целиком
+   * серверный: новые исполнения ложатся в сейф одной транзакцией (settlement='vault',
+   * сразу 'applied'), а редкие остатки старой модели (settlement='client') закрывает
+   * серверная зачистка `settleStrayClientTransactions` — она зачисляет причитающееся
+   * в сейф и ставит 'applied'. Поэтому обычный ответ здесь — пустой список; строка
+   * может мелькнуть только между исполнением и ближайшим прогоном зачистки.
+   *
+   * Клиент по этому списку НИЧЕГО не начисляет: он его только показывает.
    */
   app.get('/api/market/pending-transactions', authMiddleware, async (req, res) => {
     try {
@@ -1358,44 +1379,24 @@ export function createMarketRoutes(app, pool, authMiddleware) {
   });
 
   /**
-   * POST /api/market/apply-transactions - Подтвердить применение транзакций
-   * Клиент вызывает этот endpoint после успешного применения транзакций к своему игровому состоянию
+   * POST /api/market/apply-transactions — УДАЛЁН (bigplan.md, пункт 33).
+   *
+   * Раньше клиент сам решал, когда сделка считается рассчитанной: он начислял её
+   * себе в память и этим же запросом закрывал строку. Пока он этого не сделал (или
+   * не собирался), сделка висела незакрытой — то есть исполнение чужого ордера
+   * зависело от чужого клиента. Теперь расчёт целиком серверный, и «подтверждать»
+   * нечего.
+   *
+   * Маршрут оставлен явной заглушкой 410, а не удалён молча: открытая вкладка со
+   * старой сборкой продолжит его дёргать, и молчаливый 404 выглядел бы как сбой
+   * сети, который клиент будет повторять.
    */
-  app.post('/api/market/apply-transactions', authMiddleware, async (req, res) => {
-    try {
-      const playerId = req.userId;
-      const { transactionIds } = req.body;
-      
-      if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
-        res.status(400).json({ ok: false, error: 'INVALID_TRANSACTION_IDS' });
-        return;
-      }
-      
-      if (transactionIds.some((id) => !isUuid(id))) {
-        res.status(400).json({ ok: false, error: 'INVALID_TRANSACTION_IDS', message: 'Некорректные идентификаторы транзакций.' });
-        return;
-      }
-
-      // Обновляем статус транзакций только для этого игрока.
-      // settlement='client': строку, рассчитанную в сейфе, клиент «применить» не может
-      // (и не должен) — она уже applied. Условие оставлено явным, чтобы будущая
-      // правка запроса не открыла путь к двойному начислению.
-      const result = await pool.query(`
-        UPDATE market_pending_transactions
-        SET status = 'applied', applied_at = NOW()
-        WHERE id = ANY($1::uuid[]) AND player_id = $2 AND status = 'pending' AND settlement = 'client'
-        RETURNING id
-      `, [transactionIds, playerId]);
-
-      res.json({
-        ok: true,
-        appliedCount: result.rowCount,
-        appliedIds: result.rows.map(r => r.id)
-      });
-    } catch (e) {
-      console.error('Error applying transactions:', e);
-      res.status(500).json({ ok: false, error: String(e?.message ?? e) });
-    }
+  app.post('/api/market/apply-transactions', authMiddleware, (_req, res) => {
+    res.status(410).json({
+      ok: false,
+      error: 'CLIENT_SETTLEMENT_REMOVED',
+      message: 'Сделки рассчитывает сервер. Обновите страницу.',
+    });
   });
 
   // ==========================================
@@ -1406,12 +1407,16 @@ export function createMarketRoutes(app, pool, authMiddleware) {
    * POST /api/market/expire-orders - Истечение старых ордеров
    *
    * Раньше: БЕЗ АВТОРИЗАЦИИ (любой мог дёргать), только status='open' (частично
-   * исполненные не истекали никогда) и без возврата эскроу. Теперь: требует токен,
-   * захватывает 'open' И 'partial', возвращает эскроу и делает ту же работу, что
-   * периодическая зачистка. Сам сервер вызывает это по таймеру
-   * (startMarketMaintenance), маршрут остаётся для внешнего cron и админки.
+   * исполненные не истекали никогда) и без возврата эскроу. Теперь: захватывает
+   * 'open' И 'partial', возвращает эскроу и делает ту же работу, что периодическая
+   * зачистка. Сам сервер вызывает это по таймеру (startMarketMaintenance), маршрут
+   * остаётся для внешнего cron и админки.
+   *
+   * ТОЛЬКО ПЕРСОНАЛ (bigplan.md, пункт 33). Раньше хватало любого токена, то есть
+   * рядовой игрок мог запустить зачистку и решать, в какой момент истекут ЧУЖИЕ
+   * ордера. Зачистка — служебное расписание, а не игровое действие.
    */
-  app.post('/api/market/expire-orders', authMiddleware, async (req, res) => {
+  app.post('/api/market/expire-orders', authMiddleware, requireStaff, async (req, res) => {
     try {
       const result = await runMarketMaintenance(pool);
       res.json({ ok: true, ...result });
@@ -1438,9 +1443,84 @@ export function createMarketRoutes(app, pool, authMiddleware) {
 // ============================================================================
 
 /**
+ * ШАГ 3 ЗАЧИСТКИ: закрыть остатки КЛИЕНТСКОГО расчёта (bigplan.md, пункт 33).
+ *
+ * Старая модель оставляла строки `settlement='client'` висеть до тех пор, пока
+ * клиент не начислит их себе и не подтвердит запросом. Пока он этого не сделал,
+ * исполненная сделка была не закрыта — то есть результат исполнения зависел от
+ * того, открыта ли у контрагента вкладка. Теперь такие строки закрывает сервер.
+ *
+ * КУДА ЗАЧИСЛЯЕТСЯ. В сейф, а не в игровое состояние: сейф — единственное место,
+ * которым сервер владеет целиком. Оттуда игрок забирает товар обычным выводом,
+ * тем же путём, что и всё остальное с биржи.
+ *
+ * ПОЧЕМУ НАЧИСЛЯЕТСЯ ТОЛЬКО ОДНА СТОРОНА. Встречная сторона списана ещё при
+ * создании ордера: обеспечение блокируется в сейфе (`escrow_lock`), а при
+ * исполнении тратится из блокировки. Поэтому покупателю причитается ресурс,
+ * продавцу — выручка, и ничего больше списывать не надо.
+ *
+ * Идемпотентность — по `status='pending'` в том же `UPDATE ... RETURNING`, что и
+ * зачисление: строка захватывается ровно один раз, повторный прогон её не увидит.
+ */
+export async function settleStrayClientTransactions(client) {
+  const stray = await client.query(
+    `SELECT pt.id, pt.player_id, pt.transaction_type,
+            mt.resource AS resource,
+            pt.resource_amount::text AS resource_amount,
+            pt.credits_amount::text AS credits_amount
+       FROM market_pending_transactions pt
+       JOIN market_trades mt ON pt.trade_id = mt.id
+      WHERE pt.status = 'pending' AND pt.settlement = 'client'
+      ORDER BY pt.player_id, mt.resource
+      FOR UPDATE OF pt`
+  );
+  if (stray.rowCount === 0) return 0;
+
+  // Строки сейфа блокируются одним заходом и в фиксированном порядке — так же,
+  // как в возврате эскроу: два прогона по разным игрокам не встанут в дедлок.
+  const keys = [];
+  for (const row of stray.rows) {
+    if (row.transaction_type === 'buy') {
+      keys.push({ playerId: row.player_id, resource: row.resource });
+    } else {
+      keys.push({ playerId: row.player_id, resource: VAULT_CREDITS });
+    }
+  }
+  await lockVaultRows(client, keys);
+
+  let settled = 0;
+  for (const row of stray.rows) {
+    const claimed = await client.query(
+      `UPDATE market_pending_transactions
+          SET status = 'applied', applied_at = NOW(), settlement = 'vault'
+        WHERE id = $1 AND status = 'pending'
+        RETURNING id`,
+      [row.id]
+    );
+    if (claimed.rowCount === 0) continue;
+
+    if (row.transaction_type === 'buy') {
+      const amountU = dbUnits(row.resource_amount);
+      if (amountU > 0n) {
+        await vaultCredit(client, row.player_id, row.resource, amountU, 'legacy_settle_buy', row.id);
+      }
+    } else {
+      // credits_amount у продавца — уже за вычетом его комиссии (см. запись сделки).
+      const amountU = dbUnits(row.credits_amount);
+      if (amountU > 0n) {
+        await vaultCredit(client, row.player_id, VAULT_CREDITS, amountU, 'legacy_settle_sell', row.id);
+      }
+    }
+    settled += 1;
+  }
+  return settled;
+}
+
+/**
  * Один прогон зачистки:
  *   1. истёкшие ордера ('open' И 'partial') -> 'expired';
- *   2. ВОЗВРАТ ЭСКРОУ у любого неактивного ордера, у которого он ещё висит.
+ *   2. ВОЗВРАТ ЭСКРОУ у любого неактивного ордера, у которого он ещё висит;
+ *   3. закрытие остатков клиентского расчёта — см. settleStrayClientTransactions.
  *
  * Шаг 2 намеренно не привязан к шагу 1. Ордер могли закрыть посторонние пути,
  * которые про сейф не знают (POST /api/admin/players/:id/orders/cancel-all и
@@ -1453,6 +1533,7 @@ export async function runMarketMaintenance(pool) {
   let client = null;
   let expiredCount = 0;
   let refundedOrders = 0;
+  let settledTransactions = 0;
   try {
     client = await beginTx(pool);
     await acquireMarketLock(client);
@@ -1486,6 +1567,8 @@ export async function runMarketMaintenance(pool) {
       }
     }
 
+    settledTransactions = await settleStrayClientTransactions(client);
+
     await client.query('COMMIT');
   } catch (e) {
     if (client) {
@@ -1504,6 +1587,7 @@ export async function runMarketMaintenance(pool) {
   return {
     expiredCount,
     refundedOrders,
+    settledTransactions,
     expiredOffers: offers.expiredCount,
     refundedOffers: offers.refundedCount,
   };
@@ -1531,10 +1615,11 @@ export function startMarketMaintenance(pool, { intervalMs = MARKET_CONSTANTS.MAI
     maintenanceRunning = true;
     try {
       const r = await runMarketMaintenance(pool);
-      if (r.expiredCount || r.refundedOrders || r.expiredOffers || r.refundedOffers) {
+      if (r.expiredCount || r.refundedOrders || r.expiredOffers || r.refundedOffers || r.settledTransactions) {
         console.log(
           `[market] зачистка: ордеров истекло ${r.expiredCount}, эскроу возвращено по ${r.refundedOrders} ордерам, ` +
-            `предложений истекло ${r.expiredOffers}, эскроу возвращено по ${r.refundedOffers} предложениям`
+            `предложений истекло ${r.expiredOffers}, эскроу возвращено по ${r.refundedOffers} предложениям, ` +
+            `расчётов закрыто ${r.settledTransactions}`
         );
       }
     } catch (e) {
