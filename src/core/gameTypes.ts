@@ -1211,7 +1211,17 @@ export interface GameState {
   culture: CultureState; // New: Culture and Science system (Phase 7)
   lastTick: number;
   stats: PlayerStats;
-  
+
+  /**
+   * Непринятая офлайн-добыча: что база наработала, пока игрока не было в сети.
+   *
+   * Живёт только в памяти и НЕ сериализуется: отчёт целиком выводится из сейва
+   * (`savedAt` + ставки `resources[*].production`), а лишнее поле в сохранении означало бы
+   * второй источник правды и риск начислить одно и то же дважды. Считается один раз при
+   * загрузке (`loadGame`), обнуляется выдачей (`claimOfflineMining`) или отказом.
+   */
+  offlineMining: import('./systems/offlineProgress').OfflineMiningReport | null;
+
   // Energy balance telemetry
   energyProduction: Decimal; // Total energy produced per second
   energyConsumption: Decimal; // Total energy consumed per second (passive + active)
@@ -1236,6 +1246,11 @@ export interface GameState {
   cancelTradingOrder: (orderId: string) => void;
   tick: (dt: number) => void;
   loadGame: () => Promise<void>;
+  /**
+   * Начислить накопленную офлайн-добычу и очистить отчёт. Повторный вызов ничего не делает:
+   * отчёт уже пуст, а значит окно нельзя «нажать дважды».
+   */
+  claimOfflineMining: () => void;
   /**
    * Возвращает результат: автосейв раньше игнорировал ответ сервера, поэтому 413/401/404
    * выглядели как успех. Вызывающему нужно уметь отличить записалось от не записалось.

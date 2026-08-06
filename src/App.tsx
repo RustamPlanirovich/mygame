@@ -46,6 +46,7 @@ const ProfilePanel = lazy(() => import('./components/game/ProfilePanel').then((m
 const CheatPanel = lazy(() => import('./components/game/CheatPanel').then((m) => ({ default: m.CheatPanel })));
 const MapSelector = lazy(() => import('./components/game/MapSelector').then((m) => ({ default: m.MapSelector })));
 const OfflineProfitModal = lazy(() => import('./components/game/finance/OfflineProfitModal').then((m) => ({ default: m.OfflineProfitModal })));
+const OfflineMiningModal = lazy(() => import('./components/game/OfflineMiningModal').then((m) => ({ default: m.OfflineMiningModal })));
 const AdminPanel = lazy(() => import('./components/admin').then((m) => ({ default: m.AdminPanel })));
 
 
@@ -128,6 +129,13 @@ function App() {
   // Offline profit modal state
   const [showOfflineProfit, setShowOfflineProfit] = useState(true);
   const offlineProfit = useAdvisorStore(state => state.offlineProfit);
+
+  /*
+   * Офлайн-добыча. Своего локального «показать/скрыть» здесь нет намеренно: признак —
+   * сам отчёт в сторе, а гасит его выдача (claimOfflineMining). Иначе после смены слота
+   * окно с новой добычей не открылось бы, потому что флаг остался бы сброшенным.
+   */
+  const offlineMining = useGameStore(state => state.offlineMining);
   
   // Отслеживаем slotId с реактивным обновлением
   const [currentSlotId, setCurrentSlotId] = useState<number | null>(getCurrentSlotId());
@@ -500,6 +508,14 @@ function App() {
           />
           </Suspense>
         </PanelBoundary>
+      )}
+
+      {/* Офлайн-добыча: что наработала база, пока игрока не было (core/systems/offlineProgress.ts).
+          Отчёт появляется в сторе после загрузки сейва и исчезает, когда игрок забрал добычу. */}
+      {offlineMining && (
+        <Suspense fallback={null}>
+          <OfflineMiningModal />
+        </Suspense>
       )}
 
       {/* Offline Profit Modal */}

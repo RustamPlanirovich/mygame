@@ -162,6 +162,7 @@ import {
   type DepositReserves,
 } from '../core/systems/deposits';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
+import { computeOfflineMining } from '../core/systems/offlineProgress';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
 import { getActiveGridGeometry, setActiveGridGeometry } from '../core/math/hexGeometry';
@@ -3253,6 +3254,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   lastTick: Date.now(),
   stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: Date.now() },
+  // Отчёт об офлайн-добыче появляется только после загрузки сейва (см. loadGame).
+  offlineMining: null,
   scenario: { ...INITIAL_SCENARIO },
   uiPrefs: { ...INITIAL_UI_PREFS, buildPanel: { ...INITIAL_UI_PREFS.buildPanel } },
 
@@ -9834,6 +9837,33 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // Логируем загруженную карту
       console.log('🗺️ Loaded maps:', get().maps.currentMapId, 'Grid:', get().grid.width, 'x', get().grid.height);
+
+      /*
+       * ОФЛАЙН-ДОБЫЧА (см. core/systems/offlineProgress.ts).
+       *
+       * Считается ЗДЕСЬ, а не в tick: точка отсчёта — savedAt сейва, и она известна ровно
+       * в момент загрузки. lastTick для этого не годится — строкой выше он переставлен на
+       * Date.now(), иначе первый же тик прогнал бы всю ночь одним шагом dt.
+       *
+       * Ставки берём из УЖЕ загруженного состояния (resources[*].production), а не из
+       * сырого payload: сейв может быть старым, а расчёт вместимости после загрузки —
+       * свежим, и обрезка по свободному месту должна идти по реальным складам.
+       *
+       * loadGameFromSave намеренно ничего не начисляет: ручная загрузка старого сейва
+       * платила бы за одно и то же отсутствие столько раз, сколько его открыли.
+       */
+      const savedAt = Number(save?.savedAt ?? save?.lastTick ?? 0);
+      const offlineMining = computeOfflineMining({
+        resources: get().resources,
+        savedAt,
+        now: Date.now(),
+      });
+      if (offlineMining) {
+        console.log(
+          `⛏️ Офлайн-добыча: ${offlineMining.gains.length} ресурсов за ${offlineMining.creditedSeconds} с`,
+        );
+        set({ offlineMining });
+      }
     } catch (e) {
       console.error("Failed to load save", e);
     }
@@ -10825,6 +10855,59 @@ export const useGameStore = create<GameState>((set, get) => ({
     return true;
   },
 
+  /**
+   * Выдать офлайн-добычу (см. core/systems/offlineProgress.ts).
+   *
+   * Ресурсы прибавляются В БАЗОВЫЙ БУФЕР, а не только в resources[*].amount: ближайший же
+   * тик перетирает amount значением из буфера (syncResourcesFromBase), и «начисление»
+   * только в витрину исчезло бы через 50 мс — ровно та же ловушка, что у админской выдачи.
+   *
+   * Отчёт очищается ПЕРЕД выдачей — точнее, в том же set(), — поэтому двойной клик по
+   * кнопке не начислит дважды.
+   */
+  claimOfflineMining: () => {
+    const report = get().offlineMining;
+    if (!report || report.gains.length === 0) {
+      set((s) => (s.offlineMining ? { offlineMining: null } : s));
+      return;
+    }
+
+    set((state) => {
+      let buffers = state.grid.buffers;
+      const nextResources = { ...state.resources };
+
+      for (const gain of report.gains) {
+        const res = nextResources[gain.resource];
+        if (!res) continue;
+        const cur = getBuf(buffers, 'base', gain.resource);
+        /*
+         * Ограничение по вместимости повторяется здесь, хотя отчёт уже обрезан: между
+         * загрузкой и нажатием «Забрать» идёт обычная игра, и склад мог успеть заполниться.
+         * Без .min(res.max) начисление ушло бы за потолок и было бы срезано clamp-ом позже —
+         * то есть тихо, уже после того как игрок увидел сумму.
+         */
+        const next = cur.add(gain.amount).max(D(0)).min(res.max);
+        buffers = setBuf(buffers, 'base', gain.resource, next);
+        nextResources[gain.resource] = { ...res, amount: next };
+      }
+
+      return {
+        resources: nextResources,
+        grid: { ...state.grid, buffers },
+        offlineMining: null,
+      };
+    });
+
+    /*
+     * Сразу же фиксируем результат на сервере. savedAt свежего сейва — это и есть точка
+     * отсчёта следующего офлайна: без записи игрок, перезагрузивший страницу до ближайшего
+     * автосейва, получил бы ту же добычу второй раз.
+     */
+    void get()
+      .saveGame()
+      .catch((e: unknown) => console.warn('[offline] не удалось сохранить после выдачи', e));
+  },
+
   setScenarioCollapsed: (collapsed: boolean) => {
     set((s) => (s.scenario.collapsed === collapsed ? s : { scenario: { ...s.scenario, collapsed } }));
   },
@@ -11734,6 +11817,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       stats: { ...INITIAL_PLAYER_STATS, sessionsCount: 1, currentSessionStart: now },
       // Новая игра — новый сценарий: цели вроде «постройте склад» снова актуальны.
       scenario: { ...INITIAL_SCENARIO },
+      // Непринятая офлайн-добыча принадлежала прошлой партии — в новую она не переезжает.
+      offlineMining: null,
       lastTick: now,
     });
   },
