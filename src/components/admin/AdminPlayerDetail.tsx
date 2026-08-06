@@ -62,6 +62,8 @@ import {
 } from '../../utils/adminFormat';
 import { BanBadge, JsonBlock, KeyValue, Num, OnlineDot, RoleBadge, Section, When } from './parts';
 import { IconText } from '../ui/icons';
+import { RESOURCE_LABEL } from '../../core/constants/labels';
+import type { ResourceType } from '../../core/gameTypes';
 
 type FormKind =
   | 'ban'
@@ -82,6 +84,23 @@ const BAN_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '365', label: '1 год' },
   { value: '', label: 'Навсегда' },
 ];
+
+/**
+ * Список ресурсов для выдачи.
+ *
+ * Раньше ключ вводили руками, и опечатка («steal» вместо «steel») уходила на сервер как
+ * валидный ключ: applyGrantToSaveData клал такой ресурс в skipped, выдача считалась
+ * успешной, но игроку не начислялось ничего. Выбор из списка убирает этот класс ошибок.
+ *
+ * Источник правды — RESOURCE_LABEL: это Record<ResourceType, string>, то есть новый ресурс
+ * в игре обязан появиться и здесь, и список не разъедется с ResourceType молча.
+ * Сортировка по подписи, а не по id: оператор ищет «Сталь», а не «steel».
+ */
+const GRANT_RESOURCE_OPTIONS: ReadonlyArray<{ id: ResourceType; label: string }> = (
+  Object.keys(RESOURCE_LABEL) as ResourceType[]
+)
+  .map((id) => ({ id, label: RESOURCE_LABEL[id] }))
+  .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
 
 /** Строка таблицы кредитов: сторона зависит от того, кредитор игрок или заёмщик. */
 function LoanRows({ loans, side }: { loans: P2PLoanRow[]; side: 'lender' | 'borrower' }) {
@@ -306,6 +325,14 @@ export function AdminPlayerDetail({
     if (Object.keys(resources).length > 0) payload.resources = resources;
     void actions.grant(payload).then(finish);
   };
+
+  /*
+   * Уже выбранные ресурсы — чтобы не дать выбрать один и тот же дважды: payload
+   * собирается в объект, и вторая строка молча затирала бы первую.
+   */
+  const usedResourceKeys = new Set(
+    grantResources.map((row) => row.key).filter((key) => key !== ''),
+  );
 
   const grantHasSomething =
     grantCredits.trim() !== '' ||
@@ -765,18 +792,27 @@ export function AdminPlayerDetail({
                       </span>
                       {grantResources.map((row, index) => (
                         <div key={index} className="flex items-center gap-1.5">
-                          <input
-                            type="text"
+                          <select
                             value={row.key}
                             onChange={(e) =>
                               setGrantResources((rows) =>
                                 rows.map((r, i) => (i === index ? { ...r, key: e.target.value } : r)),
                               )
                             }
-                            placeholder="ore"
-                            aria-label={`Ключ ресурса ${index + 1}`}
-                            className="w-40 rounded-md px-2 py-1 text-xs"
-                          />
+                            aria-label={`Ресурс ${index + 1}`}
+                            className="min-w-0 flex-1 rounded-md px-2 py-1 text-xs"
+                          >
+                            <option value="">— выберите ресурс —</option>
+                            {GRANT_RESOURCE_OPTIONS.map((option) => (
+                              <option
+                                key={option.id}
+                                value={option.id}
+                                disabled={option.id !== row.key && usedResourceKeys.has(option.id)}
+                              >
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
                           <input
                             type="text"
                             value={row.value}
@@ -807,6 +843,7 @@ export function AdminPlayerDetail({
                       <button
                         type="button"
                         className="btn btn-xs"
+                        disabled={grantResources.length >= GRANT_RESOURCE_OPTIONS.length}
                         onClick={() =>
                           setGrantResources((rows) => [...rows, { key: '', value: '' }])
                         }
