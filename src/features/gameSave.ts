@@ -876,6 +876,13 @@ interface SavedGrid {
    */
   tileJobs: Record<string, SavedTileJob>;
   deposits: Record<string, string>;
+  /*
+   * Остатки месторождений (bigplan.md, пункт 38). Отсутствие секции — законный случай:
+   * сейвы, сделанные до истощения, её не содержат, и запасы досоздаются при загрузке в
+   * gameStore (ensureReserves). Пустой объект здесь означает ровно «не знаем», а не
+   * «всё выработано»: второе прочтение разрушило бы все шахты старого игрока.
+   */
+  depositReserves: Record<string, { left: DecStr; total: DecStr }>;
   buffers: Record<string, Record<string, DecStr>>;
   activeTransports: Array<{
     from: { x: number; y: number };
@@ -962,6 +969,29 @@ const decTileJobs = (raw: unknown): NonNullable<GridState['tileJobs']> => {
   return out;
 };
 
+/**
+ * Остатки месторождений. Клетка без положительного `total` выбрасывается: доля остатка
+ * считается делением на него, и запись `total: 0` дала бы «выработано» на ровном месте.
+ */
+const encDepositReserves = (
+  src: GridState['depositReserves'],
+): Record<string, { left: DecStr; total: DecStr }> => {
+  const out: Record<string, { left: DecStr; total: DecStr }> = {};
+  for (const [tileKey, entry] of Object.entries(rec(src))) {
+    if (!isRec(entry)) continue;
+    const e = entry as { left?: unknown; total?: unknown };
+    const total = encD(e.total as string);
+    if (D(total).lte(0)) continue;
+    out[tileKey] = { left: encD(e.left as string), total };
+  }
+  return out;
+};
+
+const decDepositReserves = (raw: unknown): NonNullable<GridState['depositReserves']> =>
+  encDepositReserves(raw as GridState['depositReserves']) as NonNullable<
+    GridState['depositReserves']
+  >;
+
 const encBuffers = (
   src: Record<string, Partial<Record<ResourceType, string>>> | undefined,
 ): Record<string, Record<string, DecStr>> => {
@@ -1027,6 +1057,7 @@ const encGrid = (src: GridState): SavedGrid => ({
   tileDisabled: encBoolRecord(src.tileDisabled),
   tileJobs: encTileJobs(src.tileJobs),
   deposits: cloneJson(src.deposits as Record<string, string>, {}),
+  depositReserves: encDepositReserves(src.depositReserves),
   buffers: encBuffers(src.buffers),
   activeTransports: encArray(src.activeTransports, (t) => ({
     from: { x: num(t.from?.x, 0), y: num(t.from?.y, 0) },
@@ -1064,6 +1095,13 @@ const decGrid = (raw: unknown, base: GridState): GridState => {
     deposits: isRec(r.deposits)
       ? (cloneJson(r.deposits as Record<string, DepositType>, {}) as Record<string, DepositType>)
       : { ...(base.deposits ?? {}) },
+    /*
+     * Запасы. Секции нет — значит «неизвестно», и это ПУСТО, а не запасы карты по
+     * умолчанию: ключи DEFAULT_GRID относятся к другой раскладке месторождений и легли бы
+     * на чужие клетки. Досоздаёт запасы gameStore при загрузке (withDepositReserves):
+     * ставка добычи по типу берётся из каталога зданий, а он живёт там.
+     */
+    depositReserves: isRec(r.depositReserves) ? decDepositReserves(r.depositReserves) : {},
     buffers: isRec(r.buffers) ? decBuffers(r.buffers) : decBuffers(base.buffers),
     activeTransports: decArray(r.activeTransports, (t) => ({
       from: { x: num(rec(t.from).x, 0), y: num(rec(t.from).y, 0) },

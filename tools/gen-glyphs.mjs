@@ -237,6 +237,8 @@ const MAP = {
 const EXTRA = [
   'menu',
   'close',
+  // Трещины: разрушенное здание на выработанном месторождении (bigplan 38).
+  'broken_image',
   'forest',
   'celebration',
   'expand_more',

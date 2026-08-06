@@ -151,10 +151,20 @@ import { dropExpiredEvents, eventNotificationType, nextEventDelay } from '../cor
 import { stepPollution } from '../core/systems/pollution';
 import { advanceSchedule, createTickSchedule } from '../core/systems/tickSchedule';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
+import {
+  EXTRACTABLE_DEPOSITS,
+  drainDeposit,
+  ensureReserves,
+  generateDepositField,
+  isDepositExhausted,
+  requiredDepositForBuilding,
+  rollRuinRefundRate,
+  type DepositReserves,
+} from '../core/systems/deposits';
 import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
-import { setActiveGridGeometry } from '../core/math/hexGeometry';
+import { getActiveGridGeometry, setActiveGridGeometry } from '../core/math/hexGeometry';
 
 /*
  * Когда последний раз проверяли условие текущей цели сценария. Вне стора: это троттлинг,
@@ -394,6 +404,13 @@ let productionRatesCache: {
    */
   activePoliciesRef: readonly string[] | null;
   buildingsCount: number;
+  /*
+   * Счётчик выработанных жил (bigplan.md, пункт 38). Разрушенная шахта выпадает из ставок,
+   * и кэш обязан это заметить. По ССЫЛКЕ на grid.depositReserves сравнивать нельзя: она
+   * меняется на каждом тике, где вообще шла добыча, и полный пересчёт шёл бы 20 раз в
+   * секунду. Счётчик же растёт только в момент, когда клетка кончилась.
+   */
+  ruinRevision: number;
   rates: Record<ResourceType, Decimal> | null;
   lastCalculatedAt: number;
 } = {
@@ -405,9 +422,13 @@ let productionRatesCache: {
   tileJobsRef: null,
   activePoliciesRef: null,
   buildingsCount: 0,
+  ruinRevision: -1,
   rates: null,
   lastCalculatedAt: 0,
 };
+
+/** Сколько раз за сессию жила кончалась. Ключ инвалидации кэша ставок, см. выше. */
+let ruinRevision = 0;
 
 const ENEMY_TRAITS: Record<Enemy['type'], { dps: Decimal; contactRange: number; shieldPierce: number }> = {
   // Быстрый, но не слишком опасный.
@@ -2532,65 +2553,89 @@ export const getBasePos = (grid: { width: number; height: number }): GridCoord =
   y: Math.floor(grid.height / 2),
 });
 
-const generateDeposits = (width: number, height: number) => {
-  const deposits: Record<string, DepositType> = {};
-
-  // Simple random scatter. Keep base tile clear.
-  const oreChance = 0.10;
-  const iceChance = 0.08;
-  const carbonChance = 0.07;
-  // Фаза 2: Новые месторождения (более редкие)
-  const gasChance = 0.05;
-  const oilChance = 0.04;
-  const sandChance = 0.06;
-  // Фаза 2.3: Металлические месторождения (редкие)
-  const uraniumChance = 0.02;
-  const chromeChance = 0.03;
-  const titaniumChance = 0.025;
-  // Фаза 2.4: Медные месторождения
-  const copperChance = 0.04;
-
-  const basePos = getBasePos({ width, height });
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      // Пропускаем базу (центр карты)
-      if (x === basePos.x && y === basePos.y) continue;
-      const roll = Math.random();
-      if (roll < oreChance) deposits[`${x},${y}`] = 'ore';
-      else if (roll < oreChance + iceChance) deposits[`${x},${y}`] = 'ice';
-      else if (roll < oreChance + iceChance + carbonChance) deposits[`${x},${y}`] = 'carbon';
-      // Фаза 2: Новые месторождения
-      else if (roll < oreChance + iceChance + carbonChance + gasChance) deposits[`${x},${y}`] = 'natural_gas';
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance) deposits[`${x},${y}`] = 'oil';
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance) deposits[`${x},${y}`] = 'sand';
-      // Фаза 2.3: Металлические месторождения
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance) deposits[`${x},${y}`] = 'uranium';
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance) deposits[`${x},${y}`] = 'chrome';
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance + titaniumChance) deposits[`${x},${y}`] = 'titanium';
-      // Фаза 2.4: Медные месторождения
-      else if (roll < oreChance + iceChance + carbonChance + gasChance + oilChance + sandChance + uraniumChance + chromeChance + titaniumChance + copperChance) deposits[`${x},${y}`] = 'copper';
-    }
+/**
+ * Ставка добычи на первом уровне по типу месторождения (bigplan.md, пункт 38).
+ *
+ * Запас клетки задаётся В ЧАСАХ работы добытчика, а не абсолютным числом единиц: ставки
+ * разные (руда 0.6/с, уран 0.18/с), и одинаковые «50 000 единиц» означали бы, что урановая
+ * клетка живёт втрое дольше рудной без всякой причины. Таблица собирается из каталога,
+ * поэтому правка ставки здания автоматически переоценивает и жилы под него.
+ */
+const DEPOSIT_BASE_RATE: Partial<Record<DepositType, number>> = (() => {
+  const out: Partial<Record<DepositType, number>> = {};
+  for (const b of INITIAL_BUILDINGS) {
+    const deposit = requiredDepositForBuilding(b.id);
+    if (!deposit || out[deposit] !== undefined) continue;
+    const rate = (b.production as Partial<Record<string, Decimal>>)?.[deposit];
+    if (rate) out[deposit] = Number(rate.toString());
   }
+  return out;
+})();
 
-  return deposits;
+const depositRateOf = (deposit: DepositType): number => DEPOSIT_BASE_RATE[deposit] ?? 0.3;
+
+/**
+ * Разложить месторождения по свежей сетке.
+ *
+ * Сама раскладка — в core/systems/deposits.ts: там же её тесты на покрытие, кластерность и
+ * гарантию стартового сырья у базы. Здесь остаётся только связь с игрой — геометрия текущей
+ * карты и ставки добычи из каталога.
+ */
+const generateDeposits = (
+  width: number,
+  height: number,
+  options: { types?: DepositType[]; coverage?: number; richness?: number } = {},
+) =>
+  generateDepositField({
+    width,
+    height,
+    base: getBasePos({ width, height }),
+    geometry: getActiveGridGeometry(),
+    ratePerSecond: depositRateOf,
+    types: options.types,
+    coverage: options.coverage,
+    richness: options.richness,
+  });
+
+/**
+ * Дописать разрушенные добытчики в набор неработающих клеток (bigplan.md, пункт 38).
+ *
+ * Дело не только в производстве — его и так обнуляет пустая жила. Энергобаланс считает СПРОС
+ * по всем НЕотключённым зданиям, и руина, которая на самом деле не потребляет ни ватта,
+ * иначе завышала бы спрос и роняла КПД всей базы: одна выработанная шахта замедляла бы
+ * работающие. Возвращает исходный набор, когда руин нет.
+ */
+const withRuinedTiles = (
+  disabled: Record<string, boolean>,
+  grid: { tiles: Record<string, string>; depositReserves?: DepositReserves },
+): Record<string, boolean> => {
+  if (!grid.depositReserves) return disabled;
+
+  let next: Record<string, boolean> | null = null;
+  for (const key in grid.tiles) {
+    if (disabled[key]) continue;
+    if (!requiredDepositForBuilding(grid.tiles[key])) continue;
+    if (!isDepositExhausted(grid.depositReserves, key)) continue;
+    if (!next) next = { ...disabled };
+    next[key] = true;
+  }
+  return next ?? disabled;
 };
 
-const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
-  if (buildingId === 'miner_mk1') return 'ore';
-  if (buildingId === 'ice_extractor_mk1') return 'ice';
-  if (buildingId === 'carbon_harvester_mk1') return 'carbon';
-  // Фаза 2: Новые добывающие здания
-  if (buildingId === 'gas_well_mk1') return 'natural_gas';
-  if (buildingId === 'oil_well_mk1') return 'oil';
-  if (buildingId === 'sand_quarry_mk1') return 'sand';
-  // Фаза 2.3: Металлические шахты
-  if (buildingId === 'uranium_mine_mk1') return 'uranium';
-  if (buildingId === 'chrome_mine_mk1') return 'chrome';
-  if (buildingId === 'titanium_mine_mk1') return 'titanium';
-  // Фаза 2.4: Медная шахта
-  if (buildingId === 'copper_mine_mk1') return 'copper';
-  return null;
+/**
+ * Досоздать запасы месторождений после загрузки сейва (bigplan.md, пункт 38).
+ *
+ * Сейвы, сделанные до истощения, содержат `deposits` и не содержат `depositReserves`. Без
+ * этого шага каждая такая клетка читалась бы как «запас неизвестен», и любая попытка
+ * трактовать пустоту как ноль превратила бы все шахты старого игрока в руины при первой же
+ * загрузке. Возвращает исходный объект, когда добавлять нечего.
+ */
+const withDepositReserves = <T extends {
+  deposits?: Record<string, DepositType>;
+  depositReserves?: DepositReserves;
+}>(grid: T): T => {
+  const reserves = ensureReserves(grid.deposits, grid.depositReserves, depositRateOf);
+  return reserves === grid.depositReserves ? grid : { ...grid, depositReserves: reserves };
 };
 
 const BASE_GRID_SIZE = 18;
@@ -2604,31 +2649,32 @@ const desiredGridSizeForResearch = (levels: ResearchState['levels']) => {
   };
 };
 
+/**
+ * Досыпать месторождения в новую полосу клеток при расширении сектора.
+ *
+ * Раньше здесь жила ВТОРАЯ реализация раскладки — и другая: только руда, лёд и углерод,
+ * независимым броском по клетке. То есть купленное расширение приносило карту, устроенную
+ * не так, как исходная: ни редких металлов, ни жил. Теперь это тот же генератор, просто
+ * ограниченный прямоугольником новой полосы и уже занятыми клетками.
+ */
 const scatterDepositsInto = (
   deposits: Record<string, DepositType>,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  baseX: number,
-  baseY: number,
+  reserves: DepositReserves,
+  area: { x0: number; y0: number; x1: number; y1: number },
+  grid: { width: number; height: number },
 ) => {
-  // Simple random scatter. Keep base tile clear.
-  const oreChance = 0.10;
-  const iceChance = 0.08;
-  const carbonChance = 0.07;
+  const generated = generateDepositField({
+    width: grid.width,
+    height: grid.height,
+    base: getBasePos(grid),
+    geometry: getActiveGridGeometry(),
+    ratePerSecond: depositRateOf,
+    taken: (key) => deposits[key] !== undefined,
+    area,
+  });
 
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      if (x === baseX && y === baseY) continue;
-      const k = `${x},${y}`;
-      if (deposits[k]) continue;
-      const roll = Math.random();
-      if (roll < oreChance) deposits[k] = 'ore';
-      else if (roll < oreChance + iceChance) deposits[k] = 'ice';
-      else if (roll < oreChance + iceChance + carbonChance) deposits[k] = 'carbon';
-    }
-  }
+  Object.assign(deposits, generated.deposits);
+  Object.assign(reserves, generated.reserves);
 };
 
 /**
@@ -2669,20 +2715,28 @@ const ensureGridSize = (
   if (nextW === grid.width && nextH === grid.height) return grid;
 
   const deposits: Record<string, DepositType> = { ...(grid.deposits ?? {}) };
-  const baseX = nextW - 1;
-  const baseY = nextH - 1;
+  const reserves: DepositReserves = { ...(grid.depositReserves ?? {}) };
+  const nextGrid = { width: nextW, height: nextH };
 
   // New columns for existing rows.
   if (nextW > grid.width) {
-    scatterDepositsInto(deposits, grid.width, 0, nextW, grid.height, baseX, baseY);
+    scatterDepositsInto(deposits, reserves, { x0: grid.width, y0: 0, x1: nextW, y1: grid.height }, nextGrid);
   }
   // New rows for full width (including new columns).
   if (nextH > grid.height) {
-    scatterDepositsInto(deposits, 0, grid.height, nextW, nextH, baseX, baseY);
+    scatterDepositsInto(deposits, reserves, { x0: 0, y0: grid.height, x1: nextW, y1: nextH }, nextGrid);
   }
 
-  // Safety: base must never have a deposit.
-  delete deposits[`${baseX},${baseY}`];
+  /*
+   * База никогда не стоит на месторождении. Здесь чистилась клетка (nextW-1, nextH-1) —
+   * правый нижний угол, — тогда как база это ЦЕНТР сетки (getBasePos). То есть страховка
+   * стирала случайную жилу на краю и не защищала настоящую клетку базы; после расширения
+   * центр уезжает, и под ядром вполне могло оказаться месторождение.
+   */
+  const nextBase = getBasePos(nextGrid);
+  const baseKey = `${nextBase.x},${nextBase.y}`;
+  delete deposits[baseKey];
+  delete reserves[baseKey];
 
   // If the selection fell out of bounds somehow, clear it.
   const selected = grid.selected && (grid.selected.x >= nextW || grid.selected.y >= nextH) ? null : grid.selected;
@@ -2693,15 +2747,20 @@ const ensureGridSize = (
     height: nextH,
     selected,
     deposits,
+    depositReserves: reserves,
   };
 };
+
+const INITIAL_DEPOSIT_FIELD = generateDeposits(BASE_GRID_SIZE, BASE_GRID_SIZE);
 
 const DEFAULT_GRID = {
   width: BASE_GRID_SIZE,
   height: BASE_GRID_SIZE,
   selected: null as GridCoord | null,
   tiles: {} as Record<string, string>,
-  deposits: generateDeposits(BASE_GRID_SIZE, BASE_GRID_SIZE),
+  deposits: INITIAL_DEPOSIT_FIELD.deposits,
+  // Запасы месторождений (bigplan.md, пункт 38): источники иссякаемы, см. core/systems/deposits.
+  depositReserves: INITIAL_DEPOSIT_FIELD.reserves as DepositReserves,
   buffers: {
     base: {
       energy: INITIAL_RESOURCES.energy.amount.toString(),
@@ -3530,6 +3589,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (requiredDeposit) {
         const deposits = state.grid.deposits ?? {};
         if (deposits[k] !== requiredDeposit) return state;
+        /*
+         * На выработанной жиле новую шахту не поставить (bigplan.md, пункт 38): иначе снос
+         * руины и постройка на том же месте были бы бесконечным источником возврата, а сама
+         * шахта не добывала бы ничего.
+         */
+        if (isDepositExhausted(state.grid.depositReserves, k)) return state;
       }
 
       const buildingIndex = state.buildings.findIndex((b) => b.id === buildId);
@@ -3722,19 +3787,40 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     let removedCount = 0;
     let skippedBase = false;
+    let ruinedCount = 0;
+    let ruinRate = 0;
 
     set((state) => {
       const baseKey = keyOf(getBasePos(state.grid));
+      /*
+       * Разбор руин (bigplan.md, пункт 38): здание на выработанной жиле возвращает 25–50%
+       * всего вложенного вместе с улучшениями. Бросок делается ЗДЕСЬ и один на действие —
+       * планировщик обязан остаться чистой функцией, а разная ставка на каждую клетку в
+       * одном сносе выглядела бы как случайный обсчёт.
+       */
+      const reserves = state.grid.depositReserves;
+      const ruinRefundRate = rollRuinRefundRate(Math.random());
       const plan = planDemolition(
         positions.map(keyOf),
         state.grid.tiles,
         state.buildings,
         calculateCost,
-        { baseKey, tileJobs: state.grid.tileJobs },
+        {
+          baseKey,
+          tileJobs: state.grid.tileJobs,
+          tileLevels: state.grid.tileLevels,
+          ruinRefundRate,
+          isRuined: (key) =>
+            requiredDepositForBuilding(state.grid.tiles[key]) !== null &&
+            isDepositExhausted(reserves, key),
+        },
       );
 
       skippedBase = plan.skipped.some((s) => s.reason === 'base');
       if (isEmptyPlan(plan)) return state;
+
+      ruinedCount = plan.ruined.keys.length;
+      ruinRate = ruinRefundRate;
 
       const nextTiles = { ...state.grid.tiles };
       const nextTileLevels = { ...(state.grid.tileLevels ?? {}) };
@@ -3776,6 +3862,15 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       removedCount = plan.keys.length;
 
+      /*
+       * Кредиты к возврату план считал давно (незавершённые работы), но стор их не начислял:
+       * снос клетки с оплаченным улучшением молча съедал кредиты. С разбором руин это стало
+       * заметно — там кредиты за улучшения и есть основная часть возврата.
+       */
+      const nextCurrency = plan.refundCredits.gt(0)
+        ? { ...state.currency, credits: state.currency.credits.add(plan.refundCredits) }
+        : state.currency;
+
       return {
         grid: {
           ...state.grid,
@@ -3792,6 +3887,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         buildings: newBuildings,
         resources: capped,
+        currency: nextCurrency,
       };
     });
 
@@ -3808,6 +3904,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         message: skippedBase
           ? `Снесено: ${removedCount}. Ядро базы снести нельзя.`
           : `Снесено: ${removedCount}`,
+      });
+    }
+
+    /*
+     * Разбор руины подтверждается отдельно и при одиночном сносе тоже: ставка случайная,
+     * и без сообщения игрок не поймёт, почему за две одинаковые шахты вернулось разное.
+     */
+    if (ruinedCount > 0) {
+      get().addNotification({
+        type: 'success',
+        title: 'Руины разобраны',
+        message: `Разобрано построек на выработанных жилах: ${ruinedCount}. Возврат: ${Math.round(ruinRate * 100)}% вложенного вместе с улучшениями.`,
       });
     }
   },
@@ -4778,7 +4886,10 @@ export const useGameStore = create<GameState>((set, get) => ({
        * кэш ставок производства (productionRatesCache.tileDisabledRef) сбрасывался бы
        * 20 раз в секунду.
        */
-      const tileDisabled = effectiveDisabledTiles(state.grid.tileDisabled, state.grid.tileJobs);
+      const tileDisabled = withRuinedTiles(
+        effectiveDisabledTiles(state.grid.tileDisabled, state.grid.tileJobs),
+        state.grid,
+      );
 
       /*
        * Скан сетки и энергосеть — в core/systems/gridScan.ts (bigplan.md, пункт 22).
@@ -4818,6 +4929,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       const bufferAccess = createBufferAccess();
       const getBuf = bufferAccess.get;
       const setBuf = bufferAccess.set;
+
+      /*
+       * Запасы месторождений (bigplan.md, пункт 38). Ссылка та же, что в состоянии, пока
+       * добыча реально не списала ни одной единицы: копия на каждом прогоне подменяла бы
+       * объект 20 раз в секунду и перерисовывала бы всё, что на него подписано.
+       *
+       * `depletedTiles` собирает клетки, кончившиеся ИМЕННО в этом тике: уведомление о
+       * разрушении шахты должно уйти ровно один раз, а не на каждом прогоне после нуля.
+       */
+      let depositReserves: DepositReserves = state.grid.depositReserves ?? {};
+      const depletedTiles: string[] = [];
 
       // Track real energy flow for UI (per-tick amounts)
       // This includes ALL drains/sources that touch base energy.
@@ -5417,9 +5539,16 @@ export const useGameStore = create<GameState>((set, get) => ({
             const tileDeposit = state.grid.deposits?.[tileKey];
             if (tileDeposit !== requiredDeposit) {
               ratio = D(0); // Не производим если нет депозита
+            } else if (isDepositExhausted(depositReserves, tileKey)) {
+              /*
+               * Жила выработана — здание считается РАЗРУШЕННЫМ (bigplan.md, пункт 38) и не
+               * производит ничего. Флага «разрушено» в состоянии нет: он мог бы разойтись с
+               * остатком, а так оба вывода делаются из одного числа.
+               */
+              ratio = D(0);
             }
           }
-          
+
           if (b.consumption) {
             const buildingLevel = state.grid.tileLevels?.[tileKey] || 1; // ФАЗА 8.5: Получаем уровень из tileLevels
             for (const [resType, perSecond] of Object.entries(b.consumption)) {
@@ -5579,7 +5708,33 @@ export const useGameStore = create<GameState>((set, get) => ({
               if (rType !== 'energy' && produced.gt(0) && doubleChance > 0 && Math.random() < doubleChance) {
                 produced = produced.mul(2);
               }
-              
+
+              /*
+               * РАСХОД МЕСТОРОЖДЕНИЯ (bigplan.md, пункт 38).
+               *
+               * Списываем ровно то, что добыли, и не больше остатка: последний тик забирает
+               * хвост жилы, а не уходит в минус. Списание идёт ПОСЛЕ всех множителей —
+               * шахта высокого уровня выкачивает клетку во столько же раз быстрее, во
+               * сколько больше даёт. Это и есть цена разгона.
+               *
+               * Удвоение (doubleChance) тоже считается добычей: иначе бонусный выпуск брался
+               * бы из воздуха и жила пережила бы больше руды, чем в ней было.
+               */
+              if (requiredDeposit && rType === requiredDeposit && produced.gt(0)) {
+                if (depositReserves === state.grid.depositReserves) {
+                  // Копия при первой записи: тик идёт 20 раз в секунду, и новая карта
+                  // запасов на каждом прогоне сбрасывала бы мемоизацию подписчиков.
+                  depositReserves = { ...(state.grid.depositReserves ?? {}) };
+                }
+                const drained = drainDeposit(depositReserves, tileKey, produced.toNumber());
+                produced = D(drained.taken);
+                if (drained.exhausted) {
+                  depletedTiles.push(tileKey);
+                  // Ставки производства пересчитываются по этому счётчику — см. productionRatesCache.
+                  ruinRevision += 1;
+                }
+              }
+
               // ЭНЕРГИЯ идёт напрямую в базовый буфер (она глобальна)
               // Остальные ресурсы производятся в локальный буфер здания
               if (rType === 'energy') {
@@ -5786,6 +5941,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         productionRatesCache.tileJobsRef !== state.grid.tileJobs || // стройка/улучшение началось или закончилось
         productionRatesCache.activePoliciesRef !== state.politics.activePolicies || // множители политик вмешаны в ставки
         productionRatesCache.buildingsCount !== currentBuildingsCount ||
+        productionRatesCache.ruinRevision !== ruinRevision || // жила кончилась — шахта выпала из ставок
         !productionRatesCache.rates;
 
       let productionRates: Record<ResourceType, Decimal>;
@@ -5837,12 +5993,24 @@ export const useGameStore = create<GameState>((set, get) => ({
           const buildingId = state.grid.tiles[tileKey];
           const building = buildingsMap.get(buildingId);
           if (!building?.production) continue;
-          
+
           // ФАЗА 5: Проверяем disabled и enabled
           if (tileDisabled[tileKey]) continue;
           const tileSett = state.grid.tileSettings?.[tileKey];
           if (tileSett && !tileSett.enabled) continue;
-          
+
+          /*
+           * Разрушенная шахта (жила выработана) в ставках не участвует: иначе панель
+           * ресурсов показывала бы добычу, которой в буфере уже нет, и расхождение
+           * витрины с кассой игрок читал бы как поломку логистики.
+           */
+          if (
+            requiredDepositForBuilding(buildingId) &&
+            isDepositExhausted(depositReserves, tileKey)
+          ) {
+            continue;
+          }
+
           const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
           const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
           const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(buildingId, evolutionLevel) : 1;
@@ -5913,6 +6081,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           tileJobsRef: state.grid.tileJobs,
           activePoliciesRef: state.politics.activePolicies,
           buildingsCount: currentBuildingsCount,
+          ruinRevision,
           rates: productionRates,
           lastCalculatedAt: now,
         };
@@ -6598,6 +6767,24 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Update platforms (autonomous mining and combat)
       const newNotifications: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
+
+      /*
+       * Жила кончилась именно сейчас (bigplan.md, пункт 38). Молча вставшая шахта выглядит
+       * как баг энергосети, поэтому о разрушении говорим прямо и сразу подсказываем, что с
+       * ней делать. Пачкой: на широкой жиле в один тик может кончиться сразу несколько клеток.
+       */
+      if (depletedTiles.length > 0) {
+        const first = depletedTiles[0];
+        const firstBuilding = buildingsMap.get(state.grid.tiles[first] ?? '');
+        newNotifications.push({
+          type: 'warning',
+          title: 'Месторождение выработано',
+          message:
+            depletedTiles.length === 1
+              ? `${firstBuilding?.name ?? 'Добывающее здание'} на клетке ${first} разрушено: жила пуста. Снесите его, чтобы вернуть часть вложенного.`
+              : `Выработано месторождений: ${depletedTiles.length}. Постройки на них разрушены — снесите их, чтобы вернуть часть вложенного.`,
+        });
+      }
 
       /*
        * Влияние съедено содержанием политик.
@@ -7829,6 +8016,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // иначе остаются прежними — от этого зависит кэш ставок производства.
           tileJobs: nextTileJobs,
           tileLevels: nextTileLevelsAfterJobs,
+          // Запасы месторождений: ссылка меняется только когда добыча реально что-то списала.
+          depositReserves,
           lastDtSeconds: dt
         },
         demons: nextDemons,
@@ -8407,8 +8596,12 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextBuffers = clampBaseBufferToCaps(nextBuffers, newResources);
         newResources = syncResourcesFromBase(newResources, nextBuffers);
 
-        const deposits: Record<string, DepositType> = grid.deposits && typeof grid.deposits === 'object'
-          ? (grid.deposits as Record<string, DepositType>)
+        // Сейв без месторождений (старый или битый) получает свежую раскладку вместе с запасами.
+        const depositField = grid.deposits && typeof grid.deposits === 'object'
+          ? {
+              deposits: grid.deposits as Record<string, DepositType>,
+              reserves: (grid.depositReserves ?? {}) as DepositReserves,
+            }
           : generateDeposits(grid.width, grid.height);
 
         const desired = desiredGridSizeForResearch(loadedResearch.levels);
@@ -8418,15 +8611,17 @@ export const useGameStore = create<GameState>((set, get) => ({
          * поля deposits — старый или созданный до его появления — грузился с пустой картой
          * месторождений, и добывающие здания было некуда ставить.
          */
-        const expandedGrid =
+        const expandedGrid = withDepositReserves(
           grid.width < desired.width || grid.height < desired.height
             ? {
                 ...grid,
-                deposits,
+                deposits: depositField.deposits,
+                depositReserves: depositField.reserves,
                 width: Math.max(grid.width, desired.width),
                 height: Math.max(grid.height, desired.height),
               }
-            : { ...grid, deposits };
+            : { ...grid, deposits: depositField.deposits, depositReserves: depositField.reserves },
+        );
 
         console.log('✅ Состояние подготовлено, возвращаем новое состояние');
         return {
@@ -9443,13 +9638,25 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextBuffers = clampBaseBufferToCaps(nextBuffers, newResources);
         newResources = syncResourcesFromBase(newResources, nextBuffers);
 
-        const deposits: Record<string, DepositType> = grid.deposits && typeof grid.deposits === 'object'
-          ? (grid.deposits as Record<string, DepositType>)
+        const depositField = grid.deposits && typeof grid.deposits === 'object'
+          ? {
+              deposits: grid.deposits as Record<string, DepositType>,
+              reserves: (grid.depositReserves ?? {}) as DepositReserves,
+            }
           : generateDeposits(grid.width, grid.height);
 
         // Apply sector expansion (never shrink existing saves).
         const desired = desiredGridSizeForResearch(loadedResearch.levels);
-        const expanded = ensureGridSize({ ...grid, deposits, buffers: nextBuffers } as any, desired.width, desired.height) as any;
+        const expanded = ensureGridSize(
+          withDepositReserves({
+            ...grid,
+            deposits: depositField.deposits,
+            depositReserves: depositField.reserves,
+            buffers: nextBuffers,
+          }) as any,
+          desired.width,
+          desired.height,
+        ) as any;
         const nextGrid = { ...expanded, buffers: nextBuffers };
 
         return {
@@ -11405,10 +11612,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     resources = syncResourcesFromBase(resources, buffers);
 
     // Создаём полностью новый grid с чистыми tiles
+    const freshDeposits = generateDeposits(DEFAULT_GRID.width, DEFAULT_GRID.height);
     const freshGrid = {
       ...DEFAULT_GRID,
       tiles: {} as Record<string, string>,
-      deposits: generateDeposits(DEFAULT_GRID.width, DEFAULT_GRID.height),
+      deposits: freshDeposits.deposits,
+      // Новая партия — новые запасы: иначе выработанные жилы прошлой игры остались бы руинами.
+      depositReserves: freshDeposits.reserves,
       buffers,
       tileLevels: {} as Record<string, number>,
       tileEvolutionLevels: {} as Record<string, number>,
@@ -13384,36 +13594,41 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Получаем размеры карты
       const { width, height } = mapDef.gridDimensions;
 
-      // Генерируем депозиты для новой карты на основе доступных ресурсов
-      const newDeposits: Record<string, DepositType> = {};
-      const availableDeposits = mapDef.availableDeposits.filter(d => 
-        ['ore', 'ice', 'carbon', 'natural_gas', 'oil', 'sand', 'uranium', 'chrome', 'titanium', 'copper'].includes(d)
+      /*
+       * Месторождения карты (bigplan.md, пункт 38).
+       *
+       * Здесь была третья реализация раскладки: `width*height*density` бросков «случайная
+       * клетка ← случайный тип из списка». Она давала ровный шум с равными шансами у руды и
+       * урана и не знала ни про запасы, ни про то, что игроку нужны стартовые ресурсы рядом с
+       * базой. Теперь это тот же генератор, что и на стартовой карте, — с жилами, весами
+       * редкости и иссякаемыми запасами.
+       *
+       * `depositDensity` карты трактуется как ДОЛЯ занятых клеток. Раньше это же число
+       * означало «сколько бросков сделать», то есть с учётом попаданий в занятые клетки
+       * фактическое покрытие всегда выходило меньше объявленного.
+       */
+      const availableDeposits = mapDef.availableDeposits.filter((d) =>
+        (EXTRACTABLE_DEPOSITS as string[]).includes(d),
       ) as DepositType[];
-      
-      // Базовая позиция в центре
-      const baseX = Math.floor(width / 2);
-      const baseY = Math.floor(height / 2);
-      
-      // Генерируем депозиты с учётом плотности карты
-      const depositCount = Math.floor(width * height * mapDef.depositDensity);
-      const seededRandom = (seed: number) => {
-        const x = Math.sin(seed) * 10000;
-        return x - Math.floor(x);
-      };
-      
-      let seedCounter = newSeed;
-      for (let i = 0; i < depositCount && availableDeposits.length > 0; i++) {
-        const x = Math.floor(seededRandom(seedCounter++) * width);
-        const y = Math.floor(seededRandom(seedCounter++) * height);
-        const key = `${x},${y}`;
-        
-        // Не ставим депозит на базу
-        if (x === baseX && y === baseY) continue;
-        if (newDeposits[key]) continue;
-        
-        const depositIndex = Math.floor(seededRandom(seedCounter++) * availableDeposits.length);
-        newDeposits[key] = availableDeposits[depositIndex];
-      }
+
+      // Модификаторы карты богатят или обедняют жилы — то же правило, что в MODIFIER_EFFECTS.
+      const richness = mapDef.modifiers.includes('rich_deposits')
+        ? 1.5
+        : mapDef.modifiers.includes('poor_deposits')
+          ? 0.7
+          : 1;
+
+      const mapField = generateDepositField({
+        width,
+        height,
+        base: getBasePos({ width, height }),
+        geometry: mapDef.gridType === 'hex' ? 'hex' : 'square',
+        ratePerSecond: depositRateOf,
+        types: availableDeposits,
+        coverage: mapDef.depositDensity,
+        richness,
+      });
+      const newDeposits = mapField.deposits;
 
       // Сбрасываем ресурсы и устанавливаем только стартовые ресурсы карты
       const newResources = { ...state.resources };
@@ -13505,6 +13720,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           width,
           height,
           deposits: newDeposits,
+          depositReserves: mapField.reserves,
           tiles: {}, // Очищаем постройки для новой карты
           tileLevels: {},
           tileEvolutionLevels: {},

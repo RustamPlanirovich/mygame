@@ -32,6 +32,12 @@ import {
   pixelToCellIn,
   worldSizeIn,
 } from '../../core/math/hexLayout';
+import {
+  depositRatio,
+  isDepositExhausted,
+  isTileRuined,
+  requiredDepositForBuilding,
+} from '../../core/systems/deposits';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
@@ -48,6 +54,13 @@ const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4.0;
 
 const DRAG_THRESHOLD_PX = 4;
+
+/*
+ * Трещины на здании, под которым выработалась жила (bigplan 38). Имя Material-иконки, а не
+ * эмодзи: в наборе игры нет эмодзи с трещинами, зато `broken_image` — это ровно расколотая
+ * плита, и она читается на клетке даже 24 пикселями.
+ */
+const RUIN_ICON = 'broken_image';
 
 // Кэшируем стили для текста чтобы не создавать новые объекты каждый кадр
 const TEXT_STYLES = {
@@ -132,6 +145,8 @@ export function FactoryGrid() {
     return {
       tiles: activeGrid.tiles,
       deposits: activeGrid.deposits,
+      // Остатки жил (bigplan 38): по ним рисуются трещины и выцветание выработанных клеток.
+      depositReserves: activeGrid.depositReserves,
       selected: activeGrid.selected,
       selectedBuildId: activeGrid.selectedBuildId,
       highlightedBuildingId: (mainGrid as any).highlightedBuildingId,
@@ -147,6 +162,7 @@ export function FactoryGrid() {
     // Shallow compare для оптимизации
     return a.tiles === b.tiles &&
            a.deposits === b.deposits &&
+           a.depositReserves === b.depositReserves &&
            a.selected === b.selected &&
            a.selectedBuildId === b.selectedBuildId &&
            a.highlightedBuildingId === b.highlightedBuildingId &&
@@ -201,6 +217,8 @@ export function FactoryGrid() {
       '⏸️',
       '📦',
       '🏠',
+      // Трещины на здании с выработанной жилой (bigplan 38).
+      RUIN_ICON,
     ]);
   }, []);
 
@@ -542,25 +560,13 @@ export function FactoryGrid() {
         if (!currentGrid.selectedBuildId && currentGrid.deposits) {
           const key = `${x},${y}`;
           const depositType = currentGrid.deposits[key];
-          if (depositType) {
+          // На выработанной жиле подсказывать шахту незачем: поставить её туда нельзя.
+          if (depositType && !isDepositExhausted(currentGrid.depositReserves, key)) {
             // Find the first building that requires this deposit
-            const matchingBuilding = s.buildings.find(b => {
-              const requiredDeposit = (() => {
-                if (b.id === 'miner_mk1') return 'ore';
-                if (b.id === 'ice_extractor_mk1') return 'ice';
-                if (b.id === 'carbon_harvester_mk1') return 'carbon';
-                if (b.id === 'gas_well_mk1') return 'natural_gas';
-                if (b.id === 'oil_well_mk1') return 'oil';
-                if (b.id === 'sand_quarry_mk1') return 'sand';
-                if (b.id === 'uranium_mine_mk1') return 'uranium';
-                if (b.id === 'chrome_mine_mk1') return 'chrome';
-                if (b.id === 'titanium_mine_mk1') return 'titanium';
-                if (b.id === 'copper_mine_mk1') return 'copper';
-                return null;
-              })();
-              return requiredDeposit === depositType;
-            });
-            
+            const matchingBuilding = s.buildings.find(
+              (b) => requiredDepositForBuilding(b.id) === depositType,
+            );
+
             if (matchingBuilding) {
               selectBuild(matchingBuilding.id);
               return; // Don't try to place building immediately
@@ -1253,6 +1259,17 @@ export function FactoryGrid() {
              */
             const job = grid.tileJobs?.[k];
 
+            /*
+             * Здание на выработанной жиле РАЗРУШЕНО (bigplan 38): оно ничего не добывает и
+             * годится только на снос. Гасим иконку и кладём поверх трещины — иначе вставшая
+             * шахта выглядит точно так же, как работающая, и игрок ищет причину в энергосети.
+             */
+            const isRuined = isTileRuined(
+              requiredDepositForBuilding(buildingId),
+              grid.depositReserves,
+              k,
+            );
+
             const centerX = px;
             const centerY = py;
             const t = getIconFromPool(emoji, isHex ? HEX_SIZE : CELL * 0.6);
@@ -1267,6 +1284,27 @@ export function FactoryGrid() {
               // Недостроенное — полупрозрачное: видно, что это ещё «стройка», а не здание.
               if (job) {
                 t.alpha = 0.45;
+              }
+              if (isRuined) {
+                t.tint = THEME_COLORS.cyberGray;
+                t.alpha = 0.35;
+              }
+            }
+
+            if (isRuined) {
+              // Рамка руины и трещины поверх иконки. Пульсации нет намеренно: это не авария,
+              // требующая реакции сейчас, а состояние — оно должно быть заметным, но спокойным.
+              traceCell(g, px, py, 2);
+              g.stroke({ color: THEME_COLORS.cyberRed, width: 2, alpha: 0.55 });
+
+              if (showDetailedText) {
+                const crack = getIconFromPool(RUIN_ICON, isHex ? HEX_SIZE * 0.9 : CELL * 0.55);
+                if (crack) {
+                  crack.x = centerX;
+                  crack.y = centerY;
+                  crack.tint = THEME_COLORS.cyberRed;
+                  crack.alpha = 0.85;
+                }
               }
             }
 
@@ -1349,9 +1387,19 @@ export function FactoryGrid() {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
             const dep = grid.deposits?.[k];
             if (dep && showDetailedText) {
-              const t = getIconFromPool(getDepositEmoji(dep), isHex ? HEX_SIZE * 0.8 : CELL * 0.5);
+              /*
+               * Насыщенность иконки — это остаток жилы (bigplan 38). Полная жила видна как
+               * раньше, выработанная показывается трещинами: на неё нельзя ставить шахту, и
+               * узнать об этом до клика игрок должен по самой карте.
+               */
+              const exhausted = isDepositExhausted(grid.depositReserves, k);
+              const left = depositRatio(grid.depositReserves, k);
+              const t = getIconFromPool(
+                exhausted ? RUIN_ICON : getDepositEmoji(dep),
+                isHex ? HEX_SIZE * 0.8 : CELL * 0.5,
+              );
               if (t) {
-                t.alpha = 0.5;
+                t.alpha = exhausted ? 0.3 : 0.25 + left * 0.35;
                 t.x = px;
                 t.y = py;
               }

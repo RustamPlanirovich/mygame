@@ -5,7 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import Decimal from 'break_eternity.js';
 import type { Building, ResourceType } from '../gameTypes';
-import { DEMOLITION_REFUND_RATE, isEmptyPlan, planDemolition } from './demolition';
+import {
+  DEMOLITION_REFUND_RATE,
+  investedMultiplier,
+  isEmptyPlan,
+  planDemolition,
+} from './demolition';
+import { RUIN_REFUND_MIN } from './deposits';
 import type { TileJob } from './construction';
 
 const D = (v: number | string) => new Decimal(v);
@@ -124,6 +130,78 @@ describe('planDemolition', () => {
     };
     const plan = planDemolition(['1,1'], { '1,1': 'miner_mk1' }, BUILDINGS, withProgression);
     expect(plan.refund.energy?.toNumber()).toBe(200 * DEMOLITION_REFUND_RATE);
+  });
+});
+
+describe('разбор руин (bigplan 38)', () => {
+  /** Здание с кредитной ценой: у руины возвращаются и кредиты за улучшения. */
+  const MINE = {
+    ...building('miner_mk1', { energy: D(100) }),
+    creditCost: D(250),
+  } as Building;
+  const CATALOG = [MINE];
+
+  it('за руину возвращается доля ВСЕГО вложенного, а не только постройки', () => {
+    const plan = planDemolition(['1,1'], { '1,1': 'miner_mk1' }, CATALOG, flatCost, {
+      isRuined: () => true,
+      tileLevels: { '1,1': 3 },
+      ruinRefundRate: 0.5,
+    });
+
+    // Улучшения до 3-го уровня: baseCost × (1.15¹ + 1.15²) = 100 × 2.4725.
+    const upgrades = Math.pow(1.15, 1) + Math.pow(1.15, 2);
+    expect(plan.refund.energy?.toNumber()).toBeCloseTo((100 + 100 * upgrades) * 0.5, 6);
+    expect(plan.refundCredits.toNumber()).toBeCloseTo(250 * upgrades * 0.5, 6);
+    expect(plan.ruined.keys).toEqual(['1,1']);
+    expect(plan.ruined.rate).toBe(0.5);
+  });
+
+  it('руина первого уровня возвращает долю одной только постройки', () => {
+    const plan = planDemolition(['1,1'], { '1,1': 'miner_mk1' }, CATALOG, flatCost, {
+      isRuined: () => true,
+      tileLevels: { '1,1': 1 },
+      ruinRefundRate: 0.25,
+    });
+    expect(plan.refund.energy?.toNumber()).toBeCloseTo(100 * 0.25, 6);
+    // Кредиты за постройку возвращает не снос, а отмена работы: улучшений тут не было.
+    expect(plan.refundCredits.toNumber()).toBe(0);
+  });
+
+  it('обычный снос считается по-прежнему, даже если рядом сносят руину', () => {
+    const tiles = { '1,1': 'miner_mk1', '2,2': 'miner_mk1' };
+    const plan = planDemolition(['1,1', '2,2'], tiles, CATALOG, flatCost, {
+      isRuined: (key) => key === '1,1',
+      tileLevels: { '1,1': 1, '2,2': 5 },
+      ruinRefundRate: 0.25,
+    });
+
+    // Целая шахта: 75% постройки и ни кредита за улучшения — правило не изменилось.
+    // Руина: 25% постройки. Итого 25 + 75.
+    expect(plan.refund.energy?.toNumber()).toBeCloseTo(100 * 0.25 + 100 * DEMOLITION_REFUND_RATE, 6);
+    expect(plan.ruined.keys).toEqual(['1,1']);
+  });
+
+  it('без явной ставки берётся самая скромная из объявленных', () => {
+    const plan = planDemolition(['1,1'], { '1,1': 'miner_mk1' }, CATALOG, flatCost, {
+      isRuined: () => true,
+      tileLevels: { '1,1': 1 },
+    });
+    expect(plan.refund.energy?.toNumber()).toBeCloseTo(100 * RUIN_REFUND_MIN, 6);
+  });
+});
+
+describe('investedMultiplier', () => {
+  it('первый уровень — улучшений ещё не было', () => {
+    expect(investedMultiplier(1)).toBe(0);
+    expect(investedMultiplier(0)).toBe(0);
+  });
+
+  it('совпадает с суммой шагов улучшения baseCost × 1.15^уровень', () => {
+    for (const level of [2, 5, 12]) {
+      let manual = 0;
+      for (let l = 1; l < level; l++) manual += Math.pow(1.15, l);
+      expect(investedMultiplier(level)).toBeCloseTo(manual, 6);
+    }
   });
 });
 

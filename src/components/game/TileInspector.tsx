@@ -8,7 +8,7 @@ import {
 } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type Decimal from 'break_eternity.js';
-import type { ResourceType, TradeResourceType, DepositType } from '../../core/gameTypes';
+import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff, Settings } from 'lucide-react';
@@ -26,6 +26,16 @@ import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
 import { GameIcon, IconText } from '../ui/icons';
 import { jobProgress, jobRemainingMs, type TileJob } from '../../core/systems/construction';
+import {
+  RUIN_REFUND_MAX,
+  RUIN_REFUND_MIN,
+  depositLeft,
+  depositRatio,
+  depositTotal,
+  isDepositExhausted,
+  isTileRuined,
+  requiredDepositForBuilding,
+} from '../../core/systems/deposits';
 
 /** «12с» / «1м 05с» — остаток работы человеческим текстом. */
 function formatJobRemaining(job: TileJob, now: number): string {
@@ -37,23 +47,6 @@ function formatJobRemaining(job: TileJob, now: number): string {
   const seconds = totalSeconds % 60;
   return `${minutes}м ${String(seconds).padStart(2, '0')}с`;
 }
-
-const requiredDepositForBuilding = (buildingId: string): DepositType | null => {
-  if (buildingId === 'miner_mk1') return 'ore';
-  if (buildingId === 'ice_extractor_mk1') return 'ice';
-  if (buildingId === 'carbon_harvester_mk1') return 'carbon';
-  // Фаза 2: Новые добывающие здания
-  if (buildingId === 'gas_well_mk1') return 'natural_gas';
-  if (buildingId === 'oil_well_mk1') return 'oil';
-  if (buildingId === 'sand_quarry_mk1') return 'sand';
-  // Фаза 2.3: Металлические шахты
-  if (buildingId === 'uranium_mine_mk1') return 'uranium';
-  if (buildingId === 'chrome_mine_mk1') return 'chrome';
-  if (buildingId === 'titanium_mine_mk1') return 'titanium';
-  // Фаза 2.4: Медная шахта
-  if (buildingId === 'copper_mine_mk1') return 'copper';
-  return null;
-};
 
 export function TileInspector() {
   // Подписываемся на конкретные поля grid для правильного реактивного обновления
@@ -82,6 +75,15 @@ export function TileInspector() {
       if (platform) return platform.grid.deposits;
     }
     return s.grid.deposits;
+  });
+  // Остатки жил (bigplan.md, пункт 38). У платформ своих запасов нет: там добыча автономная.
+  const depositReserves = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (platformId) {
+      const platform = s.galaxies.platforms.find(p => p.id === platformId);
+      if (platform) return platform.grid.depositReserves;
+    }
+    return s.grid.depositReserves;
   });
   const buffers = useGameStore((s) => {
     const platformId = s.galaxies.activePlatformId;
@@ -162,6 +164,7 @@ export function TileInspector() {
     selected,
     tiles,
     deposits,
+    depositReserves,
     buffers,
     tileLevels,
     tileEvolutionLevels,
@@ -171,7 +174,7 @@ export function TileInspector() {
     selectedBuildId,
     width: gridWidth,
     height: gridHeight,
-  }), [selected, tiles, deposits, buffers, tileLevels, tileEvolutionLevels, tileDisabled, tileJobs, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
+  }), [selected, tiles, deposits, depositReserves, buffers, tileLevels, tileEvolutionLevels, tileDisabled, tileJobs, marketPolicy, selectedBuildId, gridWidth, gridHeight]);
   
   const buildings = useGameStore((s) => s.buildings);
   // Get resources from active platform or main base
@@ -233,6 +236,37 @@ export function TileInspector() {
   const tileMarketPolicy = selectedKey ? (grid.marketPolicy?.[selectedKey] ?? {}) : {};
 
   const deposit = selectedKey ? grid.deposits?.[selectedKey] : null;
+
+  /*
+   * Остаток жилы под клеткой (bigplan.md, пункт 38).
+   *
+   * Показывается и под зданием, и на пустой клетке: до постройки шахты игрок должен видеть,
+   * надолго ли её хватит, а после — сколько осталось. Клетка без записи о запасе (старый
+   * сейв) показывается как полная, а не как выработанная — см. depositRatio.
+   */
+  const depositInfo = useMemo(() => {
+    if (!selectedKey || !deposit) return null;
+    const total = depositTotal(grid.depositReserves, selectedKey);
+    /*
+     * Записи о запасе может не быть вовсе — так устроены космические платформы: добыча там
+     * автономная и жилы не истощаются. Показывать «Запас: 0» в этом случае значило бы врать,
+     * поэтому блока просто нет.
+     */
+    if (total <= 0) return null;
+    return {
+      left: depositLeft(grid.depositReserves, selectedKey),
+      total,
+      ratio: depositRatio(grid.depositReserves, selectedKey),
+      exhausted: isDepositExhausted(grid.depositReserves, selectedKey),
+    };
+  }, [selectedKey, deposit, grid.depositReserves]);
+
+  /** Здание стоит на выработанной жиле: работать оно не может, остаётся только снести. */
+  const isRuined = Boolean(
+    selectedKey &&
+      buildingId &&
+      isTileRuined(requiredDepositForBuilding(buildingId), grid.depositReserves, selectedKey),
+  );
 
   const basePos = useMemo(() => getBasePos(grid), [grid.width, grid.height]);
   const isBaseSelected = Boolean(grid.selected && grid.selected.x === basePos.x && grid.selected.y === basePos.y);
@@ -568,10 +602,11 @@ export function TileInspector() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-cyber-blue font-bold flex items-center gap-2">
-                  {PlacedBuildIcon ? <PlacedBuildIcon size={16} className="text-cyber-blue" /> : null}
+                <div className={`font-bold flex items-center gap-2 ${isRuined ? 'text-cyber-red' : 'text-cyber-blue'}`}>
+                  {PlacedBuildIcon ? <PlacedBuildIcon size={16} className={isRuined ? 'text-cyber-red' : 'text-cyber-blue'} /> : null}
                   <span>{building.name}</span>
                   <span className="text-cyber-green text-sm">Ур. {buildingLevel}</span>
+                  {isRuined ? <GameIcon icon="broken_image" size={14} /> : null}
                 </div>
                 <div className="text-xs text-cyber-text-dim">На клетке · Всего установлено: {building.count}</div>
               </div>
@@ -579,9 +614,61 @@ export function TileInspector() {
                 className="cyber-button text-xs py-2 px-3"
                 onClick={() => removeBuildingAt(grid.selected!)}
               >
-                СНЕСТИ
+                {isRuined ? 'РАЗОБРАТЬ' : 'СНЕСТИ'}
               </button>
             </div>
+
+            {/*
+              Разрушенное здание (bigplan.md, пункт 38). Отдельная плашка, а не строка в
+              описании: молча вставшая шахта читается как поломка энергосети, и игрок будет
+              искать причину не там. Здесь же сразу сказано, что делать и что за это будет.
+            */}
+            {isRuined ? (
+              <div className="p-2 rounded border bg-red-900/20 border-red-500/40">
+                <div className="text-xs font-bold text-red-300 flex items-center gap-1">
+                  <GameIcon icon="broken_image" size={13} />
+                  Здание разрушено: месторождение выработано
+                </div>
+                <div className="text-[10px] text-cyber-gray-light mt-0.5">
+                  Добыча остановлена навсегда — жила пуста. При разборе вернётся{' '}
+                  {Math.round(RUIN_REFUND_MIN * 100)}–{Math.round(RUIN_REFUND_MAX * 100)}% всего
+                  вложенного в клетку, включая улучшения и кредиты за них.
+                </div>
+              </div>
+            ) : null}
+
+            {/* Остаток жилы под добывающим зданием: по нему видно, когда искать новое место. */}
+            {depositInfo && !isRuined ? (
+              <div className="p-2 rounded border bg-cyber-dark/40 border-cyber-gray/30">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-cyber-text-dim">
+                    Месторождение: <span className="text-cyber-text">{RESOURCE_LABEL[deposit as ResourceType]}</span>
+                  </span>
+                  <span className="font-mono text-cyber-text">
+                    {formatNumber(D(depositInfo.left))}
+                    {' / '}
+                    {formatNumber(D(depositInfo.total))}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-cyber-gray/20 rounded-full overflow-hidden mt-1">
+                  <div
+                    className={`h-full transition-all ${
+                      depositInfo.ratio < 0.15
+                        ? 'bg-cyber-red'
+                        : depositInfo.ratio < 0.4
+                          ? 'bg-orange-400'
+                          : 'bg-cyber-green'
+                    }`}
+                    style={{ width: `${Math.max(2, Math.round(depositInfo.ratio * 100))}%` }}
+                  />
+                </div>
+                {depositInfo.ratio < 0.15 ? (
+                  <div className="text-[10px] text-cyber-red mt-0.5">
+                    Жила почти выработана: присмотрите место под следующую шахту.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* ФАЗА 11: УПРАВЛЕНИЕ ЗДАНИЕМ (Отключить/Включить) */}
             {buildingId && isBuildingDisableable(buildingId) && (
@@ -1207,8 +1294,22 @@ export function TileInspector() {
             <div className="text-sm text-cyber-text-dim">Пустая клетка</div>
 
             {deposit ? (
-              <div className="text-xs text-cyber-text-dim">
-                Месторождение: <span className="text-cyber-text">{RESOURCE_LABEL[deposit]}</span>
+              <div className="text-xs text-cyber-text-dim space-y-1">
+                <div>
+                  Месторождение: <span className="text-cyber-text">{RESOURCE_LABEL[deposit]}</span>
+                </div>
+                {/* Запас жилы виден ДО постройки: иначе выбор места был бы вслепую. */}
+                {depositInfo?.exhausted ? (
+                  <div className="text-cyber-red flex items-center gap-1">
+                    <GameIcon icon="broken_image" size={12} />
+                    Выработано — добывать здесь больше нечего.
+                  </div>
+                ) : depositInfo ? (
+                  <div className="text-cyber-gray-light">
+                    Запас: {formatNumber(D(depositInfo.left))}
+                    {` (${Math.round(depositInfo.ratio * 100)}%)`}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="text-xs text-cyber-gray-light">Месторождений нет.</div>
@@ -1243,17 +1344,34 @@ export function TileInspector() {
                 {(() => {
                   const need = requiredDepositForBuilding(selectedBuild.id);
                   if (!need) return null;
-                  if (deposit === need) return null;
-                  return (
-                    <div className="text-xs text-cyber-red">
-                      Нельзя поставить здесь: нужна клетка с месторождением {RESOURCE_LABEL[need]}.
-                    </div>
-                  );
+                  if (deposit !== need) {
+                    return (
+                      <div className="text-xs text-cyber-red">
+                        Нельзя поставить здесь: нужна клетка с месторождением {RESOURCE_LABEL[need]}.
+                      </div>
+                    );
+                  }
+                  // Жила есть, но пустая: причина отказа своя, и назвать её надо своими словами.
+                  if (depositInfo?.exhausted) {
+                    return (
+                      <div className="text-xs text-cyber-red">
+                        Нельзя поставить здесь: месторождение {RESOURCE_LABEL[need]} выработано.
+                      </div>
+                    );
+                  }
+                  return null;
                 })()}
 
                 <button
                   className="cyber-button text-xs py-2 px-3 w-full"
-                  disabled={!affordability.canAfford || Boolean(selectedBuild && requiredDepositForBuilding(selectedBuild.id) && deposit !== requiredDepositForBuilding(selectedBuild.id))}
+                  disabled={
+                    !affordability.canAfford ||
+                    Boolean(
+                      requiredDepositForBuilding(selectedBuild.id) &&
+                        (deposit !== requiredDepositForBuilding(selectedBuild.id) ||
+                          depositInfo?.exhausted),
+                    )
+                  }
                   onClick={() => placeSelectedBuildAt(grid.selected!)}
                 >
                   ПОСТАВИТЬ ЗДЕСЬ

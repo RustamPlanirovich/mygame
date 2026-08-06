@@ -17,6 +17,7 @@ import {
 import { GameIcon } from '../ui/icons';
 import { Lock, Search } from 'lucide-react';
 import { buildDurationSeconds } from '../../core/systems/construction';
+import { BUILDING_DEPOSIT_REQUIREMENT, isDepositExhausted } from '../../core/systems/deposits';
 
 /*
  * Строительство в стиле Industry Idle: один плоский список с поиском, а не колода
@@ -31,18 +32,12 @@ import { buildDurationSeconds } from '../../core/systems/construction';
  * «+15%» означает ровно +15% к производству именно здесь.
  */
 
-const DEPOSIT_BY_BUILDING: Record<string, DepositType> = {
-  miner_mk1: 'ore',
-  ice_extractor_mk1: 'ice',
-  carbon_harvester_mk1: 'carbon',
-  gas_well_mk1: 'natural_gas',
-  oil_well_mk1: 'oil',
-  sand_quarry_mk1: 'sand',
-  uranium_mine_mk1: 'uranium',
-  chrome_mine_mk1: 'chrome',
-  titanium_mine_mk1: 'titanium',
-  copper_mine_mk1: 'copper',
-};
+/*
+ * Какому зданию нужна какая жила — таблица одна на всю игру (core/systems/deposits.ts).
+ * Здесь лежала её четвёртая копия; от неё зависит не только «можно ли поставить», но и
+ * «разрушено ли здание», так что расхождение копий стало бы видимым багом.
+ */
+const DEPOSIT_BY_BUILDING = BUILDING_DEPOSIT_REQUIREMENT;
 
 const DEPOSIT_LABEL: Record<DepositType, string> = {
   ore: 'Руда',
@@ -123,6 +118,8 @@ export function BuildPanel() {
       return {
         tiles: active.tiles,
         deposits: active.deposits,
+        // Остатки жил (bigplan.md, пункт 38): на выработанной шахту ставить нельзя.
+        depositReserves: active.depositReserves,
         selected: active.selected,
         selectedBuildId: active.selectedBuildId,
         width: active.width,
@@ -160,6 +157,10 @@ export function BuildPanel() {
 
   const selectedKey = grid.selected ? `${grid.selected.x},${grid.selected.y}` : null;
   const tileDeposit = selectedKey ? grid.deposits?.[selectedKey] ?? null : null;
+  // Выработанная жила: месторождение на клетке ещё показывается, но добывать там нечего.
+  const tileDepositExhausted = Boolean(
+    selectedKey && tileDeposit && isDepositExhausted(grid.depositReserves, selectedKey),
+  );
   const tileOccupied = selectedKey ? Boolean(grid.tiles[selectedKey]) : false;
   const isBaseTile =
     grid.selected !== null &&
@@ -323,9 +324,13 @@ export function BuildPanel() {
               ({grid.selected.x}, {grid.selected.y})
             </span>
             {tileDeposit ? (
-              <span className="badge badge-accent">
-                <GameIcon icon={getDepositEmoji(tileDeposit)} size={12} />
+              <span className={tileDepositExhausted ? 'badge badge-warning' : 'badge badge-accent'}>
+                <GameIcon
+                  icon={tileDepositExhausted ? 'broken_image' : getDepositEmoji(tileDeposit)}
+                  size={12}
+                />
                 {DEPOSIT_LABEL[tileDeposit]}
+                {tileDepositExhausted ? ' · выработано' : ''}
               </span>
             ) : null}
             {tileOccupied && <span className="badge badge-warning">клетка занята</span>}
@@ -408,7 +413,9 @@ export function BuildPanel() {
           const cost = calculateCost(b);
           const canPay = affordable[b.id];
           const requiredDeposit = DEPOSIT_BY_BUILDING[b.id];
-          const depositMismatch = Boolean(requiredDeposit) && tileDeposit !== requiredDeposit;
+          // Выработанная жила — такой же отказ, как её отсутствие: строить шахту негде.
+          const depositMismatch =
+            Boolean(requiredDeposit) && (tileDeposit !== requiredDeposit || tileDepositExhausted);
 
           const inputs = Object.entries(b.consumption ?? {});
           const outputs = Object.entries(b.production ?? {});

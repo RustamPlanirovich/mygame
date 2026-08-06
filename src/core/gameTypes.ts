@@ -837,6 +837,13 @@ export interface GridState {
   tileJobs?: Record<string, import('./systems/construction').TileJob>;
   // key = "x,y"; value = deposit type (where extraction buildings can be placed)
   deposits?: Record<string, DepositType>;
+  /*
+   * Остаток месторождения по клеткам (bigplan.md, пункт 38). key = "x,y".
+   * Источники иссякаемы: добытчик вычитает отсюда ровно то, что произвёл, а на нуле
+   * считается РАЗРУШЕННЫМ. Отдельного флага «разрушено» нет намеренно — он мог бы
+   * разойтись с остатком; см. isTileRuined в core/systems/deposits.ts.
+   */
+  depositReserves?: import('./systems/deposits').DepositReserves;
   // key = "x,y" (and special key "base"); values are stringified decimals
   buffers: Record<string, Partial<Record<ResourceType, string>>>;
   // Active transports for visualization (auto-logistics)
