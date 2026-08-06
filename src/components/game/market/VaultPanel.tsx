@@ -19,6 +19,9 @@ import { VAULT_CREDITS, MARKET_CONSTANTS } from '../../../core/gameTypes.market'
 import type { VaultResource, TradeResourceType } from '../../../core/gameTypes.market';
 import { RESOURCE_NAMES, TRADEABLE_RESOURCES, vaultResourceName } from './resourceLabels';
 import { GameIcon, IconText } from '../../ui/icons';
+import { useStorageRoom } from '../../../hooks/useStorageRoom';
+import { checkStorageRoom, storageRoomNotice } from '../../../core/systems/storageRoom';
+import type { ResourceType } from '../../../core/gameTypes';
 
 /** Как часто пересчитывать «сколько у игрока в игре». */
 const HELD_REFRESH_MS = 2000;
@@ -186,6 +189,24 @@ export function VaultPanel() {
     depositPreview && 'amount' in depositPreview && D(depositPreview.amount).gt(D(heldForDeposit));
   const withdrawTooMuch =
     withdrawPreview && 'amount' in withdrawPreview && D(withdrawPreview.amount).gt(D(availableForWithdraw));
+
+  /*
+   * Замечание про склад. Вывод начисляет в base-буфер ВЕСЬ объём, а ближайший тик обрезает
+   * буфер по вместимости — излишек исчезает, и сейф его уже не вернёт (заявка закрыта).
+   * Это последняя дверь, за которой купленное на бирже попадает на склад, поэтому
+   * предупреждение здесь обязательно; операцию не блокируем — игрок вправе вывести всё
+   * и разбираться со складом сам.
+   */
+  const withdrawStorage = useStorageRoom(
+    withdrawResource === VAULT_CREDITS ? null : (withdrawResource as ResourceType),
+  );
+  const withdrawRoomNotice = useMemo(() => {
+    if (withdrawResource === VAULT_CREDITS || !withdrawStorage.known) return null;
+    if (!withdrawPreview || !('amount' in withdrawPreview)) return null;
+    const check = checkStorageRoom(withdrawPreview.amount, withdrawStorage.held, withdrawStorage.cap);
+    const notice = storageRoomNotice(check, vaultResourceName(withdrawResource), 'burn');
+    return notice ? { ...notice, isFull: check.isFull } : null;
+  }, [withdrawResource, withdrawStorage, withdrawPreview]);
 
   const handleDeposit = async () => {
     setDepositNote(null);
@@ -448,6 +469,14 @@ export function VaultPanel() {
                   <p className="text-3xs text-danger">
                     Свободно только {formatAmount(availableForWithdraw)}.
                   </p>
+                )}
+                {withdrawRoomNotice && (
+                  <Alert
+                    tone={withdrawRoomNotice.isFull ? 'danger' : 'warning'}
+                    title={withdrawRoomNotice.title}
+                  >
+                    {withdrawRoomNotice.text}
+                  </Alert>
                 )}
 
                 <button

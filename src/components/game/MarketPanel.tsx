@@ -9,6 +9,8 @@ import { ContractsPanel } from './ContractsPanel';
 import { TradingPanel } from './TradingPanel';
 import { GlobalMarketPanel } from './market/GlobalMarketPanel';
 import { GameIcon } from '../ui/icons';
+import { Alert } from '../ui';
+import { checkStorageRoom, storageRoomNotice } from '../../core/systems/storageRoom';
 
 const TRADEABLE: TradeResourceType[] = ['ore', 'ice', 'carbon', 'steel'];
 
@@ -96,9 +98,15 @@ export function MarketPanel() {
 
   const have = resources[selected].amount;
   const credits = currency.credits;
-  const room = resources[selected].max.sub(have).max(D(0));
+  /*
+   * Замечание про склад. buyResource молча урезает покупку до свободного места, а на
+   * полном складе кнопка «Купить» просто гаснет — без объяснения, почему. Считаем то же
+   * самое заранее и говорим вслух.
+   */
+  const buyRoom = checkStorageRoom(qtyDec, have, resources[selected].max);
+  const buyRoomNotice = storageRoomNotice(buyRoom, TRADE_LABEL[selected], 'clamp');
   const affordable = buyUnit.gt(0) ? credits.div(buyUnit).max(D(0)) : D(0);
-  const maxBuy = room.min(affordable);
+  const maxBuy = buyRoom.room.min(affordable);
 
   const canBuy = qtyDec.gt(0) && maxBuy.gt(0);
   const canSell = qtyDec.gt(0) && have.gt(0);
@@ -190,6 +198,8 @@ export function MarketPanel() {
           buyUnit={buyUnit}
           have={have}
           maxBuy={maxBuy}
+          buyRoom={buyRoom}
+          buyRoomNotice={buyRoomNotice}
           chartStats={chartStats}
           points={points}
           buyResource={buyResource}
@@ -221,6 +231,8 @@ function SpotTradingContent({
   buyUnit,
   have,
   maxBuy,
+  buyRoom,
+  buyRoomNotice,
   chartStats,
   points,
   buyResource,
@@ -315,14 +327,29 @@ function SpotTradingContent({
             <div className="text-cyber-text-dim text-right">
               Макс: <span className="text-cyber-text">{formatNumber(maxBuy)}</span>
             </div>
+            <div className="text-cyber-text-dim">
+              Место на складе:{' '}
+              <span className={buyRoom.isFull ? 'text-cyber-red' : 'text-cyber-text'}>
+                {formatNumber(buyRoom.room)}
+              </span>
+            </div>
           </div>
-          
+
           {qtyDec.gt(0) && (
             <div className="text-sm text-cyber-text-dim mb-3">
               Стоимость: <span className="text-cyber-blue font-semibold text-lg">{formatNumber(estBuyCost)} ₡</span>
             </div>
           )}
-          
+
+          {/* Замечание про склад показываем ДО кнопки: после нажатия объяснять уже поздно. */}
+          {buyRoomNotice && (
+            <div className="mb-3">
+              <Alert tone={buyRoom.isFull ? 'danger' : 'warning'} title={buyRoomNotice.title}>
+                {buyRoomNotice.text}
+              </Alert>
+            </div>
+          )}
+
           <button
             className={`w-full py-3 rounded-lg font-semibold transition-all ${
               canBuy 

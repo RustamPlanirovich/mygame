@@ -5,6 +5,8 @@ import type { TradeResourceType } from '../../core/gameTypes';
 import { TRADE_LABEL } from '../../core/constants/labels';
 import { TrendingUp, TrendingDown, X, Clock } from 'lucide-react';
 import { GameIcon } from '../ui/icons';
+import { Alert } from '../ui';
+import { checkStorageRoom, storageRoomNotice } from '../../core/systems/storageRoom';
 
 export function TradingPanel() {
   const market = useGameStore((s) => s.market);
@@ -33,6 +35,17 @@ export function TradingPanel() {
   const canPlace = orderType === 'buy'
     ? currency.credits.gte(collateral) && targetPriceDec.gt(0) && amountDec.gt(0)
     : resources[selected].amount.gte(collateral) && targetPriceDec.gt(0) && amountDec.gt(0);
+
+  /*
+   * Замечание про склад. Исполнение ордера на покупку кладёт в base-буфер ВЕСЬ объём, а
+   * следующий тик обрезает буфер по вместимости — то, что не влезло, исчезает. Залог при
+   * этом списан заранее, так что молчащая форма означала бы оплаченный и потерянный товар.
+   * Ордер не блокируем: цена может сойтись через минуты, и к тому времени склад успеют
+   * достроить, — поэтому предупреждаем и отдельно оговариваем, что место считается «на сейчас».
+   */
+  const orderRoom = checkStorageRoom(amountDec, resources[selected].amount, resources[selected].max);
+  const orderRoomNotice =
+    orderType === 'buy' ? storageRoomNotice(orderRoom, TRADE_LABEL[selected], 'burn') : null;
 
   const getTimeLeft = (expiresAt: number) => {
     const ms = Math.max(0, expiresAt - Date.now());
@@ -137,7 +150,23 @@ export function TradingPanel() {
             </span>
           </div>
         )}
+
+        {orderType === 'buy' && (
+          <div className="text-xs text-cyber-text-dim">
+            Место на складе:{' '}
+            <span className={`font-mono ${orderRoom.isFull ? 'text-red-400' : 'text-cyber-text'}`}>
+              {formatNumber(orderRoom.room)}
+            </span>
+          </div>
+        )}
       </div>
+
+      {orderRoomNotice && (
+        <Alert tone={orderRoom.isFull ? 'danger' : 'warning'} title={orderRoomNotice.title}>
+          {orderRoomNotice.text} Место считается по складу на сейчас, а ордер исполнится позже —
+          успеете расширить склад, всё поместится.
+        </Alert>
+      )}
 
       {/* Place Order Button */}
       <button

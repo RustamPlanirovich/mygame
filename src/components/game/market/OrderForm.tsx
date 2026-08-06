@@ -16,6 +16,9 @@ import { RESOURCE_NAMES, TRADEABLE_RESOURCES } from './resourceLabels';
 import type { TradeResourceType } from '../../../core/gameTypes.market';
 import { MARKET_CONSTANTS } from '../../../core/gameTypes.market';
 import { GameIcon, IconText } from '../../ui/icons';
+import { useStorageRoom } from '../../../hooks/useStorageRoom';
+import { checkStorageRoom, storageRoomNotice } from '../../../core/systems/storageRoom';
+import type { ResourceType } from '../../../core/gameTypes';
 
 const EMPTY_ROW = { available: '0', locked: '0' };
 
@@ -89,6 +92,23 @@ export function OrderForm() {
     resourceRow.available,
     vaultCredits.available,
   ]);
+
+  /*
+   * Замечание про склад. Купленное на глобальной бирже падает в СЕЙФ, у которого потолка
+   * нет, — потерять товар нельзя. Но забрать его в игру можно только в пределах склада,
+   * и узнавать об этом на вкладке «Кошелёк биржи» уже поздно: кредиты потрачены, а объём
+   * выбран под несуществующее место. Поэтому предупреждаем на этапе ордера — мягко
+   * ('stuck': излишек подождёт в сейфе) и только на покупке.
+   */
+  const storage = useStorageRoom(
+    !isSell && orderFormResource ? (orderFormResource as ResourceType) : null,
+  );
+  const storageNotice = useMemo(() => {
+    if (isSell || !orderFormResource || !storage.known) return null;
+    const check = checkStorageRoom(orderFormQuantity || '0', storage.held, storage.cap);
+    const notice = storageRoomNotice(check, RESOURCE_NAMES[orderFormResource], 'stuck');
+    return notice ? { ...notice, isFull: check.isFull } : null;
+  }, [isSell, orderFormResource, orderFormQuantity, storage]);
 
   const belowMinimum =
     orderFormQuantity !== '' && D(orderFormQuantity || '0').lt(MARKET_CONSTANTS.MIN_ORDER_QUANTITY);
@@ -232,6 +252,12 @@ export function OrderForm() {
                 : 'Исполнение по цене лучше вашей — разница вернётся из эскроу.'}
             </p>
           </div>
+        )}
+
+        {storageNotice && (
+          <Alert tone={storageNotice.isFull ? 'danger' : 'warning'} title={storageNotice.title}>
+            {storageNotice.text}
+          </Alert>
         )}
 
         {coverage && !coverage.enough && (
