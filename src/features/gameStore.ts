@@ -8206,6 +8206,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       try {
         const body = await response.json();
         rememberSaveRevision(body?.save?.id, body?.save?.revision);
+
+        /*
+         * Сервер мог не перезаписать сейв, а СОЗДАТЬ новый: указатель users.current_save_id
+         * привязан к пользователю, а не к слоту (см. PUT /api/saves), поэтому в слоте без
+         * сохранений он null, а после переключения слотов может указывать на чужой сейв.
+         * Раньше указатель после такой записи не двигался: каждое следующее автосохранение
+         * снова создавало новую строку (лишние сейвы вытесняли друг друга), а профиль не мог
+         * ответить, в каком сохранении игрок сейчас находится.
+         */
+        const writtenSaveId = body?.save?.id;
+        if (typeof writtenSaveId === 'number' && writtenSaveId !== currentSaveId) {
+          await saveCurrentSaveIdToServer(writtenSaveId);
+        }
       } catch {
         /* тело успешного ответа не разобралось — версия останется прежней, следующая
            запись просто получит 409 и перезагрузится */

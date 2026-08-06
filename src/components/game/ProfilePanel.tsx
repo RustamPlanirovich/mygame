@@ -1,8 +1,33 @@
 import { useState, useEffect } from 'react';
-import { getCurrentSession, logout, loadSettingsFromServer, saveSettingsToServer } from '../../utils/settingsApi';
+import {
+  getCurrentSession,
+  logout,
+  loadSettingsFromServer,
+  saveSettingsToServer,
+  loadCurrentSaveIdFromServer,
+  getGameSlots,
+} from '../../utils/settingsApi';
+import { useGameStore } from '../../features/gameStore';
 import { DEFAULT_SETTINGS } from '../../core/gameTypes.settings';
 import type { GameSettings } from '../../core/gameTypes.settings';
 import { Save, LogOut, User, Mail, Shield, Clock, Gamepad2 } from 'lucide-react';
+
+/**
+ * Куда сейчас пишется прогресс. Игрок видел только кнопку «Управление сохранениями»
+ * и не мог ответить на простой вопрос «в каком сохранении я нахожусь» — а сейвов на
+ * слот несколько (ручные + до трёх автосохранений), и после загрузки чужого сейва
+ * активным становится он.
+ */
+interface ActiveSaveInfo {
+  slotName: string | null;
+  save: {
+    id: number;
+    name: string;
+    save_type: 'manual' | 'auto';
+    updated_at: string;
+  } | null;
+  savesCount: number;
+}
 
 interface ProfilePanelProps {
   onShowSaveManager: () => void;
@@ -18,6 +43,11 @@ export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: Pr
     createdAt: string;
     lastActivityAt: string;
   } | null>(null);
+  // null — ещё грузим; сама панель монтируется заново на каждое открытие профиля,
+  // так что отдельного обновления по событию не нужно.
+  const [activeSave, setActiveSave] = useState<ActiveSaveInfo | null>(null);
+
+  const getSavesList = useGameStore(state => state.getSavesList);
 
   // Загружаем информацию о сессии и настройки
   useEffect(() => {
@@ -31,16 +61,58 @@ export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: Pr
             lastActivityAt: session.user.last_activity_at || session.user.lastActivityAt,
           });
         }
-        
+
         const loadedSettings = await loadSettingsFromServer();
         setSettings(loadedSettings);
       } catch (error) {
         console.error('Ошибка загрузки данных:', error);
       }
     };
-    
+
     loadData();
   }, []);
+
+  /*
+   * Активное сохранение считаем пересечением двух источников: указатель
+   * users.current_save_id (куда пишет автосохранение) и список сейвов ТЕКУЩЕГО слота.
+   * Указатель привязан к пользователю, а не к слоту, поэтому он может указывать
+   * в никуда — тогда честнее сказать «не определено», чем показать чужую игру.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadActiveSave = async () => {
+      try {
+        const [currentSaveId, savesResult, slotsResult] = await Promise.all([
+          loadCurrentSaveIdFromServer(),
+          getSavesList(),
+          getGameSlots(),
+        ]);
+        if (cancelled) return;
+
+        const saves: ActiveSaveInfo['save'][] = savesResult.ok && Array.isArray(savesResult.saves)
+          ? savesResult.saves
+          : [];
+        const slotName = slotsResult.ok
+          ? slotsResult.slots?.find(slot => slot.id === slotsResult.currentSlotId)?.name ?? null
+          : null;
+
+        setActiveSave({
+          slotName,
+          save: saves.find(save => save?.id === currentSaveId) ?? null,
+          savesCount: saves.length,
+        });
+      } catch (error) {
+        console.error('Ошибка определения активного сохранения:', error);
+        if (!cancelled) setActiveSave({ slotName: null, save: null, savesCount: 0 });
+      }
+    };
+
+    loadActiveSave();
+    return () => {
+      cancelled = true;
+    };
+  }, [getSavesList]);
 
   const handleSaveSettings = async () => {
     setIsSaving(true);
@@ -127,7 +199,48 @@ export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: Pr
       {/* Управление сохранениями */}
       <div className="bg-cyber-darker border border-cyber-gray rounded-lg p-4 space-y-3">
         <h3 className="text-base font-bold text-cyber-green">Сохранения</h3>
-        
+
+        {/* Где именно сейчас идёт игра: слот + конкретный сейв, в который пишет автосохранение */}
+        {activeSave === null ? (
+          <div className="bg-cyber-dark border border-cyber-gray rounded p-3 text-xs text-cyber-text-dim">
+            Определяем текущее сохранение…
+          </div>
+        ) : activeSave.save ? (
+          <div className="bg-cyber-dark border border-cyan-500/30 rounded p-3 space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-cyber-text-dim">Сейчас играете в:</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded ${
+                  activeSave.save.save_type === 'auto'
+                    ? 'bg-gray-700 text-gray-300'
+                    : 'bg-cyan-600 text-white'
+                }`}
+              >
+                {activeSave.save.save_type === 'auto' ? 'Автосохранение' : 'Ручное'}
+              </span>
+            </div>
+            <div className="font-bold text-white text-sm truncate" title={activeSave.save.name}>
+              {activeSave.save.name}
+            </div>
+            <div className="text-xs text-cyber-text-dim">
+              {activeSave.slotName && <>Игра: {activeSave.slotName} • </>}
+              Записано: {formatDate(activeSave.save.updated_at)}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-cyber-dark border border-cyber-gray rounded p-3 space-y-1">
+            <div className="text-xs text-cyber-text-dim">Сейчас играете в:</div>
+            <div className="text-sm text-yellow-400">
+              {activeSave.savesCount === 0
+                ? 'Новая игра — сохранений ещё нет'
+                : 'Сохранение не выбрано — прогресс уйдёт в новое'}
+            </div>
+            {activeSave.slotName && (
+              <div className="text-xs text-cyber-text-dim">Игра: {activeSave.slotName}</div>
+            )}
+          </div>
+        )}
+
         <button
           onClick={onShowSaveManager}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2"
