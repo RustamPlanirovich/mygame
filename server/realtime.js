@@ -61,16 +61,28 @@ export function createRealtimeHub() {
       return clients.size;
     },
 
+    /** Кто сейчас на связи (по одному разу на игрока) — для диагностики рассылок. */
+    connectedUserIds() {
+      return [...new Set([...clients].map((c) => c.userId))];
+    },
+
     /**
      * Разослать событие всем подключённым.
      * @param {(client: {userId:number, guildId:string|null}) => boolean} [filter]
      *        Кому отправлять. По умолчанию — всем.
+     * @returns {number} скольким соединениям событие реально ушло.
+     *
+     * Счётчик возвращается не для красоты: рассылка — самая незаметная часть системы.
+     * Условие статуса ордера было сломано так, что событие не уходило НИ РАЗУ, и это
+     * никак не проявлялось. Вызывающий код логирует это число (см. market.js).
      */
     broadcast(event, payload, filter) {
+      let sent = 0;
       for (const client of [...clients]) {
         if (filter && !filter(client)) continue;
-        write(client, event, payload);
+        if (write(client, event, payload)) sent++;
       }
+      return sent;
     },
 
     /** Разослать только участникам гильдии. */

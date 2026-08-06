@@ -800,7 +800,7 @@ export function createMarketRoutes(app, pool, authMiddleware) {
          */
         const remaining = remainingQuantityText(updatedOrder.quantity, updatedOrder.quantity_filled);
 
-        realtimeHub.broadcast(
+        const sent = realtimeHub.broadcast(
           'market.order.created',
           {
             id: updatedOrder.id,
@@ -813,6 +813,21 @@ export function createMarketRoutes(app, pool, authMiddleware) {
             createdAt: new Date(updatedOrder.created_at).getTime(),
           },
           (c) => c.userId !== playerId,
+        );
+
+        /*
+         * Логируем ЯВНО. Рассылка не имеет обратной связи: если она не работает, снаружи это
+         * выглядит как «у второго игрока ничего не появилось», и отличить сломанный сервер от
+         * сломанного клиента нельзя. Одна строка в логе делит эту развилку пополам.
+         */
+        console.log(
+          `[market] анонс ордера ${updatedOrder.order_type} ${updatedOrder.resource} x${remaining}` +
+            ` от ${playerId}: доставлено ${sent} соединениям, на связи ${JSON.stringify(realtimeHub.connectedUserIds())}`
+        );
+      } else {
+        // Тоже видно в логе: «ничего не появилось» по мгновенно исполненной заявке — это норма.
+        console.log(
+          `[market] ордер ${updatedOrder.id} со статусом '${updatedOrder.status}' не анонсируем`
         );
       }
 

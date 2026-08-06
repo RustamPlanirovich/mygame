@@ -28,10 +28,15 @@ export type StreamStatus = 'connecting' | 'open' | 'closed';
 const MIN_STOCK_TO_OFFER = 1;
 
 /**
- * Не чаще одного тоста о заказах в этот интервал.
- * На живой бирже заявки идут пачками, и без этого игрок получил бы стену уведомлений.
+ * Не чаще одной плашки о заказах в этот интервал.
+ *
+ * Было 20 секунд, и это оказалось слишком грубо: при проверке вдвоём игрок ставит заявки
+ * подряд, а видит реакцию только на первую — то есть фича выглядит сломанной. От «стены
+ * уведомлений» защищают более точные вещи: плашек на экране максимум три, дубли одной
+ * заявки схлопываются (см. features/marketAlertStore.ts). Здесь остаётся только защита
+ * от откровенного спама заявками.
  */
-const ORDER_TOAST_COOLDOWN_MS = 20_000;
+const ORDER_TOAST_COOLDOWN_MS = 5_000;
 
 /**
  * Стоит ли показывать тост об этом заказе.
@@ -114,10 +119,6 @@ export function useServerStream(): StreamStatus {
              */
             const now = Date.now();
             if (now - lastOrderToastAtRef.current < ORDER_TOAST_COOLDOWN_MS) break;
-
-            // Уже стоим на бирже — предлагать «перейти на биржу» некуда и незачем.
-            const ui = useUiStore.getState();
-            if (ui.section === 'market' && ui.marketTab === 'global') break;
 
             const resources = useGameStore.getState().resources;
             const stock = (resource: ResourceType) => resources[resource]?.amount.toNumber() ?? 0;
