@@ -117,48 +117,42 @@ export const AnalyticsPanel = memo(function AnalyticsPanel() {
   return (
     <div className="flex h-full flex-col bg-cyber-gray-900">
       {/* Header */}
-      <div className="flex-none border-b border-cyber-gray-700 p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BarChart2 className="h-6 w-6 text-cyber-green-400" />
-            <h2 className="text-xl font-bold text-cyber-gray-100">Аналитика</h2>
-            {criticalBottlenecks > 0 && (
-              <Badge tone="danger" className="animate-pulse">
-                {criticalBottlenecks} критично
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-xs text-cyber-gray-500">
-              <Clock className="h-3 w-3" />
-              <span>
-                Обновлено: {new Date(lastUpdated).toLocaleTimeString('ru-RU')}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="icon-btn"
-              aria-label="Настройки аналитики"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-          </div>
+      <div className="flex-none border-b border-cyber-gray-700 p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <BarChart2 className="h-5 w-5 shrink-0 text-cyber-green-400" />
+          <h2 className="text-base font-bold text-cyber-gray-100">Аналитика</h2>
+          {criticalBottlenecks > 0 && (
+            <Badge tone="danger" className="animate-pulse whitespace-nowrap">
+              {criticalBottlenecks} критично
+            </Badge>
+          )}
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-2xs text-cyber-gray-500">
+            <Clock className="h-3 w-3" />
+            {new Date(lastUpdated).toLocaleTimeString('ru-RU')}
+          </span>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="icon-btn h-7 w-7 shrink-0"
+            aria-label="Настройки аналитики"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Time Range Selector */}
         <div className="flex items-center gap-2">
-          <span className="shrink-0 text-xs text-cyber-gray-500">Период:</span>
+          <span className="shrink-0 text-2xs text-cyber-gray-500">Период:</span>
           <Tabs items={TIME_RANGE_TABS} value={timeRange} onChange={setTimeRange} size="sm" />
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Семь вкладок в 400-пиксельную панель не влезают — ряд прокручивается (scroll). */}
       <div className="flex-none overflow-x-auto p-2">
-        <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} />
+        <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} size="sm" scroll />
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3">
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'production' && <ProductionTab />}
         {activeTab === 'energy' && <EnergyBreakdown />}
@@ -176,18 +170,18 @@ export const AnalyticsPanel = memo(function AnalyticsPanel() {
 
 /**
  * Overview Tab
+ *
+ * Один столбец. Раньше стоял `lg:grid-cols-2`, но он реагирует на ширину ОКНА,
+ * а панель аналитики всегда ~400px: на десктопе диаграммы и шкалы ужимались
+ * вдвое и подписи налезали друг на друга.
  */
 const OverviewTab = memo(function OverviewTab() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <EfficiencyScore />
-        <ResourceDistribution type="resources" />
-      </div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ResourceDistribution type="energy" />
-        <ProfitLossChart />
-      </div>
+    <div className="space-y-3">
+      <EfficiencyScore />
+      <ResourceDistribution type="resources" />
+      <ResourceDistribution type="energy" />
+      <ProfitLossChart />
     </div>
   );
 });
@@ -210,7 +204,7 @@ const ProductionTab = memo(function ProductionTab() {
     <div className="space-y-4">
       {/* Resource Selector */}
       <Panel
-        title="Выберите ресурсы для отображения"
+        title="Ресурсы на графиках"
         actions={
           <>
             <button
@@ -250,12 +244,10 @@ const ProductionTab = memo(function ProductionTab() {
  */
 const FinancialsTab = memo(function FinancialsTab() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <ProfitLossChart />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ResourceDistribution type="resources" />
-        <ResourceDistribution type="energy" />
-      </div>
+      <ResourceDistribution type="resources" />
+      <ResourceDistribution type="energy" />
     </div>
   );
 });

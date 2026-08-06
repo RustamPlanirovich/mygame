@@ -18,12 +18,14 @@ import {
 import { EmptyState } from '../../../ui';
 import { D, formatNumber } from '../../../../core/math/format';
 import {
+  AXIS_FONT_SIZE,
   AXIS_STROKE,
   CHART_MARGIN,
   DEFAULT_SERIES_COLOR,
   GRID_STROKE,
   TOOLTIP_CONTENT_STYLE,
   TOOLTIP_LABEL_STYLE,
+  Y_AXIS_WIDTH,
 } from './chartTheme';
 
 interface DataPoint {
@@ -82,7 +84,7 @@ export const LineChart = memo(function LineChart({
             value: yAxisLabel,
             angle: -90,
             position: 'insideLeft' as const,
-            style: { fill: AXIS_STROKE, fontSize: 12 },
+            style: { fill: AXIS_STROKE, fontSize: AXIS_FONT_SIZE },
           }
         : undefined,
     [yAxisLabel],
@@ -102,10 +104,17 @@ export const LineChart = memo(function LineChart({
       <ResponsiveContainer width="100%" height="100%">
         <RechartsLineChart data={formattedData} margin={CHART_MARGIN}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} opacity={0.5} />}
-          <XAxis dataKey="timeLabel" stroke={AXIS_STROKE} fontSize={12} tickLine={false} />
+          <XAxis
+            dataKey="timeLabel"
+            stroke={AXIS_STROKE}
+            fontSize={AXIS_FONT_SIZE}
+            tickLine={false}
+            minTickGap={28}
+          />
           <YAxis
             stroke={AXIS_STROKE}
-            fontSize={12}
+            fontSize={AXIS_FONT_SIZE}
+            width={Y_AXIS_WIDTH}
             tickLine={false}
             tickFormatter={tickFormatter}
             label={yAxisLabelConfig}

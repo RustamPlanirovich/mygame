@@ -7,7 +7,18 @@
  * модульными константами — ссылка стабильна на всё время жизни приложения.
  */
 
-export const CHART_MARGIN = { top: 5, right: 30, left: 20, bottom: 5 } as const;
+/*
+ * Поля были {right: 30, left: 20} — расчёт на широкий экран. Графики живут в боковой
+ * панели шириной ~400px, и 50 пикселей пустых полей забирали там седьмую часть ширины:
+ * подписи оси Y («1.26M») налезали на саму область графика.
+ */
+export const CHART_MARGIN = { top: 4, right: 8, left: 0, bottom: 0 } as const;
+
+/** Размер подписей осей. 12px в узкой панели давали слипшиеся деления. */
+export const AXIS_FONT_SIZE = 10;
+
+/** Ширина колонки под подписи оси Y: хватает на «1.26M», но не съедает полграфика. */
+export const Y_AXIS_WIDTH = 46;
 
 export const TOOLTIP_CONTENT_STYLE = {
   backgroundColor: '#2d2f3a',

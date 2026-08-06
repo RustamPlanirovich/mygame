@@ -79,12 +79,12 @@ export function GlobalMarketPanel() {
 
   return (
     <div className="relative flex h-full flex-col bg-surface-base text-content-primary">
-      <div className="flex shrink-0 items-center justify-between border-b border-edge px-3 py-2">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-          <span><GameIcon icon="🌐" /></span>
-          <span>Глобальная биржа</span>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-edge px-3 py-2">
+        <h2 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+          <span className="shrink-0"><GameIcon icon="🌐" /></span>
+          <span className="truncate">Глобальная биржа</span>
         </h2>
-        <span className="text-2xs text-content-faint">Торгуйте с другими игроками</span>
+        <span className="shrink-0 text-2xs text-content-faint">Торгуйте с другими</span>
       </div>
 
       <div className="shrink-0 space-y-1 px-2 pt-2">
@@ -103,12 +103,15 @@ export function GlobalMarketPanel() {
       {isLoading && <div className="absolute left-0 right-0 top-0 h-0.5 animate-pulse bg-accent" />}
 
       <div className="min-h-0 flex-1 overflow-auto p-2">
+        {/*
+          Форма и книга ордеров — строго в столбик. Раньше на десктопе включался
+          `md:grid-cols-2`, но панель-то шириной ~400px независимо от окна: обе
+          колонки сжимались до 190px, и подписи полей налезали друг на друга.
+        */}
         {activeTab === 'orders' && (
           <div className="space-y-2">
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <OrderForm />
-              <OrderBook />
-            </div>
+            <OrderForm />
+            <OrderBook />
             <PriceList compact />
           </div>
         )}

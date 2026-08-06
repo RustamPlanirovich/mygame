@@ -43,8 +43,9 @@ export const ProfitLossChart = memo(function ProfitLossChart() {
   return (
     <Panel title="Прибыль и убытки" icon={<DollarSign className="h-5 w-5" />}>
       {/* Summary Cards */}
-      <div className="mb-6 grid grid-cols-3 gap-4">
-        <div className="rounded-lg bg-green-900/20 p-4">
+      {/* Три плитки по ~120px: p-4 и gap-4 отъедали половину и рвали подписи */}
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-green-900/20 p-2">
           <Stat
             align="center"
             tone="accent"
@@ -54,7 +55,7 @@ export const ProfitLossChart = memo(function ProfitLossChart() {
           />
         </div>
 
-        <div className="rounded-lg bg-red-900/20 p-4">
+        <div className="rounded-lg bg-red-900/20 p-2">
           <Stat
             align="center"
             tone="danger"
@@ -65,7 +66,7 @@ export const ProfitLossChart = memo(function ProfitLossChart() {
         </div>
 
         <div
-          className="rounded-lg p-4"
+          className="rounded-lg p-2"
           style={{ backgroundColor: isProfit ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }}
         >
           <Stat

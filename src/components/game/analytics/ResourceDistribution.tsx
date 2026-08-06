@@ -89,31 +89,36 @@ export const ResourceDistribution = memo(function ResourceDistribution({
 
   return (
     <Panel title={title} icon={<PieIcon className="h-5 w-5" />}>
+      {/*
+        Своя легенда встроенной не нужна — ниже идёт список с точными значениями.
+        Раньше рисовались обе, да ещё и подписи секторов: три слоя текста на одном
+        круге в 400-пиксельной панели читались как каша.
+      */}
       <DonutChart
         data={data}
-        height={280}
+        height={200}
         centerValue={centerValue}
         centerLabel={centerLabel}
-        showLegend={true}
+        showLegend={false}
       />
 
       {/* Legend with values */}
-      <div className="mt-4 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
         {data.slice(0, 8).map((item) => (
           <div
             key={item.name}
-            className="flex items-center justify-between rounded bg-cyber-gray-900/50 p-2 text-xs"
+            className="flex min-w-0 items-center justify-between gap-1.5 rounded bg-cyber-gray-900/50 p-1.5 text-2xs"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
               <div
-                className="h-2 w-2 rounded-full"
+                className="h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: item.color }}
               />
-              <span className="max-w-[80px] truncate capitalize text-cyber-gray-300">
+              <span className="truncate capitalize text-cyber-gray-300">
                 {item.name}
               </span>
             </div>
-            <span className="font-medium text-cyber-gray-200">
+            <span className="shrink-0 font-medium tabular-nums text-cyber-gray-200">
               {formatNumber(D(item.value))}
             </span>
           </div>

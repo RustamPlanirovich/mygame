@@ -46,18 +46,19 @@ export function TraderLeaderboard() {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold flex items-center gap-2">
+    <div className="bg-gray-800 rounded-lg p-3">
+      {/* Заголовок и переключатель сортировки — в столбик: в строку они не помещались */}
+      <div className="mb-3 space-y-2">
+        <h3 className="flex items-center gap-2 text-sm font-bold">
           <span><GameIcon icon="🏆" /></span>
           <span>Лидерборд трейдеров</span>
         </h3>
 
         {/* Сортировка */}
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-1.5">
           <button
             onClick={() => setSortBy('volume')}
-            className={`px-3 py-1 rounded text-sm transition-colors ${
+            className={`rounded px-2 py-1 text-xs transition-colors ${
               sortBy === 'volume'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -67,7 +68,7 @@ export function TraderLeaderboard() {
           </button>
           <button
             onClick={() => setSortBy('trades')}
-            className={`px-3 py-1 rounded text-sm transition-colors ${
+            className={`rounded px-2 py-1 text-xs transition-colors ${
               sortBy === 'trades'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -79,48 +80,48 @@ export function TraderLeaderboard() {
       </div>
 
       {isLoading && (
-        <div className="text-center text-gray-400 py-8">Загрузка...</div>
+        <div className="py-4 text-center text-xs text-gray-400">Загрузка...</div>
       )}
 
       {!isLoading && leaderboard.length === 0 && (
-        <div className="text-center text-gray-400 py-8">
+        <div className="py-4 text-center text-xs text-gray-400">
           Пока нет данных о трейдерах
         </div>
       )}
 
       {!isLoading && leaderboard.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {leaderboard.map((trader, index) => (
-            <div 
+            <div
               key={trader.playerId}
-              className={`bg-gray-700 rounded-lg p-3 ${
+              className={`rounded-lg bg-gray-700 p-2.5 ${
                 index < 3 ? 'border border-yellow-500/30' : ''
               }`}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 {/* Ранг */}
-                <div className="text-2xl w-12 text-center">
+                <div className="w-7 shrink-0 text-center text-lg">
                   <GameIcon icon={getRankEmoji(index)} />
                 </div>
 
                 {/* Информация о трейдере */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold">{trader.playerName}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-xs font-bold">{trader.playerName}</span>
                     {trader.guildId && (
-                      <span className="text-xs px-2 py-0.5 bg-purple-600/30 text-purple-300 rounded">
+                      <span className="shrink-0 rounded bg-purple-600/30 px-1.5 py-0.5 text-3xs text-purple-300">
                         [{(trader as any).guildTag}]
                       </span>
                     )}
                   </div>
-                  
+
                   {/* Бейджи */}
-                  <div className="flex gap-1 mt-1">
+                  <div className="mt-0.5 flex flex-wrap gap-1">
                     {trader.badges.map(badge => (
-                      <span 
+                      <span
                         key={badge}
                         title={BADGE_INFO[badge]?.title || badge}
-                        className="text-sm"
+                        className="text-xs"
                       >
                         <IconText>{BADGE_INFO[badge]?.emoji || '🏷️'}</IconText>
                       </span>
@@ -129,14 +130,14 @@ export function TraderLeaderboard() {
                 </div>
 
                 {/* Статистика */}
-                <div className="text-right">
-                  <div className="text-yellow-400 font-bold">
+                <div className="shrink-0 text-right tabular-nums">
+                  <div className="whitespace-nowrap text-xs font-bold text-yellow-400">
                     {formatVolume(trader.totalVolume)} <GameIcon icon="💳" />
                   </div>
-                  <div className="text-sm text-gray-400">
+                  <div className="whitespace-nowrap text-2xs text-gray-400">
                     {trader.totalTrades} сделок
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="whitespace-nowrap text-3xs text-gray-500">
                     {getRatingStars(trader.rating)} ({trader.rating.toFixed(1)})
                   </div>
                 </div>
@@ -147,7 +148,7 @@ export function TraderLeaderboard() {
       )}
 
       {leaderboardTotal > leaderboard.length && (
-        <div className="text-center text-gray-400 mt-4 text-sm">
+        <div className="mt-3 text-center text-2xs text-gray-400">
           Показано {leaderboard.length} из {leaderboardTotal} трейдеров
         </div>
       )}

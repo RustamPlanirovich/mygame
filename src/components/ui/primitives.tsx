@@ -76,15 +76,23 @@ export function Tabs<T extends string>({
   onChange,
   className = '',
   size = 'md',
+  scroll = false,
 }: {
   items: readonly TabItem<T>[];
   value: T;
   onChange: (id: T) => void;
   className?: string;
   size?: 'sm' | 'md';
+  /**
+   * Вкладки не делят ширину поровну, а занимают свою — ряд становится шире
+   * контейнера и прокручивается. Нужно там, где вкладок больше пяти: в боковой
+   * панели (~400px) `flex-1` ужимал их до 50px, а `.tab` не переносит текст —
+   * подписи вылезали за кнопку и накладывались на соседние.
+   */
+  scroll?: boolean;
 }) {
   return (
-    <div role="tablist" className={`tabs ${className}`}>
+    <div role="tablist" className={`tabs ${scroll ? 'w-max min-w-full' : ''} ${className}`}>
       {items.map((item) => {
         const active = item.id === value;
         return (
@@ -98,8 +106,8 @@ export function Tabs<T extends string>({
             className={`tab flex items-center justify-center gap-1.5 ${
               active ? 'tab-active' : ''
             } ${size === 'sm' ? 'px-2 py-1 text-2xs' : ''} ${
-              item.disabled ? 'cursor-not-allowed opacity-40' : ''
-            }`}
+              scroll ? 'flex-none' : ''
+            } ${item.disabled ? 'cursor-not-allowed opacity-40' : ''}`}
           >
             {item.icon}
             <span className="truncate">{withIcons(item.label)}</span>
@@ -148,16 +156,23 @@ export function Stat({
 
   const alignClass = { left: 'items-start text-left', right: 'items-end text-right', center: 'items-center text-center' }[align];
 
+  /*
+   * `truncate` на самом флекс-контейнере подписи не работает: у `display:flex`
+   * не действует `text-overflow`, а текстовый ребёнок с `min-width:auto` не
+   * сжимается и вылезает за границы. В узкой боковой панели (~400px) подписи
+   * вроде «Энергопотребление» из-за этого налезали на соседнюю колонку.
+   * Обрезаем ВНУТРЕННИЙ span, а контейнеру даём `min-w-0`.
+   */
   return (
-    <div className={`flex min-w-0 flex-col gap-0.5 ${alignClass}`}>
-      <span className="stat-label flex items-center gap-1 truncate">
+    <div className={`flex min-w-0 max-w-full flex-col gap-0.5 ${alignClass}`}>
+      <span className="stat-label flex min-w-0 max-w-full items-center gap-1">
         {icon}
-        {withIcons(label)}
+        <span className="min-w-0 truncate">{withIcons(label)}</span>
       </span>
-      <span className={`truncate font-mono text-sm font-semibold tabular-nums ${toneClass}`}>
+      <span className={`max-w-full truncate font-mono text-sm font-semibold tabular-nums ${toneClass}`}>
         {value}
       </span>
-      {hint != null && <span className="truncate text-3xs text-content-faint">{hint}</span>}
+      {hint != null && <span className="max-w-full truncate text-3xs text-content-faint">{hint}</span>}
     </div>
   );
 }

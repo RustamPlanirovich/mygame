@@ -31,19 +31,29 @@ interface PieChartProps {
   title?: string;
   showLegend?: boolean;
   height?: number;
-  innerRadius?: number;
-  outerRadius?: number;
+  /** Доли («60%») предпочтительнее пикселей: панель узкая и её ширина не фиксирована. */
+  innerRadius?: number | string;
+  outerRadius?: number | string;
   formatValue?: (value: number) => string;
 }
 
-const LABEL_LINE = { stroke: '#7f849f' };
-
-const renderSliceLabel = ({ name, percent }: { name?: string; percent?: number }) =>
-  `${name} ${((percent ?? 0) * 100).toFixed(0)}%`;
-
+/*
+ * Подписи секторов ВЫНЕСЕНЫ. Recharts рисует их снаружи круга выносными линиями:
+ * в боковой панели (~400px) десять подписей вида «Титановый сплав 12%» ложились
+ * друг на друга и на саму диаграмму. Процент читается по легенде и по тултипу,
+ * а точные значения — в списке под диаграммой.
+ */
 const renderLegendLabel = (value: string) => (
-  <span style={{ color: '#cbcdd8', fontSize: '12px' }}>{value}</span>
+  <span style={{ color: '#cbcdd8', fontSize: '10px' }}>{value}</span>
 );
+
+/** Легенда в узкой панели обязана переноситься, иначе она уезжает за край. */
+const LEGEND_WRAPPER_STYLE = {
+  paddingTop: 4,
+  lineHeight: '16px',
+  maxHeight: 52,
+  overflow: 'hidden',
+} as const;
 
 /** Мемоизирован по той же причине, что и AreaChart. */
 export const PieChart = memo(function PieChart({
@@ -51,8 +61,8 @@ export const PieChart = memo(function PieChart({
   title,
   showLegend = true,
   height = 300,
-  innerRadius = 60,
-  outerRadius = 100,
+  innerRadius = '55%',
+  outerRadius = '80%',
   formatValue,
 }: PieChartProps) {
   const formattedData = useMemo(() => {
@@ -76,10 +86,11 @@ export const PieChart = memo(function PieChart({
     );
   }
 
+  // Колонка с min-h-0: иначе заголовок прибавлялся к `height` и диаграмма вылезала за блок.
   return (
-    <div className="w-full" style={{ height }}>
-      {title && <h3 className="mb-2 text-sm font-medium text-cyber-gray-300">{title}</h3>}
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="flex w-full flex-col" style={{ height }}>
+      {title && <h3 className="mb-1 shrink-0 text-xs font-medium text-cyber-gray-300">{title}</h3>}
+      <ResponsiveContainer width="100%" height="100%" className="min-h-0 flex-1">
         <RechartsPieChart>
           <Pie
             data={formattedData}
@@ -90,8 +101,6 @@ export const PieChart = memo(function PieChart({
             paddingAngle={2}
             dataKey="value"
             nameKey="name"
-            label={renderSliceLabel}
-            labelLine={LABEL_LINE}
           >
             {formattedData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
@@ -104,6 +113,8 @@ export const PieChart = memo(function PieChart({
               verticalAlign="bottom"
               align="center"
               iconType="circle"
+              iconSize={8}
+              wrapperStyle={LEGEND_WRAPPER_STYLE}
               formatter={renderLegendLabel}
             />
           )}
@@ -128,7 +139,7 @@ export const DonutChart = memo(function DonutChart({
 }: DonutChartProps) {
   return (
     <div className="relative">
-      <PieChart {...props} innerRadius={70} outerRadius={100} />
+      <PieChart {...props} innerRadius="60%" outerRadius="85%" />
       {(centerLabel || centerValue) && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           {centerValue && (

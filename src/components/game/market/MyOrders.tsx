@@ -58,67 +58,68 @@ export function MyOrders() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Активные ордера */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
           <span><GameIcon icon="📋" /></span>
           <span>Активные ордера</span>
-          <span className="text-sm font-normal text-gray-400">
+          <span className="text-2xs font-normal text-gray-400">
             ({activeOrders.length})
           </span>
         </h3>
 
         {isLoading && (
-          <div className="text-center text-gray-400 py-8">Загрузка...</div>
+          <div className="py-4 text-center text-xs text-gray-400">Загрузка...</div>
         )}
 
         {!isLoading && activeOrders.length === 0 && (
-          <div className="text-center text-gray-400 py-8">
+          <div className="py-4 text-center text-xs text-gray-400">
             У вас нет активных ордеров
           </div>
         )}
 
         {!isLoading && activeOrders.length > 0 && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {activeOrders.map(order => (
-              <div 
+              <div
                 key={order.id}
-                className="bg-gray-700 rounded-lg p-3"
+                className="bg-gray-700 rounded-lg p-2.5"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className={order.type === 'buy' ? 'text-green-400' : 'text-red-400'}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className={`shrink-0 ${order.type === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
                       <IconText>{order.type === 'buy' ? '🛒 Покупка' : '💰 Продажа'}</IconText>
                     </span>
-                    <span className="font-bold">
+                    <span className="truncate font-bold">
                       {RESOURCE_NAMES[order.resource as TradeResourceType] || order.resource}
                     </span>
                   </div>
                   <button
                     onClick={() => handleCancel(order.id)}
-                    className="text-red-400 hover:text-red-300 text-sm px-2 py-1 bg-red-900/30 rounded"
+                    className="shrink-0 whitespace-nowrap rounded bg-red-900/30 px-2 py-1 text-2xs text-red-400 hover:text-red-300"
                   >
                     <GameIcon icon="✕" /> Отменить
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <div className="text-gray-400">Количество</div>
-                    <div className="font-medium">
-                      {formatVolume(order.quantityFilled)} / {formatVolume(order.quantity)}
+                {/* Три колонки по ~110px: подписи мелкие и в одну строку, значения — моноширинные */}
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="min-w-0">
+                    <div className="truncate text-2xs text-gray-400">Кол-во</div>
+                    <div className="truncate font-medium tabular-nums">
+                      {formatVolume(order.quantityFilled)}/{formatVolume(order.quantity)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-gray-400">Цена</div>
-                    <div className="font-medium text-yellow-400">
-                      {formatPrice(order.pricePerUnit)} <GameIcon icon="💳" />
+                  <div className="min-w-0">
+                    <div className="truncate text-2xs text-gray-400">Цена</div>
+                    <div className="truncate font-medium tabular-nums text-yellow-400">
+                      {formatPrice(order.pricePerUnit)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-gray-400">Истекает</div>
-                    <div className="font-medium">
+                  <div className="min-w-0">
+                    <div className="truncate text-2xs text-gray-400">Истекает</div>
+                    <div className="truncate font-medium tabular-nums">
                       {formatTime(order.expiresAt)}
                     </div>
                   </div>
@@ -140,57 +141,58 @@ export function MyOrders() {
       </div>
 
       {/* История ордеров */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
           <span><GameIcon icon="📜" /></span>
           <span>Завершённые ордера</span>
-          <span className="text-sm font-normal text-gray-400">
+          <span className="text-2xs font-normal text-gray-400">
             ({completedOrders.length})
           </span>
         </h3>
 
         {completedOrders.length === 0 && (
-          <div className="text-center text-gray-400 py-8">
+          <div className="py-4 text-center text-xs text-gray-400">
             Нет завершённых ордеров
           </div>
         )}
 
+        {/* Шесть колонок не влезают в панель — таблица прокручивается вбок целиком. */}
         {completedOrders.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="-mx-1 overflow-x-auto px-1">
+            <table className="w-full min-w-[440px] text-xs">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="text-left py-2">Тип</th>
-                  <th className="text-left py-2">Ресурс</th>
-                  <th className="text-right py-2">Кол-во</th>
-                  <th className="text-right py-2">Цена</th>
-                  <th className="text-center py-2">Статус</th>
-                  <th className="text-right py-2">Дата</th>
+                  <th className="whitespace-nowrap py-1.5 pr-1.5 text-left">Тип</th>
+                  <th className="whitespace-nowrap py-1.5 pr-1.5 text-left">Ресурс</th>
+                  <th className="whitespace-nowrap py-1.5 pr-1.5 text-right">Кол-во</th>
+                  <th className="whitespace-nowrap py-1.5 pr-1.5 text-right">Цена</th>
+                  <th className="whitespace-nowrap py-1.5 pr-1.5 text-left">Статус</th>
+                  <th className="whitespace-nowrap py-1.5 text-right">Дата</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="tabular-nums">
                 {completedOrders.slice(0, 20).map(order => {
                   const status = getStatusLabel(order.status);
                   return (
                     <tr key={order.id} className="border-b border-gray-700/50">
-                      <td className="py-2">
+                      <td className="whitespace-nowrap py-1.5 pr-1.5">
                         <span className={order.type === 'buy' ? 'text-green-400' : 'text-red-400'}>
                           <IconText>{order.type === 'buy' ? '🛒' : '💰'}</IconText>
                         </span>
                       </td>
-                      <td className="py-2">
+                      <td className="whitespace-nowrap py-1.5 pr-1.5">
                         {RESOURCE_NAMES[order.resource as TradeResourceType] || order.resource}
                       </td>
-                      <td className="py-2 text-right">
+                      <td className="whitespace-nowrap py-1.5 pr-1.5 text-right">
                         {formatVolume(order.quantityFilled)}/{formatVolume(order.quantity)}
                       </td>
-                      <td className="py-2 text-right text-yellow-400">
+                      <td className="whitespace-nowrap py-1.5 pr-1.5 text-right text-yellow-400">
                         {formatPrice(order.pricePerUnit)}
                       </td>
-                      <td className={`py-2 text-center ${status.color}`}>
+                      <td className={`whitespace-nowrap py-1.5 pr-1.5 ${status.color}`}>
                         <IconText>{status.text}</IconText>
                       </td>
-                      <td className="py-2 text-right text-gray-400">
+                      <td className="whitespace-nowrap py-1.5 text-right text-gray-400">
                         {formatTime(order.createdAt)}
                       </td>
                     </tr>

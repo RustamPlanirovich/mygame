@@ -40,81 +40,81 @@ export function TradeHistory() {
 
   return (
     <div className="space-y-4">
-      {/* Статистика */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-gray-800 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-400">{stats.totalTrades}</div>
-          <div className="text-sm text-gray-400">Всего сделок</div>
+      {/* Статистика: три плитки по ~120px — крупный шрифт и «Уплачено комиссий» туда не влезали */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="min-w-0 rounded-lg bg-gray-800 p-2 text-center">
+          <div className="truncate text-lg font-bold tabular-nums text-blue-400">{stats.totalTrades}</div>
+          <div className="truncate text-2xs text-gray-400">Всего сделок</div>
         </div>
-        <div className="bg-gray-800 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-yellow-400">
+        <div className="min-w-0 rounded-lg bg-gray-800 p-2 text-center">
+          <div className="truncate text-lg font-bold tabular-nums text-yellow-400">
             {formatVolume(stats.totalVolume)}
           </div>
-          <div className="text-sm text-gray-400">Общий объём <GameIcon icon="💳" /></div>
+          <div className="truncate text-2xs text-gray-400">Объём <GameIcon icon="💳" /></div>
         </div>
-        <div className="bg-gray-800 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-400">
+        <div className="min-w-0 rounded-lg bg-gray-800 p-2 text-center">
+          <div className="truncate text-lg font-bold tabular-nums text-red-400">
             {formatVolume(stats.totalFees)}
           </div>
-          <div className="text-sm text-gray-400">Уплачено комиссий <GameIcon icon="💳" /></div>
+          <div className="truncate text-2xs text-gray-400">Комиссии <GameIcon icon="💳" /></div>
         </div>
       </div>
 
       {/* Таблица сделок */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h3 className="mb-2 flex flex-wrap items-baseline gap-x-2 text-sm font-bold">
           <span><GameIcon icon="📜" /></span>
           <span>История сделок</span>
-          <span className="text-sm font-normal text-gray-400">
-            (показано {tradeHistory.length} из {tradeHistoryTotal})
+          <span className="text-2xs font-normal text-gray-400">
+            показано {tradeHistory.length} из {tradeHistoryTotal}
           </span>
         </h3>
 
         {isLoading && (
-          <div className="text-center text-gray-400 py-8">Загрузка...</div>
+          <div className="py-4 text-center text-xs text-gray-400">Загрузка...</div>
         )}
 
         {!isLoading && tradeHistory.length === 0 && (
-          <div className="text-center text-gray-400 py-8">
+          <div className="py-4 text-center text-xs text-gray-400">
             У вас пока нет завершённых сделок
           </div>
         )}
 
         {!isLoading && tradeHistory.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="-mx-1 overflow-x-auto px-1">
+            <table className="w-full min-w-[520px] text-xs">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-700">
-                  <th className="text-left py-2 px-2">Дата</th>
-                  <th className="text-left py-2 px-2">Ресурс</th>
-                  <th className="text-right py-2 px-2">Кол-во</th>
-                  <th className="text-right py-2 px-2">Цена</th>
-                  <th className="text-right py-2 px-2">Сумма</th>
-                  <th className="text-right py-2 px-2">Комиссия</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-left">Дата</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-left">Ресурс</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Кол-во</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Цена</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Сумма</th>
+                  <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Комиссия</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="tabular-nums">
                 {tradeHistory.map(trade => (
                   <tr 
                     key={trade.id} 
                     className="border-b border-gray-700/50 hover:bg-gray-700/30"
                   >
-                    <td className="py-2 px-2 text-gray-400">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 text-gray-400">
                       {formatTime(trade.executedAt)}
                     </td>
-                    <td className="py-2 px-2 font-medium">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 font-medium">
                       {RESOURCE_NAMES[trade.resource as TradeResourceType] || trade.resource}
                     </td>
-                    <td className="py-2 px-2 text-right">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 text-right">
                       {formatVolume(trade.quantity)}
                     </td>
-                    <td className="py-2 px-2 text-right text-yellow-400">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 text-right text-yellow-400">
                       {formatPrice(trade.pricePerUnit)}
                     </td>
-                    <td className="py-2 px-2 text-right font-bold text-green-400">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 text-right font-bold text-green-400">
                       {formatPrice(trade.totalAmount)} <GameIcon icon="💳" />
                     </td>
-                    <td className="py-2 px-2 text-right text-red-400">
+                    <td className="whitespace-nowrap py-1.5 px-1.5 text-right text-red-400">
                       -{formatPrice(trade.fee)}
                     </td>
                   </tr>

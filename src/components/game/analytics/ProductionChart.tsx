@@ -42,7 +42,7 @@ const formatPerSecond = (v: number) => formatRate(D(v));
 
 export const ProductionChart = memo(function ProductionChart({
   resource,
-  height = 200,
+  height = 220,
 }: ProductionChartProps) {
   const history = useAnalyticsStore(state => state.productionHistory[resource]);
   const getFilteredHistory = useAnalyticsStore(state => state.getFilteredHistory);
@@ -92,7 +92,7 @@ export const ProductionChart = memo(function ProductionChart({
         </span>
       }
     >
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-2 grid grid-cols-3 gap-2">
         <Stat label="Средн." value={`${formatRate(D(history.avgProduction))}/с`} />
         <Stat label="Пик" value={`${formatRate(D(history.peakProduction))}/с`} />
         <Stat label="Всего" value={formatNumber(D(history.totalProduced))} />
@@ -133,8 +133,13 @@ export const ProductionChartsGrid = memo(function ProductionChartsGrid() {
     );
   }
 
+  /*
+   * Один график на строку. Прежние `md:grid-cols-2 lg:grid-cols-3` считали ширину
+   * ОКНА, а панель всегда ~400px: на десктопе получались карточки по 120px, где
+   * название ресурса схлопывалось в «Э…», а деления оси налезали на цифры сводки.
+   */
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3">
       {resources.map(resource => (
         <ProductionChart key={resource} resource={resource} />
       ))}

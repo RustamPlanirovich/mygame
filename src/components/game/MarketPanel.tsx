@@ -107,63 +107,68 @@ export function MarketPanel() {
   const estSellGain = sellUnit.mul(qtyDec);
 
   return (
-    <div className="p-4 border-b border-cyber-gray">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-xl text-cyber-green uppercase tracking-wider flex items-center gap-2">
-          <ArrowLeftRight size={18} className="text-cyber-green" />
+    <div className="p-3 border-b border-cyber-gray">
+      {/*
+        Заголовок и строка состояния — В СТОЛБИК. В одну строку они не помещались:
+        боковая панель шириной ~400px, и «Обновление через… Событие…» переносилось
+        прямо на заголовок.
+      */}
+      <div className="mb-3">
+        <h2 className="text-lg text-cyber-green uppercase tracking-wider flex items-center gap-2">
+          <ArrowLeftRight size={18} className="shrink-0 text-cyber-green" />
           <span>Рынок</span>
         </h2>
-        <div className="text-xs text-cyber-text-dim">
+        <div className="mt-0.5 text-2xs text-cyber-text-dim">
           Обновление через: {secondsLeft}с · Событие: <span className="text-cyber-text">{market.event.name}</span>
           <span className={`ml-1 ${eventMult > 1 ? 'text-green-400' : eventMult < 1 ? 'text-red-400' : 'text-cyber-text'}`}>
             ×{eventMult.toFixed(1)}
           </span>
         </div>
       </div>
-{/* Tabs */}
-      <div className="flex gap-2 mb-4">
+{/* Tabs: сетка 4×1, а не flex — иначе «Контракты» и «Глобальная» переносятся по слогам */}
+      <div className="grid grid-cols-4 gap-1 mb-3">
         <button
           onClick={() => setTab('spot')}
-          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-2xs font-semibold leading-tight transition-all ${
             tab === 'spot'
               ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
               : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
           }`}
         >
-          <ArrowLeftRight className="w-4 h-4 inline mr-1" />
+          <ArrowLeftRight className="h-4 w-4" />
           Спот
         </button>
         <button
           onClick={() => setTab('contracts')}
-          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-2xs font-semibold leading-tight transition-all ${
             tab === 'contracts'
               ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
               : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
           }`}
         >
-          <Gift className="w-4 h-4 inline mr-1" />
+          <Gift className="h-4 w-4" />
           Контракты
         </button>
         <button
           onClick={() => setTab('trading')}
-          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-2xs font-semibold leading-tight transition-all ${
             tab === 'trading'
               ? 'bg-cyber-green/10 border-cyber-green text-cyber-green'
               : 'border-cyber-gray/40 hover:border-cyber-green/60 text-cyber-text'
           }`}
         >
-          <TrendingUp className="w-4 h-4 inline mr-1" />
+          <TrendingUp className="h-4 w-4" />
           Биржа
         </button>
         <button
           onClick={() => setTab('global')}
-          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-semibold transition-all ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-2xs font-semibold leading-tight transition-all ${
             tab === 'global'
               ? 'bg-purple-500/10 border-purple-500 text-purple-400'
               : 'border-cyber-gray/40 hover:border-purple-500/60 text-cyber-text'
           }`}
         >
-          <Globe className="w-4 h-4 inline mr-1" />
+          <Globe className="h-4 w-4" />
           Глобальная
         </button>
       </div>

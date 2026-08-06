@@ -26,12 +26,12 @@ interface ScoreBarProps {
 const ScoreBar = memo(function ScoreBar({ label, value, icon, color }: ScoreBarProps) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-2">
-          {icon}
-          <span className="text-cyber-gray-300">{label}</span>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0">{icon}</span>
+          <span className="truncate text-cyber-gray-300">{label}</span>
         </div>
-        <span style={{ color }}>{value.toFixed(0)}%</span>
+        <span className="shrink-0 tabular-nums" style={{ color }}>{value.toFixed(0)}%</span>
       </div>
       <div className="meter">
         <div
@@ -69,8 +69,13 @@ export const EfficiencyScore = memo(function EfficiencyScore() {
   const scoreColor = getScoreColor(efficiencyScore);
 
   return (
-    <Panel title="Эффективность производства" icon={<Gauge className="h-5 w-5" />}>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <Panel title="Эффективность" icon={<Gauge className="h-5 w-5" />}>
+      {/*
+        Кольцо и шкалы — в столбик. При `lg:grid-cols-2` на десктопе кольцо шириной
+        192px и четыре шкалы делили 400 пикселей панели пополам, и подписи шкал
+        («Без узких мест») наезжали на цифры.
+      */}
+      <div className="space-y-4">
         {/* Score Circle */}
         <div className="flex flex-col items-center">
           <div className="relative h-48 w-48">
@@ -129,11 +134,11 @@ export const EfficiencyScore = memo(function EfficiencyScore() {
       </div>
 
       {/* Tips based on lowest score */}
-      <div className="mt-6 rounded-lg bg-cyber-gray-900/50 p-4">
-        <h4 className="mb-2 text-sm font-medium text-cyber-gray-300">
+      <div className="mt-4 rounded-lg bg-cyber-gray-900/50 p-3">
+        <h4 className="mb-1.5 text-xs font-medium text-cyber-gray-300">
           <GameIcon icon="💡" /> Рекомендации
         </h4>
-        <ul className="space-y-1 text-xs text-cyber-gray-400">
+        <ul className="space-y-1 text-2xs leading-relaxed text-cyber-gray-400">
           {breakdown.production < 80 && (
             <li>• Увеличьте производство ключевых ресурсов</li>
           )}

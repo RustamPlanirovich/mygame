@@ -56,21 +56,26 @@ export function PriceList({ compact = false }: PriceListProps) {
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1.5">
+        {/*
+          Ровно две колонки. До этого сетка расширялась до пяти по ширине ОКНА, а не
+          панели: в 400-пиксельной колонке карточка ужималась до ~75px и изменение
+          цены («−15.52%») обрезалось на середине.
+        */}
+        <div className="grid grid-cols-2 gap-1.5">
           {sortedPrices.slice(0, 10).map(price => (
             <button
               key={price.resource}
               onClick={() => handleResourceClick(price.resource)}
-              className="flex flex-col p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-left"
+              className="flex min-w-0 flex-col p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-left"
             >
               <span className="text-xs font-medium text-gray-300 truncate">
                 {RESOURCE_NAMES[price.resource as TradeResourceType] || price.resource}
               </span>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-yellow-400 font-bold text-sm">
+              <div className="mt-0.5 flex min-w-0 items-baseline justify-between gap-1">
+                <span className="truncate text-yellow-400 font-bold text-sm tabular-nums">
                   {formatPrice(price.lastPrice)}
                 </span>
-                <span className={`text-xs ${getPriceChangeColor(price.priceChange24h)}`}>
+                <span className={`shrink-0 text-2xs tabular-nums ${getPriceChangeColor(price.priceChange24h)}`}>
                   {formatPriceChange(price.priceChange24h)}
                 </span>
               </div>
@@ -82,12 +87,12 @@ export function PriceList({ compact = false }: PriceListProps) {
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+    <div className="bg-gray-800 rounded-lg p-3">
+      <h3 className="mb-3 flex flex-wrap items-baseline gap-x-2 text-sm font-bold">
         <span><GameIcon icon="💹" /></span>
         <span>Рыночные цены</span>
-        <span className="text-sm font-normal text-gray-400">
-          (обновляется каждые 30 сек)
+        <span className="text-2xs font-normal text-gray-400">
+          обновляется каждые 30 сек
         </span>
       </h3>
 
@@ -101,42 +106,47 @@ export function PriceList({ compact = false }: PriceListProps) {
         </div>
       )}
 
+      {/*
+        Шесть колонок в 400-пиксельную панель не влезают ни при каком размере шрифта,
+        поэтому таблица прокручивается вбок целиком (`min-w`), а не ужимает колонки
+        до нечитаемого состояния и не рвёт числа по разрядам.
+      */}
       {!isLoading && sortedPrices.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="-mx-1 overflow-x-auto px-1">
+          <table className="w-full min-w-[460px] text-xs">
             <thead>
               <tr className="text-gray-400 border-b border-gray-700">
-                <th className="text-left py-2 px-2">Ресурс</th>
-                <th className="text-right py-2 px-2">Цена</th>
-                <th className="text-right py-2 px-2">24ч</th>
-                <th className="text-right py-2 px-2">Мин</th>
-                <th className="text-right py-2 px-2">Макс</th>
-                <th className="text-right py-2 px-2">Объём 24ч</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-left">Ресурс</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Цена</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-right">24ч</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Мин</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Макс</th>
+                <th className="whitespace-nowrap py-1.5 px-1.5 text-right">Объём</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="tabular-nums">
               {sortedPrices.map(price => (
-                <tr 
+                <tr
                   key={price.resource}
                   onClick={() => handleResourceClick(price.resource)}
                   className="border-b border-gray-700/50 hover:bg-gray-700/30 cursor-pointer"
                 >
-                  <td className="py-2 px-2 font-medium">
+                  <td className="whitespace-nowrap py-1.5 px-1.5 font-medium">
                     {RESOURCE_NAMES[price.resource as TradeResourceType] || price.resource}
                   </td>
-                  <td className="py-2 px-2 text-right text-yellow-400 font-bold">
+                  <td className="whitespace-nowrap py-1.5 px-1.5 text-right text-yellow-400 font-bold">
                     {formatPrice(price.lastPrice)}
                   </td>
-                  <td className={`py-2 px-2 text-right ${getPriceChangeColor(price.priceChange24h)}`}>
+                  <td className={`whitespace-nowrap py-1.5 px-1.5 text-right ${getPriceChangeColor(price.priceChange24h)}`}>
                     {formatPriceChange(price.priceChange24h)}
                   </td>
-                  <td className="py-2 px-2 text-right text-red-400">
+                  <td className="whitespace-nowrap py-1.5 px-1.5 text-right text-red-400">
                     {formatPrice(price.lowPrice24h)}
                   </td>
-                  <td className="py-2 px-2 text-right text-green-400">
+                  <td className="whitespace-nowrap py-1.5 px-1.5 text-right text-green-400">
                     {formatPrice(price.highPrice24h)}
                   </td>
-                  <td className="py-2 px-2 text-right">
+                  <td className="whitespace-nowrap py-1.5 px-1.5 text-right">
                     {formatVolume(price.volume24h)}
                   </td>
                 </tr>

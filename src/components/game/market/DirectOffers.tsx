@@ -534,6 +534,11 @@ function CreateOfferForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <div className="space-y-2.5">
+      {/*
+        Формы предложения — в один столбец. `sm:grid-cols-2` смотрел на ширину окна,
+        а панель всегда ~400px: в половине ширины списки ресурсов и поля ввода
+        обрезались на середине подписи.
+      */}
       <div className="tabs">
         <button type="button" className={`tab ${kind === 'sale' ? 'tab-active' : ''}`} onClick={() => setKind('sale')}>
           <GameIcon icon="💰" /> Продать за кредиты
@@ -547,7 +552,7 @@ function CreateOfferForm({ onCreated }: { onCreated: () => void }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2">
         {/* Отдаю */}
         <div className="card space-y-2 p-2.5">
           <h4 className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Отдаю</h4>
@@ -638,7 +643,7 @@ function CreateOfferForm({ onCreated }: { onCreated: () => void }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-2xs font-medium uppercase tracking-wider text-content-faint">Кому</span>
           <select

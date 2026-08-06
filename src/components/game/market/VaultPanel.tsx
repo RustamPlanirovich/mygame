@@ -246,7 +246,12 @@ export function VaultPanel() {
         }
         bodyClassName="space-y-3"
       >
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/*
+          Две колонки, а не четыре. `sm:grid-cols-4` смотрел на ширину ОКНА, а панель
+          всегда ~400px: подписи «Кредиты в эскроу» и «Незавершённых выводов»
+          сталкивались с соседними.
+        */}
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           <Stat
             label="Кредиты свободно"
             value={`${formatAmount(vaultCredits.available)} ₡`}
@@ -294,7 +299,8 @@ export function VaultPanel() {
         )}
 
         {/* ---------- Формы ---------- */}
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {/* В столбик: в половине панели поле «Сколько внести» обрезало собственный плейсхолдер. */}
+        <div className="grid grid-cols-1 gap-2">
           {/* ВНЕСТИ */}
           <div className="card space-y-2 p-3">
             <div className="flex items-center justify-between">

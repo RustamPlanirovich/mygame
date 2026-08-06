@@ -164,25 +164,25 @@ export const EnergyBreakdown = memo(function EnergyBreakdown() {
     <div className="space-y-4">
       {/* Сводка */}
       <Panel title="Энергобаланс" icon={<Zap className="h-5 w-5 text-yellow-400" />}>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded border border-green-500/30 bg-green-900/30 p-2">
+        <div className="grid grid-cols-3 gap-1.5">
+          <div className="min-w-0 rounded border border-green-500/30 bg-green-900/30 p-1.5">
             <Stat
               align="center"
               tone="accent"
-              label="Производство/с"
+              label="Произв./с"
               value={`+${formatNumber(totalProduction)}`}
             />
           </div>
-          <div className="rounded border border-red-500/30 bg-red-900/30 p-2">
+          <div className="min-w-0 rounded border border-red-500/30 bg-red-900/30 p-1.5">
             <Stat
               align="center"
               tone="danger"
-              label="Потребление/с"
+              label="Потребл./с"
               value={`-${formatNumber(totalConsumption)}`}
             />
           </div>
           <div
-            className={`rounded p-2 ${
+            className={`min-w-0 rounded p-1.5 ${
               isDeficit
                 ? 'border border-red-500/50 bg-red-900/40'
                 : 'border border-cyan-500/30 bg-cyan-900/30'

@@ -19,12 +19,14 @@ import {
 import { EmptyState } from '../../../ui';
 import { D, formatNumber } from '../../../../core/math/format';
 import {
+  AXIS_FONT_SIZE,
   AXIS_STROKE,
   CHART_MARGIN,
   DEFAULT_SERIES_COLOR,
   GRID_STROKE,
   TOOLTIP_CONTENT_STYLE,
   TOOLTIP_LABEL_STYLE,
+  Y_AXIS_WIDTH,
 } from './chartTheme';
 
 interface BarDataPoint {
@@ -91,7 +93,7 @@ export const BarChart = memo(function BarChart({
               <XAxis
                 type="number"
                 stroke={AXIS_STROKE}
-                fontSize={12}
+                fontSize={AXIS_FONT_SIZE}
                 tickLine={false}
                 tickFormatter={tickFormatter}
               />
@@ -99,17 +101,18 @@ export const BarChart = memo(function BarChart({
                 type="category"
                 dataKey="name"
                 stroke={AXIS_STROKE}
-                fontSize={12}
+                fontSize={AXIS_FONT_SIZE}
                 tickLine={false}
                 width={100}
               />
             </>
           ) : (
             <>
-              <XAxis dataKey="name" stroke={AXIS_STROKE} fontSize={12} tickLine={false} />
+              <XAxis dataKey="name" stroke={AXIS_STROKE} fontSize={AXIS_FONT_SIZE} tickLine={false} minTickGap={20} />
               <YAxis
                 stroke={AXIS_STROKE}
-                fontSize={12}
+                fontSize={AXIS_FONT_SIZE}
+                width={Y_AXIS_WIDTH}
                 tickLine={false}
                 tickFormatter={tickFormatter}
               />

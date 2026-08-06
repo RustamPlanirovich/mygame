@@ -51,7 +51,7 @@ const ROITableRow = memo(function ROITableRow({ roi, isExpanded, onToggle }: {
           <div className="flex items-center gap-2">
             <span className="text-base"><GameIcon icon={getProfitabilityIcon(roi.profitability)} /></span>
             <div className="min-w-0">
-              <div className="max-w-[140px] truncate text-sm text-cyber-gray-200" title={roi.buildingName}>
+              <div className="max-w-[150px] truncate text-xs text-cyber-gray-200" title={roi.buildingName}>
                 {roi.buildingName}
               </div>
             </div>
@@ -101,12 +101,12 @@ const ROITableRow = memo(function ROITableRow({ roi, isExpanded, onToggle }: {
       {isExpanded && (
         <tr className="bg-cyber-gray-900/50">
           <td colSpan={5}>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Stat label="Стоимость постройки:" value={formatNumber(D(roi.totalCost))} />
-              <Stat label="Доход/с:" tone="accent" value={`+${formatNumber(D(roi.revenuePerSec))}`} />
-              <Stat label="Расходы/с:" tone="danger" value={`-${formatNumber(D(roi.operatingCostPerSec))}`} />
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 py-1">
+              <Stat label="Стоимость" value={formatNumber(D(roi.totalCost))} />
+              <Stat label="Доход/с" tone="accent" value={`+${formatNumber(D(roi.revenuePerSec))}`} />
+              <Stat label="Расходы/с" tone="danger" value={`-${formatNumber(D(roi.operatingCostPerSec))}`} />
               <Stat
-                label="Статус:"
+                label="Статус"
                 tone={roi.isOperating ? 'accent' : 'danger'}
                 value={roi.isOperating ? '✓ Работает' : '✗ Остановлено'}
               />
@@ -228,14 +228,18 @@ export const ROICalculator = memo(function ROICalculator() {
           </button>
         }
       >
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <div className="rounded bg-cyber-gray-900/50 p-2">
+        {/*
+          Две колонки. `md:grid-cols-4` включался по ширине ОКНА и давал плитки по
+          90px — «Чистая прибыль» и «Энергопотребление» налезали друг на друга.
+        */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="min-w-0 rounded bg-cyber-gray-900/50 p-2">
             <Stat align="center" tone="accent" label="Прибыльных" value={stats.profitableCount} />
           </div>
-          <div className="rounded bg-cyber-gray-900/50 p-2">
+          <div className="min-w-0 rounded bg-cyber-gray-900/50 p-2">
             <Stat align="center" tone="danger" label="Убыточных" value={stats.unprofitableCount} />
           </div>
-          <div className="rounded bg-cyber-gray-900/50 p-2">
+          <div className="min-w-0 rounded bg-cyber-gray-900/50 p-2">
             <Stat
               align="center"
               tone={stats.totalProfit.gte(0) ? 'accent' : 'danger'}
@@ -243,12 +247,12 @@ export const ROICalculator = memo(function ROICalculator() {
               value={`${stats.totalProfit.gte(0) ? '+' : ''}${formatNumber(stats.totalProfit)}/с`}
             />
           </div>
-          <div className="rounded bg-cyber-gray-900/50 p-2">
+          <div className="min-w-0 rounded bg-cyber-gray-900/50 p-2">
             <Stat
               align="center"
               tone="warning"
-              icon={<Zap className="h-4 w-4" />}
-              label="Энергопотребление"
+              icon={<Zap className="h-3.5 w-3.5" />}
+              label="Энергия"
               value={formatNumber(stats.totalEnergy)}
             />
           </div>
@@ -292,7 +296,7 @@ export const ROICalculator = memo(function ROICalculator() {
       ) : (
         <div className="panel overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="data-table">
+            <table className="data-table min-w-[420px] whitespace-nowrap">
               <thead>
                 <tr>
                   <th

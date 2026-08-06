@@ -18,11 +18,13 @@ import {
 import { EmptyState } from '../../../ui';
 import { D, formatNumber } from '../../../../core/math/format';
 import {
+  AXIS_FONT_SIZE,
   AXIS_STROKE,
   CHART_MARGIN,
   GRID_STROKE,
   TOOLTIP_CONTENT_STYLE,
   TOOLTIP_LABEL_STYLE,
+  Y_AXIS_WIDTH,
 } from './chartTheme';
 
 interface MultiLineChartProps {
@@ -87,10 +89,17 @@ export const MultiLineChart = memo(function MultiLineChart({
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={CHART_MARGIN}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} opacity={0.5} />}
-          <XAxis dataKey="timeLabel" stroke={AXIS_STROKE} fontSize={12} tickLine={false} />
+          <XAxis
+            dataKey="timeLabel"
+            stroke={AXIS_STROKE}
+            fontSize={AXIS_FONT_SIZE}
+            tickLine={false}
+            minTickGap={28}
+          />
           <YAxis
             stroke={AXIS_STROKE}
-            fontSize={12}
+            fontSize={AXIS_FONT_SIZE}
+            width={Y_AXIS_WIDTH}
             tickLine={false}
             tickFormatter={tickFormatter}
           />

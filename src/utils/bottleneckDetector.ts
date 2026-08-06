@@ -208,8 +208,15 @@ export function generateRecommendation(
   }
   
   if (severity === 'high') {
+    /*
+     * При нулевом производстве это было 0/0 = NaN, и игрок читал «увеличить
+     * производство в NaNx раз». Увеличивать нечего — надо строить.
+     */
+    if (production.lte(0)) {
+      return `🟠 Сильный дефицит ${resourceName}: производства нет совсем. Постройте здания для добычи.`;
+    }
     const needed = consumption.div(production).ceil();
-    return `🟠 Сильный дефицит ${resourceName}. Нужно увеличить производство в ${needed.toString()}x раз.`;
+    return `🟠 Сильный дефицит ${resourceName}. Нужно увеличить производство в ${needed.toString()} раз.`;
   }
   
   if (severity === 'medium') {

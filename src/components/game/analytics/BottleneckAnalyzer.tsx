@@ -49,18 +49,18 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
 
   return (
     <div className="card" style={{ borderColor: severityColor }}>
-      <div className="mb-3 flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <SeverityIcon className="h-5 w-5" style={{ color: severityColor }} />
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <SeverityIcon className="h-4 w-4 shrink-0" style={{ color: severityColor }} />
           <span
-            className="text-sm font-medium capitalize"
+            className="truncate text-sm font-medium capitalize"
             style={{ color: severityColor }}
           >
             {resourceLabel(bottleneck.resource)}
           </span>
         </div>
         <span
-          className="rounded-full px-2 py-1 text-xs"
+          className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-2xs"
           style={{
             backgroundColor: `${severityColor}20`,
             color: severityColor,
@@ -70,7 +70,7 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
         </span>
       </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-3">
+      <div className="mb-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
         <Stat
           label="Производство"
           tone="accent"
@@ -90,21 +90,26 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
       </div>
 
       {bottleneck.timeToDepletion !== null && bottleneck.timeToDepletion > 0 && (
-        <div className="mb-3 flex items-center gap-2 text-xs">
-          <Clock className="h-3 w-3 text-yellow-500" />
+        <div className="mb-2 flex items-center gap-1.5 text-2xs">
+          <Clock className="h-3 w-3 shrink-0 text-yellow-500" />
           <span className="text-yellow-400">
             Истощится через {formatDuration(bottleneck.timeToDepletion)}
           </span>
         </div>
       )}
 
-      <div className="mb-3 flex items-center gap-2 text-xs text-cyber-gray-400">
-        <div className="flex-1">
+      {/*
+        Производители и потребители — друг под другом, а не в две колонки.
+        Названия зданий длинные («Плавильня Титановых Сплавов v1»), и в половине
+        карточки они рассыпались по одному слову на строку.
+      */}
+      <div className="mb-2 space-y-1.5 text-2xs text-cyber-gray-400">
+        <div>
           <span className="mb-1 block">Производители:</span>
           <div className="flex flex-wrap gap-1">
             {producerNames.length > 0 ? (
               producerNames.map((name, i) => (
-                <span key={i} className="rounded bg-green-900/30 px-2 py-0.5 text-green-400">
+                <span key={i} className="rounded bg-green-900/30 px-1.5 py-0.5 text-green-400">
                   {name}
                 </span>
               ))
@@ -118,12 +123,14 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
             )}
           </div>
         </div>
-        <ArrowRight className="h-4 w-4 text-cyber-gray-600" />
-        <div className="flex-1">
+        <div className="flex items-center gap-1 text-cyber-gray-600">
+          <ArrowRight className="h-3 w-3" />
+        </div>
+        <div>
           <span className="mb-1 block">Потребители:</span>
           <div className="flex flex-wrap gap-1">
             {consumerNames.map((name, i) => (
-              <span key={i} className="rounded bg-red-900/30 px-2 py-0.5 text-red-400">
+              <span key={i} className="rounded bg-red-900/30 px-1.5 py-0.5 text-red-400">
                 {name}
               </span>
             ))}
@@ -136,7 +143,7 @@ const BottleneckCard = memo(function BottleneckCard({ bottleneck }: BottleneckCa
         </div>
       </div>
 
-      <div className="rounded bg-cyber-gray-900/50 p-2 text-xs">
+      <div className="rounded bg-cyber-gray-900/50 p-2 text-2xs leading-relaxed">
         <p className="text-cyber-gray-300">{bottleneck.recommendation}</p>
       </div>
     </div>
@@ -180,17 +187,17 @@ export const BottleneckAnalyzer = memo(function BottleneckAnalyzer() {
             hint="Производство работает эффективно"
           />
         ) : (
-          <div className="grid grid-cols-4 gap-2">
-            <div className="rounded bg-red-900/20 p-2">
+          <div className="grid grid-cols-4 gap-1.5">
+            <div className="min-w-0 rounded bg-red-900/20 p-1.5">
               <Stat align="center" tone="danger" label="Критичных" value={criticalCount} />
             </div>
-            <div className="rounded bg-orange-900/20 p-2">
+            <div className="min-w-0 rounded bg-orange-900/20 p-1.5">
               <Stat align="center" tone="warning" label="Высоких" value={highCount} />
             </div>
-            <div className="rounded bg-yellow-900/20 p-2">
+            <div className="min-w-0 rounded bg-yellow-900/20 p-1.5">
               <Stat align="center" tone="warning" label="Средних" value={mediumCount} />
             </div>
-            <div className="rounded bg-blue-900/20 p-2">
+            <div className="min-w-0 rounded bg-blue-900/20 p-1.5">
               <Stat align="center" tone="info" label="Низких" value={lowCount} />
             </div>
           </div>
@@ -199,7 +206,8 @@ export const BottleneckAnalyzer = memo(function BottleneckAnalyzer() {
 
       {/* Bottleneck Cards */}
       {bottlenecks.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        /* Карточки в один столбец: в половине 400-пиксельной панели они нечитаемы. */
+        <div className="grid grid-cols-1 gap-3">
           {bottlenecks.map(bottleneck => (
             <BottleneckCard key={bottleneck.id} bottleneck={bottleneck} />
           ))}

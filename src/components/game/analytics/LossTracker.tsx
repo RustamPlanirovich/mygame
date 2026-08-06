@@ -42,17 +42,17 @@ const LossItem = memo(function LossItem({ loss }: LossItemProps) {
   const timeAgo = getTimeAgo(loss.timestamp);
 
   return (
-    <div className="flex items-center justify-between rounded-lg bg-cyber-gray-900/50 p-3">
-      <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-cyber-gray-900/50 p-2.5">
+      <div className="flex min-w-0 items-center gap-2">
         <div
           className="flex h-8 w-8 items-center justify-center rounded-full"
           style={{ backgroundColor: `${config.color}20` }}
         >
           <Icon className="h-4 w-4" style={{ color: config.color }} />
         </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium capitalize text-cyber-gray-200">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+            <span className="truncate text-xs font-medium capitalize text-cyber-gray-200">
               {resourceLabel(loss.resource)}
             </span>
             <span
@@ -70,11 +70,11 @@ const LossItem = memo(function LossItem({ loss }: LossItemProps) {
           )}
         </div>
       </div>
-      <div className="text-right">
-        <p className="text-sm font-medium text-red-400">
+      <div className="shrink-0 text-right">
+        <p className="whitespace-nowrap text-xs font-medium tabular-nums text-red-400">
           -{formatNumber(D(loss.amount))}
         </p>
-        <p className="text-xs text-cyber-gray-500">{timeAgo}</p>
+        <p className="whitespace-nowrap text-2xs text-cyber-gray-500">{timeAgo}</p>
       </div>
     </div>
   );
@@ -159,10 +159,11 @@ export const LossTracker = memo(function LossTracker() {
             hint="Ресурсы используются эффективно"
           />
         ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          /* Один столбец: `lg:grid-cols-2` смотрел на ширину окна, а не панели. */
+          <div className="space-y-3">
             {/* Stats */}
-            <div className="space-y-4">
-              <div className="rounded-lg bg-red-900/20 p-4">
+            <div className="space-y-3">
+              <div className="rounded-lg bg-red-900/20 p-3">
                 <Stat
                   align="center"
                   tone="danger"
@@ -218,7 +219,7 @@ export const LossTracker = memo(function LossTracker() {
 
             {/* Pie Chart */}
             {pieData.length > 0 && (
-              <PieChart data={pieData} title="По причинам" height={250} />
+              <PieChart data={pieData} title="По причинам" height={220} />
             )}
           </div>
         )}
