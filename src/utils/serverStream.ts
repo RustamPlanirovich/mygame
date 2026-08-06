@@ -61,7 +61,14 @@ export interface MarketOrderPayload {
   playerName: string;
   type: 'buy' | 'sell';
   resource: string;
+  /** Исходный объём заявки. */
   quantity: string;
+  /**
+   * Сколько по заявке ещё не исполнено. Часть могла уйти встречным ордерам прямо
+   * при постановке; именно этот остаток и можно продать автору заявки.
+   * Может отсутствовать, если сервер старее клиента (деплой раскатывается не мгновенно).
+   */
+  quantityRemaining?: string;
   pricePerUnit: string;
   createdAt: number;
 }

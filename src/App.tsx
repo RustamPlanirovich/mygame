@@ -12,6 +12,7 @@ import { SidePanel } from './components/game/SidePanel';
 import { QuickRail } from './components/game/QuickRail';
 import { EventNotificationToast } from './components/game/EventNotificationToast';
 import { NotificationToast } from './components/game/NotificationToast';
+import { MarketOfferToast } from './components/game/MarketOfferToast';
 import { SignalOverlay } from './components/game/SignalOverlay';
 import { ProductionChainOverlay } from './components/game/ProductionChainOverlay';
 import { Minimap } from './components/game/Minimap';
@@ -373,6 +374,9 @@ function App() {
       
       {/* General notification toasts */}
       <NotificationToast />
+
+      {/* Предложения продать по чужой заявке на бирже (пункт 17): клик ведёт в раздел биржи */}
+      <MarketOfferToast />
       
       {/* Signal Interception Overlay */}
       <SignalOverlay />

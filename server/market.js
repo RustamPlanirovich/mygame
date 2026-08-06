@@ -409,6 +409,22 @@ function publicPlayerName(name) {
 }
 
 /**
+ * Остаток по ордеру (quantity - quantity_filled) той же десятичной строкой.
+ *
+ * Считаем в bigint-юнитах, а не через Number: объёмы на бирже доходят до 1e18, и float
+ * потерял бы точность ровно там, где игрок сверяет цифру из уведомления с книгой ордеров.
+ * На неразобранном вводе возвращаем исходное количество — уведомление не тот случай,
+ * ради которого стоит ронять уже закоммиченную постановку ордера.
+ */
+export function remainingQuantityText(quantityText, filledText) {
+  const total = toUnits(quantityText);
+  const filled = toUnits(filledText ?? '0');
+  if (total === null || filled === null) return quantityText;
+  const rest = total - filled;
+  return fromUnits(rest > 0n ? rest : 0n);
+}
+
+/**
  * Расчёт бейджей трейдера
  */
 function calculateTraderBadges(totalTrades, successfulTrades, totalVolume, isGuildLeader) {
@@ -770,8 +786,20 @@ export function createMarketRoutes(app, pool, authMiddleware) {
        *
        * Полностью исполненный ордер не анонсируем: предлагать «проверьте и продайте» по
        * закрытой заявке значит гарантированно тратить внимание игрока впустую.
+       *
+       * СТАТУСЫ. Здесь стояло `status === 'active'` — такого статуса в схеме нет вовсе
+       * (CHECK выше: 'open' | 'filled' | 'partial' | 'cancelled' | 'expired'), поэтому
+       * условие не выполнялось НИКОГДА и рассылка молча не работала с самого начала.
+       * Живые статусы — 'open' и 'partial': по частично исполненному ордеру остаток
+       * ещё можно продать, и предложение осмысленно.
        */
-      if (updatedOrder.status === 'active') {
+      if (updatedOrder.status === 'open' || updatedOrder.status === 'partial') {
+        /*
+         * Отдаём ОСТАТОК, а не исходный объём: часть могла уйти встречным ордерам прямо
+         * при постановке, и плашка «покупает 100» по ордеру, где свободно 10, врала бы.
+         */
+        const remaining = remainingQuantityText(updatedOrder.quantity, updatedOrder.quantity_filled);
+
         realtimeHub.broadcast(
           'market.order.created',
           {
@@ -780,6 +808,7 @@ export function createMarketRoutes(app, pool, authMiddleware) {
             type: updatedOrder.order_type,
             resource: updatedOrder.resource,
             quantity: updatedOrder.quantity,
+            quantityRemaining: remaining,
             pricePerUnit: updatedOrder.price_per_unit,
             createdAt: new Date(updatedOrder.created_at).getTime(),
           },

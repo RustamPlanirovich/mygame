@@ -11,11 +11,13 @@ import { connectServerStream, type MarketOrderPayload } from '../utils/serverStr
 import { useChatStore } from '../features/chatStore';
 import { useUiStore } from '../features/uiStore';
 import { useGameStore } from '../features/gameStore';
+import { useMarketAlertStore } from '../features/marketAlertStore';
 import { rememberSaveRevision } from '../features/saveRevision';
 import { resourceLabel } from '../core/i18n/label';
+import { TRADE_LABEL } from '../core/constants/labels';
 import { describeGrant, parseGrantDeltas } from '../core/systems/adminGrant';
 import { notify } from '../utils/notifications';
-import type { ResourceType } from '../core/gameTypes';
+import type { ResourceType, TradeResourceType } from '../core/gameTypes';
 
 export type StreamStatus = 'connecting' | 'open' | 'closed';
 
@@ -105,19 +107,39 @@ export function useServerStream(): StreamStatus {
           }
 
           case 'market.order.created': {
+            /*
+             * Кто-то выставил заявку на материал (bigplan.md, пункт 17). Показываем плашку
+             * «проверьте, не продать ли ему» — кликабельную, она ведёт прямо в раздел биржи
+             * (см. components/game/MarketOfferToast.tsx).
+             */
             const now = Date.now();
             if (now - lastOrderToastAtRef.current < ORDER_TOAST_COOLDOWN_MS) break;
+
+            // Уже стоим на бирже — предлагать «перейти на биржу» некуда и незачем.
+            const ui = useUiStore.getState();
+            if (ui.section === 'market' && ui.marketTab === 'global') break;
 
             const resources = useGameStore.getState().resources;
             const stock = (resource: ResourceType) => resources[resource]?.amount.toNumber() ?? 0;
             if (!shouldNotifyAboutOrder(event.payload, stock)) break;
 
+            /*
+             * Ресурс приходит строкой. Сервер его валидирует, но плашка ведёт в форму биржи,
+             * где тип обязан быть торгуемым: неизвестный id выбрал бы в селекте пустоту.
+             */
+            const resource = event.payload.resource;
+            if (!Object.prototype.hasOwnProperty.call(TRADE_LABEL, resource)) break;
+
             lastOrderToastAtRef.current = now;
-            const label = resourceLabel(event.payload.resource);
-            notify.info(
-              `${event.payload.playerName} покупает ${label} по ${event.payload.pricePerUnit} ₡ — у вас есть на складе, можно продать`,
-              6000,
-            );
+            useMarketAlertStore.getState().push({
+              id: event.payload.id,
+              playerName: event.payload.playerName,
+              resource: resource as TradeResourceType,
+              // Остатка нет только если сервер старее клиента — тогда берём исходный объём.
+              quantity: event.payload.quantityRemaining ?? event.payload.quantity,
+              pricePerUnit: event.payload.pricePerUnit,
+              stock: stock(resource as ResourceType),
+            });
             break;
           }
         }

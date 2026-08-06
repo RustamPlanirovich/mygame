@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '../../features/gameStore';
+import { useUiStore } from '../../features/uiStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type { TradeResourceType } from '../../core/gameTypes';
 import { TRADE_LABEL } from '../../core/constants/labels';
@@ -58,7 +59,12 @@ export function MarketPanel() {
   const sellResource = useGameStore((s) => s.sellResource);
   const buyResource = useGameStore((s) => s.buyResource);
 
-  const [tab, setTab] = useState<'spot' | 'contracts' | 'trading' | 'global'>('spot');
+  /*
+   * Активная вкладка живёт в uiStore, а не в useState: на биржу должен уметь переводить
+   * и внешний код — плашка «кто-то покупает ваш материал» (features/marketNavigation.ts).
+   */
+  const tab = useUiStore((s) => s.marketTab);
+  const setTab = useUiStore((s) => s.setMarketTab);
   const [selected, setSelected] = useState<TradeResourceType>('ore');
   const [qty, setQty] = useState<string>('10');
   const [now, setNow] = useState<number>(() => Date.now());

@@ -38,6 +38,13 @@ export type PanelSectionId =
   | 'settings'
   | 'menu';
 
+/**
+ * Вкладки раздела «Рынок». Живут здесь, а не в useState внутри MarketPanel, по той же
+ * причине, что и сам раздел: открыть биржу должен уметь кто угодно — в частности плашка
+ * «кто-то покупает ваш материал» (см. features/marketNavigation.ts).
+ */
+export type MarketTabId = 'spot' | 'contracts' | 'trading' | 'global';
+
 interface UiState {
   /** `null` — панель закрыта, карта занимает весь экран. */
   section: PanelSectionId | null;
@@ -45,6 +52,10 @@ interface UiState {
   close: () => void;
   /** Повторный клик по тому же разделу закрывает панель. */
   toggle: (section: PanelSectionId) => void;
+
+  /** Какая вкладка открыта внутри раздела «Рынок». */
+  marketTab: MarketTabId;
+  setMarketTab: (tab: MarketTabId) => void;
 
   /*
    * МАССОВОЕ ВЫДЕЛЕНИЕ КЛЕТОК (bigplan.md, пункты 10 и 28).
@@ -82,6 +93,9 @@ export const useUiStore = create<UiState>((set) => ({
   close: () => set({ section: null }),
   toggle: (section) =>
     set((state) => ({ section: state.section === section ? null : section })),
+
+  marketTab: 'spot',
+  setMarketTab: (marketTab) => set((state) => (state.marketTab === marketTab ? state : { marketTab })),
 
   selectedTiles: [],
   isBoxSelecting: false,
