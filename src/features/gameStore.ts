@@ -48,7 +48,7 @@ import { serializeGame, loadSavePayload } from './gameSave';
 // Финансы — отдельный store, поэтому их снимок добавляется к payload здесь, а не внутри
 // serializeGame (который работает только с GameState).
 import { serializeFinance, hydrateFinance, registerGameCreditsAdapter, resetFinanceState } from './financeStore';
-import { baseResearchPointsPerSecond, baseInfluencePerSecond } from '../core/production/currencyRates';
+import { baseResearchPointsPerSecond } from '../core/production/currencyRates';
 import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
 import { rememberSaveRevision, getSaveRevisionFor } from './saveRevision';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
@@ -129,7 +129,7 @@ import {
   updateTimeBasedRewards,
 } from '../utils/dailyRewardsHelpers';
 import { STARTER_QUESTS } from '../core/constants/quests';
-import { getTotalRepeatableBonuses, isExoticResource, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
+import { getTotalRepeatableBonuses, getMaxLevelPerAscension, calculateRepeatableCost } from '../utils/repeatableResearchHelpers';
 import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredBoosts, isSignalExpired, getSignalRewardDescription, createBoostFromReward } from '../utils/signalHelpers';
 import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
 import { BUILDING_EVOLUTIONS, getNextEvolution } from '../core/constants/buildingEvolutions';
@@ -142,6 +142,12 @@ import {
   upgradeDurationSeconds,
 } from '../core/systems/construction';
 import { createJob, splitCompleted, type Job } from '../core/systems/jobs';
+import { scanGrid } from '../core/systems/gridScan';
+import { createBufferAccess } from '../core/systems/tickBuffers';
+import { computeEnergyBalance } from '../core/systems/energyBalance';
+import { generateCurrencies } from '../core/systems/currencyGeneration';
+import { outputMultiplier } from '../core/systems/productionOutput';
+import { dropExpiredEvents, eventNotificationType, nextEventDelay } from '../core/systems/randomEventSchedule';
 import { stepPollution } from '../core/systems/pollution';
 import { advanceSchedule, createTickSchedule } from '../core/systems/tickSchedule';
 import { isEmptyPlan, planDemolition } from '../core/systems/demolition';
@@ -350,6 +356,12 @@ function tilesChangedForLogistics(tiles: Record<string, string>): boolean {
  * узнавать о нём 20 раз в секунду.
  */
 const tickSchedule = createTickSchedule();
+
+/**
+ * Когда игрок последний раз предупреждён, что содержание политик съело всё влияние.
+ * Вне стора: это защита от спама, а не игровое состояние, и в сохранение ей незачем.
+ */
+let lastInfluenceWarningAt = 0;
 
 /** Сброс расписания: новая игра или загрузка не должны наследовать фазу предыдущей. */
 export function resetTickSchedule(): void {
@@ -4729,11 +4741,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // OPTIMIZATION: Prepare data structures once (Move BEFORE caps and energy calc)
       const buildingsMap = new Map(buildingsWithProximity.map(b => [b.id, b]));
-      
-      const tilesByBuildingId = new Map<string, string[]>();
-      const activePowerSources: Array<{x: number, y: number, r: number}> = [];
-      const activeLogisticsHubs: Array<{x: number, y: number, radius: number}> = [];
-      
+
       const tiles = state.grid.tiles;
       /*
        * Строящиеся и улучшаемые клетки не производят: складываем их в тот же набор, что и
@@ -4744,42 +4752,22 @@ export const useGameStore = create<GameState>((set, get) => ({
        */
       const tileDisabled = effectiveDisabledTiles(state.grid.tileDisabled, state.grid.tileJobs);
 
-      // Unified Loop over tiles: O(Tiles) ~ 2500 iter (fast)
-      // Avoids Object.entries() allocation
-      for (const key in tiles) {
-         const id = tiles[key];
-         
-         // 1. Build tilesByBuildingId
-         let list = tilesByBuildingId.get(id);
-         if (!list) {
-             list = [];
-             tilesByBuildingId.set(id, list);
-         }
-         list.push(key); // Just push key, simpler/faster than object
-
-         // 2. Build active lists (Power/Logistics)
-         const buildingDef = buildingsMap.get(id);
-         if (buildingDef) {
-             // Check if it's a special building that needs coordinate parsing
-             const hasPower = buildingDef.powerGridRadius && buildingDef.powerGridRadius > 0;
-             const hasLogistics = buildingDef.logisticsRadius && buildingDef.logisticsRadius > 0;
-
-             if (hasPower || hasLogistics) {
-                 const isDisabled = tileDisabled[key] || false;
-                 if (!isDisabled) {
-                     const pos = parseKey(key);
-                     if (pos) {
-                         if (hasPower) {
-                            activePowerSources.push({x: pos.x, y: pos.y, r: buildingDef.powerGridRadius!});
-                         }
-                         if (hasLogistics) {
-                            activeLogisticsHubs.push({x: pos.x, y: pos.y, radius: buildingDef.logisticsRadius!});
-                         }
-                     }
-                 }
-             }
-         }
-      }
+      /*
+       * Скан сетки и энергосеть — в core/systems/gridScan.ts (bigplan.md, пункт 22).
+       * Здесь была ТРЕТЬЯ реализация проверки радиуса, считавшая манхэттенское расстояние,
+       * тогда как рисование зоны и powerGridHelpers считают шаговое: здание в зелёной зоне
+       * по диагонали от генератора молча не работало. Метрика теперь одна.
+       */
+      const scan = scanGrid({
+        tiles,
+        buildingsById: buildingsMap,
+        tileDisabled,
+        width: state.grid.width,
+        height: state.grid.height,
+      });
+      const tilesByBuildingId = scan.tilesByBuildingId;
+      const activeLogisticsHubs = scan.activeLogisticsHubs;
+      const isPoweredFast = scan.isPowered;
 
       // Preparation for recomputeCaps (pass map)
       let newResources = recomputeCaps(
@@ -4790,77 +4778,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         tilesByBuildingId // OPTIMIZATION: Pass the map instead of raw tiles
       );
 
-      // Helper for fast power check with Spatial Map optimization
-      // To avoid O(N*M) lookups, we fill a spatial bitmask initially.
-      // Assuming grid is roughly 250x250 max. Using Set<number> for encoded coordinates.
-      // Encoded key: y << 16 | x (Safe for coordinates up to 65535)
-      const powerGridMap = new Set<number>();
-      
-      // Fill the power grid map O(Sources * Radius^2)
-      // This is generally faster than N*M checks when M and N are large
-      // Only do this if we have sources
-      if (activePowerSources.length > 0) {
-          const width = state.grid.width;
-          const height = state.grid.height;
-          
-          for (const src of activePowerSources) {
-             const r = src.r;
-             // Only scan bounding box for this source
-             const minX = Math.max(0, src.x - r);
-             const maxX = Math.min(width - 1, src.x + r);
-             const minY = Math.max(0, src.y - r);
-             const maxY = Math.min(height - 1, src.y + r);
-             
-             for (let y = minY; y <= maxY; y++) {
-                 for (let x = minX; x <= maxX; x++) {
-                     const key = (y << 16) | x;
-                     if (!powerGridMap.has(key)) {
-                         // Manhattan distance check
-                         if (Math.abs(x - src.x) + Math.abs(y - src.y) <= r) {
-                             powerGridMap.add(key);
-                         }
-                     }
-                 }
-             }
-          }
-      }
-
-      // Fast check using the pre-computed map O(1)
-      const isPoweredFast = (x: number, y: number) => {
-        return powerGridMap.has((y << 16) | x);
-      };
-
       const baseKey = 'base';
 
-      // Buffers (Optimized Mutable Access)
+      /*
+       * Буферы ресурсов (bigplan.md, пункт 22) — правила чтения и записи вынесены в
+       * core/systems/tickBuffers.ts: кэш разбора строк, копирование клетки при первой
+       * записи, клампинг отрицательных значений. Здесь остаются только локальные имена,
+       * которыми пользуется всё тело тика.
+       */
       let buffers = { ...state.grid.buffers };
-      const touchedBufferKeys = new Set<string>();
-
-      // ОПТИМИЗАЦИЯ: Кэш для parsed Decimals - избегаем повторного парсинга одного значения
-      const decimalCache = new Map<string, Decimal>();
-      
-      // Shadow global helpers for performance (avoid object cloning)
-      const getBuf = (bufs: Record<string, Partial<Record<ResourceType, string>>>, key: string, res: ResourceType) => {
-         const raw = bufs[key]?.[res];
-         if (raw == null) return D_ZERO;
-         // ОПТИМИЗАЦИЯ: Кэшируем parsed Decimal
-         let cached = decimalCache.get(raw);
-         if (!cached) {
-           cached = D(raw);
-           decimalCache.set(raw, cached);
-         }
-         return cached;
-      };
-
-      const setBuf = (bufs: Record<string, Partial<Record<ResourceType, string>>>, key: string, res: ResourceType, val: Decimal) => {
-         // bufs is assumed to be our local 'buffers' variable
-         if (!touchedBufferKeys.has(key)) {
-             bufs[key] = { ...(bufs[key] || {}) };
-             touchedBufferKeys.add(key);
-         }
-         bufs[key][res] = val.max(D_ZERO).toString();
-         return bufs; // maintain signature for chainability
-      };
+      const bufferAccess = createBufferAccess();
+      const getBuf = bufferAccess.get;
+      const setBuf = bufferAccess.set;
 
       // Track real energy flow for UI (per-tick amounts)
       // This includes ALL drains/sources that touch base energy.
@@ -5177,160 +5106,43 @@ export const useGameStore = create<GameState>((set, get) => ({
         amount: Decimal;
       }> = [];
 
-      // ОПТИМИЗАЦИЯ: Calculate energy balance using pre-built tilesByBuildingId map
-      // Это избавляет от O(Buildings * Tiles) в пользу O(Buildings + Tiles)
-      let totalEnergyProduction = D_ZERO;
-      let totalEnergyConsumption = D_ZERO;
-      
-      // tileDisabled уже объявлен выше
+      /*
+       * ЭНЕРГОБАЛАНС (bigplan.md, пункт 22) — в core/systems/energyBalance.ts.
+       *
+       * Было ~150 строк здесь же: два прохода по зданиям, четыре множителя и три ветки
+       * дефицита. Ошибка в них ничего не роняет — она просто делает всю базу медленнее на
+       * несколько процентов, поэтому у блока теперь есть имя, границы и тесты на каждую ветку.
+       */
       const tileLevels = state.grid.tileLevels || {};
       const tileEvolutionLevels = state.grid.tileEvolutionLevels || {};
-      
-      for (const b of buildingsWithProximity) {
-        if (b.count <= 0) continue;
 
-        // Заглушенное политикой здание ничего не потребляет — не должно и висеть в итогах.
-        if (autoStoppedBuildingIds?.has(b.id)) continue;
-
-        // ОПТИМИЗАЦИЯ: Используем pre-built map вместо filter каждый раз
-        const placedKeys = tilesByBuildingId.get(b.id);
-        if (!placedKeys || placedKeys.length === 0) continue;
-
-        // Тот же множитель по id здания, что применяется к выпуску ниже: иначе энергобаланс
-        // считался бы по «непрокачанной» станции и резал бы производство мнимым дефицитом.
-        const policyBuildingMult = policyEffects.buildingTypeMultipliers[b.id] ?? 1;
-
-        // Суммируем с учётом уровней каждого здания
-        for (const key of placedKeys) {
-          // Пропускаем отключенные здания
-          if (tileDisabled[key]) continue;
-          const tileSett = state.grid.tileSettings?.[key];
-          if (tileSett && !tileSett.enabled) continue;
-          
-          const buildingLevel = tileLevels[key] || 1;
-          const evolutionLevel = tileEvolutionLevels[key] || 0;
-          const evolutionMult = evolutionLevel > 0 ? getEvolutionMultiplier(b.id, evolutionLevel) : 1;
-          
-          // Energy production (с учётом уровня и эволюции)
-          if (b.production?.energy) {
-            totalEnergyProduction = totalEnergyProduction.add(
-              D(b.production.energy).mul(buildingLevel).mul(evolutionMult).mul(policyBuildingMult)
-            );
-          }
-          
-          // Passive energy consumption (с учётом уровня)
-          if (b.energyConsumption) {
-            totalEnergyConsumption = totalEnergyConsumption.add(
-              D(b.energyConsumption).mul(buildingLevel)
-            );
-          }
-          
-          // Active consumption (from consumption field, not energyConsumption)
-          if (b.consumption?.energy) {
-            totalEnergyConsumption = totalEnergyConsumption.add(
-              D(b.consumption.energy).mul(buildingLevel)
-            );
-          }
-        }
-      }
-      
-      // Combat energy consumption
-      if (waveActiveEconomy) {
-        for (const b of buildingsWithProximity) {
-          if (b.count <= 0) continue;
-          
-          const placedKeys = tilesByBuildingId.get(b.id);
-          if (!placedKeys || placedKeys.length === 0) continue;
-          
-          // Считаем только активные (не отключенные) здания
-          let activePlacedCount = 0;
-          for (const key of placedKeys) {
-            if (!tileDisabled[key]) {
-              activePlacedCount++;
-            }
-          }
-          
-          if (activePlacedCount === 0) continue;
-          
-          if (b.combat?.energyPerSecond) {
-            totalEnergyConsumption = totalEnergyConsumption.add(D(b.combat.energyPerSecond).mul(activePlacedCount));
-          }
-          if (b.defense?.energyPerSecond) {
-            totalEnergyConsumption = totalEnergyConsumption.add(D(b.defense.energyPerSecond).mul(activePlacedCount));
-          }
-        }
-      }
-      
-      // Apply Energy Optimization from repeatable research (reduces consumption)
-      totalEnergyConsumption = totalEnergyConsumption.mul(repeatableBonuses.energyEfficiency);
+      const energyBalance = computeEnergyBalance({
+        buildings: buildingsWithProximity,
+        tilesByBuildingId,
+        tileDisabled,
+        tileSettings: state.grid.tileSettings,
+        tileLevels,
+        tileEvolutionLevels,
+        autoStoppedBuildingIds,
+        buildingTypeMultipliers: policyEffects.buildingTypeMultipliers,
+        waveActive: waveActiveEconomy,
+        repeatableEnergyEfficiency: repeatableBonuses.energyEfficiency,
+        policyEnergyConsumption: policyEffects.energyConsumption,
+        policyEnergyProduction: policyEffects.energyProduction,
+        specialConsumption: specials.consumption,
+        energyDeficitRelief: specials.energyDeficitRelief,
+        storedEnergy: getBuf(buffers, baseKey, 'energy'),
+        dtFacilities,
+      });
 
       /*
-       * Policy energy effects. Scaled once here, on the totals, rather than at each of the four
-       * accumulation sites above — same insertion point the repeatable-research bonus uses, and
-       * the only place where both totals are final but nothing has consumed them yet.
-       * These were declared on policies like "Овертайм" (+30% production, +50% energy draw) but
-       * never applied, so such a policy was a pure upside with no stated downside.
+       * `let`, а не `const`: ниже к выработке прибавляются эффекты уже ПОСТРОЕННЫХ
+       * мегаструктур. Считать их в энергобалансе нельзя — он идёт до обработки очереди
+       * строительства, а достроенная этим же тиком мегаструктура должна учитываться сразу.
        */
-      totalEnergyConsumption = totalEnergyConsumption.mul(policyEffects.energyConsumption);
-      totalEnergyProduction = totalEnergyProduction.mul(policyEffects.energyProduction);
-
-      /*
-       * Тот же множитель расхода, что уходит в цикл по тайлам. Без него политика «-20% расхода»
-       * реально снижала бы списание, но energyEfficiency ниже считался бы по нетронутым итогам —
-       * то есть при дефиците игрок продолжал бы получать штраф, которого политика его лишает.
-       */
-      if (specials.consumption !== 1) {
-        totalEnergyConsumption = totalEnergyConsumption.mul(specials.consumption);
-      }
-
-      // Calculate efficiency based on energy balance
-      // НЕ вычитаем энергию здесь - это делается в цикле производства/потребления зданий
-      let energyEfficiency = 1.0;
-      
-      if (totalEnergyConsumption.gt(totalEnergyProduction)) {
-        // ДЕФИЦИТ: потребление > производства
-        const energyDeficit = totalEnergyConsumption.sub(totalEnergyProduction);
-        const energyDeficitForTick = energyDeficit.mul(dtFacilities);
-        
-        // Проверяем, есть ли запас энергии в базе для покрытия дефицита
-        const availableEnergyInBase = getBuf(buffers, baseKey, 'energy');
-        
-        if (availableEnergyInBase.gte(energyDeficitForTick)) {
-          // Достаточно запасов - работаем на 100%
-          // Энергия будет вычтена в цикле зданий
-          energyEfficiency = 1.0;
-        } else if (availableEnergyInBase.gt(0)) {
-          // Частично покрываем дефицит из запасов
-          // Рассчитываем эффективность с учётом частичного покрытия
-          const totalAvailable = totalEnergyProduction.mul(dtFacilities).add(availableEnergyInBase);
-          const totalNeeded = totalEnergyConsumption.mul(dtFacilities);
-          energyEfficiency = Number(totalAvailable.div(totalNeeded).toString());
-          energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
-        } else {
-          // Запасов нет - работаем только на производстве
-          if (totalEnergyProduction.gt(0)) {
-            energyEfficiency = Number(totalEnergyProduction.div(totalEnergyConsumption).toString());
-            energyEfficiency = Math.max(0, Math.min(1, energyEfficiency));
-          } else {
-            energyEfficiency = 0;
-          }
-        }
-      } else {
-        // ИЗЛИШЕК или БАЛАНС: производство >= потребления
-        // Работаем на полную мощность
-        energyEfficiency = 1.0;
-      }
-
-      /*
-       * «Снижение потерь энергии» (specials.energyDeficitRelief). Единственная настоящая потеря
-       * энергии в игре — просадка всего производства при дефиците (сеть бинарная: здание либо
-       * запитано, либо нет). Прощаем указанную долю недостачи: relief=0.5 -> половина провала.
-       */
-      if (specials.energyDeficitRelief > 0 && energyEfficiency < 1) {
-        energyEfficiency = energyEfficiency + (1 - energyEfficiency) * specials.energyDeficitRelief;
-      }
-
-
+      let totalEnergyProduction = energyBalance.production;
+      const totalEnergyConsumption = energyBalance.consumption;
+      const energyEfficiency = energyBalance.efficiency;
 
       // Produce/consume into local tile buffers
       // ОПТИМИЗАЦИЯ: for...of вместо forEach (быстрее в V8)
@@ -5699,69 +5511,43 @@ export const useGameStore = create<GameState>((set, get) => ({
                 }
               }
               
-              let produced = D(perSecond).mul(dtFacilities).mul(ratio);
-              
-              // ФАЗА 8.5: Применяем множитель уровня здания (линейный рост производства)
-              const buildingLevel = state.grid.tileLevels?.[tileKey] || 1;
-              produced = produced.mul(buildingLevel);
-              
-              // ФАЗА 5: Применяем множитель режима к производству
-              produced = produced.mul(productionMult);
-
-              // Политики, усиливающие конкретный тип здания (АЭС, солнечные панели, военка...).
-              if (policyBuildingMult !== 1) {
-                produced = produced.mul(policyBuildingMult);
-              }
-
-              // PHASE 4: Применяем множитель эволюции здания
+              /*
+               * Цепочка множителей выпуска — в core/systems/productionOutput.ts
+               * (bigplan.md, пункт 22). Порядок и все исключения для энергии сохранены
+               * дословно: именно там живёт правило «энергию не режут ни дефицит, ни
+               * загрязнение, ни логистика», которое посреди цикла было не видно.
+               */
               const evolutionLevel = state.grid.tileEvolutionLevels?.[tileKey] || 0;
-              if (evolutionLevel > 0) {
-                const evolutionMultiplier = getEvolutionMultiplier(b.id, evolutionLevel);
-                produced = produced.mul(evolutionMultiplier);
-              }
-              
-              // Apply energy efficiency reduction to non-energy production
-              if (rType !== 'energy' && energyEfficiency < 1.0) {
-                produced = produced.mul(energyEfficiency);
-              }
-              
-              // Apply pollution penalty to all non-energy production (Фаза 8.1)
-              if (rType !== 'energy' && state.pollution.efficiencyMultiplier < 1.0) {
-                produced = produced.mul(state.pollution.efficiencyMultiplier);
-              }
-              
-              // Apply proximity multiplier (if building has proximity rules)
-              if (b.proximityMultiplier && b.proximityMultiplier !== 1) {
-                produced = produced.mul(b.proximityMultiplier);
-              }
-              
-              // Apply repeatable research bonus for exotic resources
-              if (isExoticResource(rType)) {
-                produced = produced.mul(repeatableExoticMult);
-              }
-              
-              // Apply current galaxy resource bonuses
               const currentGalaxy = GALAXIES[state.galaxies.currentGalaxyId];
-              if (currentGalaxy?.resourceBonuses && currentGalaxy.resourceBonuses[rType]) {
-                produced = produced.mul(currentGalaxy.resourceBonuses[rType]);
-              }
-              
-              // ФАЗА 8.3: Применяем логистический штраф за дальность
-              // Здания далеко от базы/складов работают менее эффективно
-              // ВАЖНО: Добывающие здания (привязаны к месторождениям) НЕ получают штраф
-              if (rType !== 'energy') {
-                const logisticsEfficiency = calculateLogisticsEfficiency(
-                  tilePos,
-                  basePosition,
-                  activeLogisticsHubs,
-                  b.id, // ID здания для проверки добывающих
-                  artifactBonuses.logisticsPenaltyReduction // Бонус артефактов
-                );
-                if (logisticsEfficiency < 1.0) {
-                  produced = produced.mul(logisticsEfficiency);
-                }
-              }
-              
+
+              const multiplier = outputMultiplier({
+                resource: rType,
+                buildingLevel: state.grid.tileLevels?.[tileKey] || 1,
+                modeMultiplier: productionMult,
+                policyBuildingMultiplier: policyBuildingMult,
+                evolutionMultiplier:
+                  evolutionLevel > 0 ? getEvolutionMultiplier(b.id, evolutionLevel) : 1,
+                energyEfficiency,
+                pollutionEfficiency: state.pollution.efficiencyMultiplier,
+                proximityMultiplier: b.proximityMultiplier ?? 1,
+                exoticMultiplier: repeatableExoticMult,
+                galaxyBonus: currentGalaxy?.resourceBonuses?.[rType] ?? 1,
+                // Добывающие здания привязаны к месторождению и штрафа за дальность не получают —
+                // это решает calculateLogisticsEfficiency по id здания.
+                logisticsEfficiency:
+                  rType === 'energy'
+                    ? 1
+                    : calculateLogisticsEfficiency(
+                        tilePos,
+                        basePosition,
+                        activeLogisticsHubs,
+                        b.id,
+                        artifactBonuses.logisticsPenaltyReduction,
+                      ),
+              });
+
+              let produced = D(perSecond).mul(dtFacilities).mul(ratio).mul(multiplier);
+
               if (rType !== 'energy' && produced.gt(0) && doubleChance > 0 && Math.random() < doubleChance) {
                 produced = produced.mul(2);
               }
@@ -5947,6 +5733,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Clamp base buffer to caps to avoid hidden overflow.
       const energyBeforeClamp = traceFlows ? getBuf(buffers, baseKey, 'energy') : null;
       buffers = clampBaseBufferToCaps(buffers, newResources);
+      // Объект заменён целиком — клетки в нём снова чужие (см. rebind в tickBuffers).
+      bufferAccess.rebind();
       const energyAfterClamp = traceFlows ? getBuf(buffers, baseKey, 'energy') : null;
       const energyClampRemoved =
         traceFlows && energyBeforeClamp && energyAfterClamp
@@ -6286,6 +6074,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
 
         buffers = clampBaseBufferToCaps(buffers, newResources);
+      // Объект заменён целиком — клетки в нём снова чужие (см. rebind в tickBuffers).
+      bufferAccess.rebind();
         newResources = syncResourcesFromBase(newResources, buffers);
       }
 
@@ -6737,98 +6527,36 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Clamp after expedition rewards
       buffers = clampBaseBufferToCaps(buffers, newResources);
+      // Объект заменён целиком — клетки в нём снова чужие (см. rebind в tickBuffers).
+      bufferAccess.rebind();
 
       // Sync global resources again (combat may have changed base buffers)
       newResources = syncResourcesFromBase(newResources, buffers);
 
-      // Special buildings: Research centers and Bitcoin farm
-      let nextCurrency = state.currency;
-      
-      // Добавляем кредиты от Smart-Broker автопродажи
-      if (autoSellCreditsEarned.gt(0)) {
-        nextCurrency = {
-          ...nextCurrency,
-          credits: nextCurrency.credits.add(autoSellCreditsEarned)
-        };
-      }
-      
-      // Research points generation. Rates live in ../core/production/currencyRates so that
-      // CurrencyPanel shows the same number the tick actually produces (it used to read a
-      // non-existent Building.production.researchPoints field and always displayed +0/с).
-      const totalRPPerSec = baseResearchPointsPerSecond(state.grid.tiles);
-
-      if (totalRPPerSec.gt(0)) {
-        const rpGained = totalRPPerSec.mul(dt).mul(energyEfficiency)
-          .mul(artifactBonuses.researchSpeed)
-          .mul(ascensionResearchMult)
-          .mul(repeatableBonuses.researchSpeedMultiplier) // Apply repeatable research speed bonus
-          .mul(policyEffects.research); // Policy research multiplier (was declared but never applied)
-        nextCurrency = {
-          ...nextCurrency,
-          researchPoints: nextCurrency.researchPoints.add(rpGained),
-        };
-      }
-      
-      // Bitcoin farm: generates credits
-      const bitcoinFarmCount = Object.values(state.grid.tiles).filter(id => id === 'bitcoin_farm_mk1').length;
-      if (bitcoinFarmCount > 0) {
-        const creditsPerFarmPerSec = D(5.0); // 5 credits/sec per farm
-        const creditsGained = creditsPerFarmPerSec.mul(bitcoinFarmCount).mul(dt).mul(energyEfficiency);
-        nextCurrency = {
-          ...nextCurrency,
-          credits: nextCurrency.credits.add(creditsGained),
-        };
-      }
-      
-      // Flat credits/second granted by active policies (declared on several policies, never
-      // applied before).
-      if (policyEffects.creditsPerSecond.gt(0)) {
-        nextCurrency = {
-          ...nextCurrency,
-          credits: nextCurrency.credits.add(policyEffects.creditsPerSecond.mul(dt)),
-        };
-      }
-
-      // Political Center: generates influence (rates shared with the UI, see currencyRates).
-      const totalInfluencePerSec = baseInfluencePerSecond(state.grid.tiles);
-      if (totalInfluencePerSec.gt(0)) {
-        // specials.influence — прибавка «идеологических» политик к притоку влияния.
-        const influenceGained = totalInfluencePerSec.mul(dt).mul(energyEfficiency).mul(specials.influence);
-        nextCurrency = {
-          ...nextCurrency,
-          influence: nextCurrency.influence.add(influenceGained),
-        };
-      }
-      
-      // Policy upkeep: deduct influence for active policies
-      if (state.politics.activePolicies.length > 0) {
-        let totalUpkeep = D(0);
-        
-        for (const policyId of state.politics.activePolicies) {
-          const policy = POLICIES[policyId];
-          if (policy && policy.influenceUpkeep) {
-            totalUpkeep = totalUpkeep.add(D(policy.influenceUpkeep).mul(dt));
-          }
-        }
-        
-        if (totalUpkeep.gt(0)) {
-          const newInfluence = nextCurrency.influence.sub(totalUpkeep).max(D(0));
-          
-          // If influence drops to 0, deactivate all policies
-          if (newInfluence.lte(0)) {
-            nextCurrency = {
-              ...nextCurrency,
-              influence: D(0),
-            };
-            // Note: we'll need to update politics state below
-          } else {
-            nextCurrency = {
-              ...nextCurrency,
-              influence: newInfluence,
-            };
-          }
-        }
-      }
+      /*
+       * ГЕНЕРАЦИЯ ВАЛЮТ (bigplan.md, пункт 22) — в core/systems/currencyGeneration.ts.
+       *
+       * Было четыре независимых блока, каждый со своим `nextCurrency = {...}`. Из-за этого
+       * не было видно главного: почти всё здесь умножается на energyEfficiency, и новый
+       * источник дохода легко забывал этот множитель — то есть капал на обесточенной базе.
+       */
+      const currencyStep = generateCurrencies({
+        currency: state.currency,
+        tiles: state.grid.tiles,
+        dt,
+        energyEfficiency,
+        autoSellCredits: autoSellCreditsEarned,
+        researchMultipliers: {
+          artifacts: artifactBonuses.researchSpeed,
+          ascension: ascensionResearchMult,
+          repeatable: repeatableBonuses.researchSpeedMultiplier,
+          policies: policyEffects.research,
+        },
+        policyCreditsPerSecond: policyEffects.creditsPerSecond,
+        influenceMultiplier: specials.influence,
+        activePolicies: state.politics.activePolicies,
+      });
+      let nextCurrency = currencyStep.currency;
 
       // Production display = change in base buffer per second (approx, includes combat drain)
       if (dt > 0) {
@@ -6842,6 +6570,26 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Update platforms (autonomous mining and combat)
       const newNotifications: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
+
+      /*
+       * Влияние съедено содержанием политик.
+       *
+       * ПОВЕДЕНИЕ НЕ МЕНЯЕТСЯ: политики остаются активными, как и было (в старом коде на
+       * этом месте стояла заметка «политики надо будет отключить ниже», и это «ниже» так и
+       * не появилось). Отключать их отсюда — заметная правка баланса, и делать её заодно с
+       * выносом кода в модуль неправильно.
+       *
+       * Что меняется — игрок наконец узнаёт, почему влияние стоит на нуле. Не чаще раза в
+       * минуту: тик идёт 20 раз в секунду, и без ограничения это была бы стена уведомлений.
+       */
+      if (currencyStep.influenceExhausted && now - lastInfluenceWarningAt > 60_000) {
+        lastInfluenceWarningAt = now;
+        newNotifications.push({
+          type: 'warning',
+          title: 'Влияние на нуле',
+          message: 'Содержание активных политик съедает всё влияние. Отключите часть политик или постройте политические центры.',
+        });
+      }
       
       const updatedPlatforms = state.galaxies.platforms.map(platform => {
         let updatedPlatform = { ...platform };
@@ -7464,17 +7212,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         const newEvent = generateRandomEvent(tempState);
         
-        // Вычисляем следующее время события
-        const baseInterval = BASE_EVENT_INTERVAL_MIN + Math.random() * (BASE_EVENT_INTERVAL_MAX - BASE_EVENT_INTERVAL_MIN);
         /*
-         * eventFrequencyMultiplier — ДЕЛИТЕЛЬ интервала (больше множитель — чаще события),
-         * и specials.eventFrequency задан в тех же терминах частоты: 0.5 = «вдвое реже».
-         * Поэтому его домножаем к делителю, а не к интервалу, иначе знак эффекта перевернётся.
+         * Когда назначить следующее событие — в core/systems/randomEventSchedule.ts
+         * (bigplan.md, пункт 22). Оба множителя заданы в терминах ЧАСТОТЫ и уходят в
+         * знаменатель: перепутать здесь знак — значит перевернуть эффект всех политик
+         * на частоту событий, и заметить это можно только секундомером.
          */
-        const frequencyMult = nextRandomEvents.eventFrequencyMultiplier * specials.eventFrequency;
-        const adjustedInterval = frequencyMult > 0
-          ? baseInterval / frequencyMult
-          : baseInterval;
+        const adjustedInterval = nextEventDelay(
+          Math.random(),
+          { min: BASE_EVENT_INTERVAL_MIN, max: BASE_EVENT_INTERVAL_MAX },
+          nextRandomEvents.eventFrequencyMultiplier,
+          specials.eventFrequency,
+        );
         
         if (newEvent) {
           // Автоматически применяем эффекты события при его генерации
@@ -7483,6 +7232,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Копируем обновленные ресурсы и валюту
           newResources = { ...stateWithEffects.resources };
           buffers = stateWithEffects.grid.buffers;
+          // Буферы пришли из другого состояния: владение сброшено.
+          bufferAccess.rebind();
           nextCurrency = { ...stateWithEffects.currency };
           
           nextRandomEvents = {
@@ -7498,11 +7249,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             nextEventAt: now + adjustedInterval,
           };
           
-          // Добавляем уведомление о событии
+          // Тон уведомления: список «вредных» событий объявлен в randomEventSchedule.
           newNotifications.push({
-            type: newEvent.type === 'pirate_raid' || newEvent.type === 'power_outage' || 
-                  newEvent.type === 'solar_flare' || newEvent.type === 'chain_reaction' 
-                  ? 'warning' : 'info',
+            type: eventNotificationType(newEvent.type),
             title: newEvent.title,
             message: newEvent.description,
           });
@@ -7521,15 +7270,11 @@ export const useGameStore = create<GameState>((set, get) => ({
        * новую ссылку даже на пустом списке, из-за чего панель событий перерисовывалась
        * всегда.
        */
-      const hasExpiredEvents = nextRandomEvents.activeEvents.some(
-        (event) => event.expiresAt && now >= event.expiresAt,
-      );
-      if (hasExpiredEvents) {
+      const remainingEvents = dropExpiredEvents(nextRandomEvents.activeEvents, now);
+      if (remainingEvents !== nextRandomEvents.activeEvents) {
         nextRandomEvents = {
           ...nextRandomEvents,
-          activeEvents: nextRandomEvents.activeEvents.filter(
-            (event) => !(event.expiresAt && now >= event.expiresAt),
-          ),
+          activeEvents: remainingEvents as typeof nextRandomEvents.activeEvents,
         };
       }
 
