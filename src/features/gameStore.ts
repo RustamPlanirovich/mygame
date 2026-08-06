@@ -156,6 +156,7 @@ import {
   drainDeposit,
   ensureReserves,
   generateDepositField,
+  depositRatio,
   isDepositExhausted,
   requiredDepositForBuilding,
   rollRuinRefundRate,
@@ -180,6 +181,81 @@ const SCENARIO_CHECK_INTERVAL_MS = 1000;
  * перезагрузке страницы дедупликация не нужна (патч уже в сохранении).
  */
 const appliedGrantIds = new Set<string>();
+
+/*
+ * Какие правила автоматизации были истинны на прошлой проверке (bigplan 42). key = tileKey.
+ * Вне стора и вне сейва: нужно ТОЛЬКО действию «Уведомить», чтобы отличить фронт от
+ * постоянно истинного условия. В сохранении это был бы второй источник правды, который
+ * однажды разойдётся со списком правил; после перезагрузки лишнее уведомление безобидно.
+ */
+const buildingRuleFiredCache = new Map<string, Record<string, boolean>>();
+
+/**
+ * Забыть, какие правила срабатывали. Зовётся при смене базы (загрузка сейва, новая игра):
+ * ключ кэша — координата клетки, а на другой карте по тем же координатам стоит другое
+ * здание с другими правилами, и чужая запись «уже срабатывало» съела бы первое уведомление.
+ */
+export function resetBuildingRuleCache(): void {
+  buildingRuleFiredCache.clear();
+}
+
+/**
+ * Остановить или запустить клетку — ЕДИНСТВЕННОЕ место, где меняется `grid.tileDisabled`
+ * поштучно (bigplan 42). Возвращает частичное состояние для `set`.
+ *
+ * Возвращает ПУСТОЙ патч, если значение не меняется: кэш ставок производства сравнивает
+ * `tileDisabledRef` по ссылке (см. `core/systems/construction.ts`), и новый объект на каждую
+ * секундную проверку правил сбрасывал бы пересчёт всей базы.
+ */
+function setTileDisabled(state: GameState, tileKey: string, disabled: boolean): Partial<GameState> {
+  const current = state.grid.tileDisabled?.[tileKey] ?? false;
+  if (current === disabled) return {};
+
+  const tileDisabled = { ...(state.grid.tileDisabled ?? {}) };
+  if (disabled) tileDisabled[tileKey] = true;
+  // Ложь не храним: запись `false` для каждой когда-либо выключенной клетки — мусор в сейве.
+  else delete tileDisabled[tileKey];
+
+  return { grid: { ...state.grid, tileDisabled } };
+}
+
+/**
+ * Снимок величин для правил автоматизации. Считается ОДИН раз на всю базу: правила читают
+ * общебазовые показатели, и пересчитывать их на каждую клетку значило бы умножить работу
+ * на число зданий без единого нового числа.
+ */
+function collectRuleReadings(state: GameState): RuleReadings {
+  const resources: RuleReadings['resources'] = {};
+  for (const key in state.resources) {
+    const res = state.resources[key as ResourceType];
+    if (!res) continue;
+    resources[key as ResourceType] = {
+      amount: res.amount.toNumber(),
+      max: res.max.toNumber(),
+      production: res.production.toNumber(),
+    };
+  }
+
+  const prices: RuleReadings['prices'] = {};
+  const rawPrices = state.market?.prices;
+  if (rawPrices) {
+    for (const key in rawPrices) {
+      const price = rawPrices[key as TradeResourceType];
+      if (price) prices[key as ResourceType] = price.toNumber();
+    }
+  }
+
+  return {
+    resources,
+    prices,
+    energyProduction: state.energyProduction?.toNumber() ?? 0,
+    energyConsumption: state.energyConsumption?.toNumber() ?? 0,
+    credits: state.currency.credits.toNumber(),
+    // efficiencyMultiplier — доля СОХРАНЁННОГО производства, игрок же думает про штраф.
+    pollutionPenalty: Math.max(0, (1 - (state.pollution?.efficiencyMultiplier ?? 1)) * 100),
+    happiness: state.culture?.happiness?.current ?? 100,
+  };
+}
 import { generateMap } from '../utils/mapGenerator';
 import { getMapDefinition, isMapUnlocked, nextMapAfter, type MapUnlockProgress } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
@@ -188,18 +264,25 @@ import { calculateHappiness, calculateHappinessTrend, smoothHappinessTransition 
 import type { PrestigeUpgradeId } from '../core/gameTypes';
 import type { GeneratedMapData, MapId } from '../core/gameTypes.maps';
 import type { Quest, QuestState } from '../core/gameTypes.tutorial';
-import type { 
-  TileBuildingSettings, 
+import type {
+  TileBuildingSettings,
   BuildingMode,
   ResourcePriority,
   AutoSellConfig,
   StorageLimit,
-  BuildingCondition 
 } from '../core/gameTypes.buildings';
 import {
   BUILDING_MODES,
   createDefaultTileSettings,
 } from '../core/gameTypes.buildings';
+import {
+  evaluateTileRules,
+  rulesOf,
+  type BuildingRule,
+  type RuleNotice,
+  type RuleReadings,
+  type RuleTileReadings,
+} from '../core/systems/buildingRules';
 
 const MARKET_UPDATE_SECONDS = 30;
 
@@ -5273,7 +5356,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         buildings: buildingsWithProximity,
         tilesByBuildingId,
         tileDisabled,
-        tileSettings: state.grid.tileSettings,
         tileLevels,
         tileEvolutionLevels,
         autoStoppedBuildingIds,
@@ -5334,9 +5416,13 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           }
 
-          // Фаза 11: Проверка disabled state
-          // Отключенные здания не работают (не производят и не потребляют)
-          // ОПТИМИЗАЦИЯ: используем уже извлечённый tileDisabled
+          /*
+           * Остановленные здания не работают (не производят и не потребляют).
+           * `tileDisabled` — ЕДИНСТВЕННЫЙ флаг остановки: сюда пишут и кнопка в инспекторе,
+           * и тумблер в настройках, и правила автоматизации (bigplan 42). Раньше рядом
+           * проверялось ещё и `tileSettings.enabled`, и два флага расходились.
+           * ОПТИМИЗАЦИЯ: используем уже извлечённый tileDisabled.
+           */
           if (tileDisabled[tileKey]) {
             continue;
           }
@@ -5344,13 +5430,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // ФАЗА 5: Получаем настройки здания и множители режима
           const tileSettings = state.grid.tileSettings?.[tileKey];
           const buildingMode = tileSettings?.mode || 'normal';
-          const buildingEnabled = tileSettings?.enabled ?? true;
-          
-          // Если здание отключено через настройки - пропускаем
-          if (!buildingEnabled) {
-            continue;
-          }
-          
+
+
           // Получаем множители из режима работы.
           // Множитель расхода от политик вмешан прямо сюда (обычным умножением чисел): так он
           // попадает разом и в проверку доступности входов, и в само списание — если развести
@@ -8332,6 +8413,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       rememberSaveRevision(result.save.id, result.save.revision);
       
       // Применяем загруженное состояние (используем ту же логику что в loadGame)
+      // Правила автоматизации приезжают чужие: их память о срабатываниях не про эту базу.
+      resetBuildingRuleCache();
       console.log('🔧 Начинаем set() для применения состояния...');
       set((state) => {
         /*
@@ -8955,6 +9038,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     try {
+      // Правила автоматизации приезжают из сейва: их память о срабатываниях не про эту базу.
+      resetBuildingRuleCache();
       set((state) => {
         /*
          * The ten slices below were never written by the old serializers and are
@@ -11737,6 +11822,7 @@ export const useGameStore = create<GameState>((set, get) => ({
      * разом по чужому dt.
      */
     resetTickSchedule();
+    resetBuildingRuleCache();
 
     /*
      * Финансы живут в отдельном сторе, и resetGame их не трогал — новая игра начиналась
@@ -14037,22 +14123,20 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   /**
-   * Включить/выключить здание
+   * Включить/выключить здание (bigplan 42).
+   *
+   * Пишет ТОЛЬКО в `grid.tileDisabled` — единственный флаг остановки. Раньше здесь было ещё
+   * и `tileSettings.enabled`, а кнопка «ОТКЛЮЧИТЬ» в инспекторе (`toggleBuildingDisabled`)
+   * писала лишь `tileDisabled`: в обратную сторону состояния расходились, и тумблер в
+   * настройках показывал «работает» у остановленного здания.
    */
   setBuildingEnabled: (tileKey: string, enabled: boolean) => {
-    const updateTileSettings = get().updateTileSettings;
-    updateTileSettings(tileKey, { enabled });
-    
-    // Также обновляем старый tileDisabled для совместимости
-    set((state) => ({
-      grid: {
-        ...state.grid,
-        tileDisabled: {
-          ...state.grid.tileDisabled,
-          [tileKey]: !enabled,
-        },
-      },
-    }));
+    set((state) => {
+      // Тот же запрет, что у кнопки в инспекторе и у массового выключения.
+      const buildingId = state.grid.tiles[tileKey];
+      if (!buildingId || !isBuildingDisableable(buildingId)) return state;
+      return setTileDisabled(state, tileKey, !enabled);
+    });
   },
 
   /**
@@ -14210,15 +14294,24 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   /**
-   * Добавить условие работы
+   * Добавить или заменить правило автоматизации (upsert по id).
+   *
+   * Правила ЛЕНИВО переносятся из старых `conditions` при первой же записи: сейв мог быть
+   * сделан до появления конструктора, и редактор должен показать то, что игрок набирал.
    */
-  addBuildingCondition: (tileKey: string, condition: BuildingCondition) => {
+  upsertBuildingRule: (tileKey: string, rule: BuildingRule) => {
     set((state) => {
       const buildingId = state.grid.tiles[tileKey];
       if (!buildingId) return state;
 
-      const existing = state.grid.tileSettings?.[tileKey] 
+      const existing = state.grid.tileSettings?.[tileKey]
         ?? createDefaultTileSettings(tileKey, buildingId);
+
+      const rules = rulesOf(existing);
+      const idx = rules.findIndex(r => r.id === rule.id);
+      const nextRules = [...rules];
+      if (idx >= 0) nextRules[idx] = rule;
+      else nextRules.push(rule);
 
       return {
         grid: {
@@ -14227,7 +14320,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             ...state.grid.tileSettings,
             [tileKey]: {
               ...existing,
-              conditions: [...existing.conditions, condition],
+              rules: nextRules,
+              conditions: undefined,
             },
           },
         },
@@ -14236,9 +14330,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   /**
-   * Удалить условие работы
+   * Удалить правило автоматизации
    */
-  removeBuildingCondition: (tileKey: string, conditionId: string) => {
+  removeBuildingRule: (tileKey: string, ruleId: string) => {
     set((state) => {
       const existing = state.grid.tileSettings?.[tileKey];
       if (!existing) return state;
@@ -14250,12 +14344,127 @@ export const useGameStore = create<GameState>((set, get) => ({
             ...state.grid.tileSettings,
             [tileKey]: {
               ...existing,
-              conditions: existing.conditions.filter(c => c.id !== conditionId),
+              rules: rulesOf(existing).filter(r => r.id !== ruleId),
+              conditions: undefined,
             },
           },
         },
       };
     });
+  },
+
+  /**
+   * Прогнать правила автоматизации по всей базе (bigplan 42).
+   *
+   * Вызывается ИГРОВЫМ ЦИКЛОМ раз в секунду, а не из `tick`: правила выдают уведомления,
+   * то есть побочный эффект, а `addNotification` — это отдельный `set`. Вызов из апдейтера
+   * `tick` был бы вложенным `set` внутри `set` — ровно тем шаблоном, который в этом проекте
+   * уже молча терял начисления (пункт 36). Раз в секунду достаточно: правила читают
+   * величины, которые заметно меняются секундами, а не кадрами.
+   *
+   * Уведомления копятся в локальный массив и раздаются ПОСЛЕ `set`.
+   */
+  applyBuildingRules: () => {
+    const notices: RuleNotice[] = [];
+
+    set((state) => {
+      const tileSettings = state.grid.tileSettings;
+      if (!tileSettings) return state;
+
+      const keys = Object.keys(tileSettings);
+      if (keys.length === 0) return state;
+
+      /*
+       * Показания считаются ЛЕНИВО, на первой клетке с правилами: у игрока, который
+       * автоматизацией не пользуется, снимок по всем ресурсам и ценам собирался бы каждую
+       * секунду впустую.
+       */
+      let readings: RuleReadings | null = null;
+      let nextTileSettings: Record<string, TileBuildingSettings> | null = null;
+      let nextTileDisabled: Record<string, boolean> | null = null;
+
+      const isDisabled = (key: string) =>
+        (nextTileDisabled ?? state.grid.tileDisabled)?.[key] ?? false;
+
+      for (const tileKey of keys) {
+        const settings = tileSettings[tileKey];
+        if (!settings) continue;
+        // Клетку могли снести, а настройки остаться: правила по пустому месту не гоняем.
+        const buildingId = state.grid.tiles[tileKey];
+        if (!buildingId) continue;
+
+        const rules = rulesOf(settings);
+        if (rules.length === 0) continue;
+
+        if (!readings) readings = collectRuleReadings(state);
+
+        const required = requiredDepositForBuilding(buildingId);
+        const tileReadings: RuleTileReadings = {
+          health: settings.health ?? 100,
+          depositLeftPercent: required
+            ? depositRatio(state.grid.depositReserves, tileKey) * 100
+            : null,
+        };
+
+        const outcome = evaluateTileRules(
+          tileKey,
+          rules,
+          { disabled: isDisabled(tileKey), mode: settings.mode, autoSell: settings.autoSell ?? [] },
+          readings,
+          tileReadings,
+          buildingRuleFiredCache.get(tileKey),
+        );
+
+        buildingRuleFiredCache.set(tileKey, outcome.fired);
+        if (outcome.notices.length > 0) notices.push(...outcome.notices);
+
+        if (!outcome.changed) continue;
+
+        /*
+         * Остановка идёт в `grid.tileDisabled` — тот же флаг, что переключает кнопка
+         * «ОТКЛЮЧИТЬ» в инспекторе и что читают карта с энергобалансом. Здания, которые
+         * игра отключать не позволяет (`isBuildingDisableable`), правилам тоже не по зубам:
+         * кнопки у них нет, и остановленное правилом здание игрок не смог бы вернуть.
+         */
+        if (outcome.next.disabled !== isDisabled(tileKey) && isBuildingDisableable(buildingId)) {
+          if (!nextTileDisabled) nextTileDisabled = { ...(state.grid.tileDisabled ?? {}) };
+          if (outcome.next.disabled) nextTileDisabled[tileKey] = true;
+          else delete nextTileDisabled[tileKey];
+        }
+
+        if (outcome.next.mode === settings.mode && outcome.next.autoSell === settings.autoSell) continue;
+
+        if (!nextTileSettings) nextTileSettings = { ...tileSettings };
+        nextTileSettings[tileKey] = {
+          ...settings,
+          mode: outcome.next.mode,
+          autoSell: outcome.next.autoSell,
+        };
+      }
+
+      /*
+       * Ни одно правило ничего не поменяло — возвращаем ТОТ ЖЕ state. Новые объекты
+       * `tileSettings`/`tileDisabled` каждую секунду сбрасывали бы кэш ставок производства
+       * (он сравнивает обе ссылки) и заставляли бы пересчитывать всю базу впустую.
+       */
+      if (!nextTileSettings && !nextTileDisabled) return state;
+
+      return {
+        grid: {
+          ...state.grid,
+          ...(nextTileSettings ? { tileSettings: nextTileSettings } : {}),
+          ...(nextTileDisabled ? { tileDisabled: nextTileDisabled } : {}),
+        },
+      };
+    });
+
+    for (const notice of notices) {
+      get().addNotification({
+        type: 'info',
+        title: 'Правило сработало',
+        message: `${notice.tileKey}: ${notice.message}`,
+      });
+    }
   },
 
   /**

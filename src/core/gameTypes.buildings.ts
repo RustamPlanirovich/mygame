@@ -3,6 +3,11 @@
  */
 
 import type { ResourceType } from './gameTypes';
+/*
+ * Только ТИП: `buildingRules` импортирует отсюда BUILDING_MODES значением, и обычный
+ * импорт замкнул бы модули в рантайм-цикл. `import type` стирается компилятором.
+ */
+import type { BuildingRule } from './systems/buildingRules';
 
 // ═══════════════════════════════════════════════════════════════
 // РЕЖИМЫ РАБОТЫ ЗДАНИЙ
@@ -157,22 +162,23 @@ export interface StorageLimit {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Тип условия
+ * СТАРАЯ модель условий из «Фазы 5». Оставлена ТОЛЬКО для чтения сейвов: её никто никогда
+ * не исполнял (в тике не было ни одной проверки), редактора для неё тоже не существовало.
+ * Живая модель — `BuildingRule` в `core/systems/buildingRules.ts`; перенос делает
+ * `migrateLegacyConditions`.
+ *
+ * @deprecated Не создавать новые условия этого вида.
  */
-export type ConditionType = 
+export type ConditionType =
   | 'resource_above'     // Ресурс выше порога
   | 'resource_below'     // Ресурс ниже порога
-  | 'time_of_day'        // Время суток (игровое)
+  | 'time_of_day'        // Время суток (игровое) — источника данных в игре нет
   | 'energy_available';  // Доступно энергии
 
-/**
- * Действие при срабатывании условия
- */
+/** @deprecated см. ConditionType. */
 export type ConditionAction = 'enable' | 'disable' | 'switch_mode';
 
-/**
- * Условие работы здания
- */
+/** @deprecated см. ConditionType. */
 export interface BuildingCondition {
   id: string;
   type: ConditionType;
@@ -212,8 +218,17 @@ export interface TileBuildingSettings {
   
   // Основные настройки
   mode: BuildingMode;
-  enabled: boolean;
   health: number;                 // 0-100, влияет на производительность
+
+  /**
+   * @deprecated Остановка здания живёт в `grid.tileDisabled` — ОДИН флаг на всю игру.
+   *
+   * Здесь было второе «включено», и они расходились: тумблер в панели настроек писал сюда,
+   * кнопка «ОТКЛЮЧИТЬ» в инспекторе — в `tileDisabled`, и каждая не видела другую. Карта,
+   * массовое выделение и энергобаланс читали `tileDisabled`, а тик — оба, поэтому дефект не
+   * ронял производство и жил незамеченным. Поле читается только миграцией v1→v2.
+   */
+  enabled?: boolean;
   
   // Приоритеты входящих ресурсов
   inputPriorities: Partial<Record<ResourceType, ResourcePriority>>;
@@ -226,10 +241,16 @@ export interface TileBuildingSettings {
   
   // Авто-продажа
   autoSell: AutoSellConfig[];
-  
-  // Условия работы
-  conditions: BuildingCondition[];
-  
+
+  /**
+   * Правила автоматизации: блоки-условия + действие. Исполняет
+   * `core/systems/buildingRules.ts`, вызывает игровой цикл раз в секунду.
+   */
+  rules?: BuildingRule[];
+
+  /** @deprecated Старые условия «Фазы 5»; читаются только для переноса в `rules`. */
+  conditions?: BuildingCondition[];
+
   // Статистика
   stats: BuildingStats;
 }
@@ -239,13 +260,12 @@ export interface TileBuildingSettings {
  */
 export const DEFAULT_BUILDING_SETTINGS: Omit<TileBuildingSettings, 'tileKey' | 'buildingId'> = {
   mode: 'normal',
-  enabled: true,
   health: 100,
   inputPriorities: {},
   outputPriority: 3,
   storageLimits: [],
   autoSell: [],
-  conditions: [],
+  rules: [],
   stats: {
     totalProduced: '0',
     totalConsumed: '0',

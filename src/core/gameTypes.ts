@@ -1433,8 +1433,14 @@ export interface GameState {
   removeAutoSell: (tileKey: string, resource: ResourceType) => void;
   addStorageLimit: (tileKey: string, limit: import('./gameTypes.buildings').StorageLimit) => void;
   removeStorageLimit: (tileKey: string, resource: ResourceType) => void;
-  addBuildingCondition: (tileKey: string, condition: import('./gameTypes.buildings').BuildingCondition) => void;
-  removeBuildingCondition: (tileKey: string, conditionId: string) => void;
+  /*
+   * Правила автоматизации (bigplan 42). Заменили нерабочие «условия» Фазы 5.
+   * `applyBuildingRules` зовёт ИГРОВОЙ ЦИКЛ раз в секунду, а не tick: правила выдают
+   * уведомления, а это отдельный set — из апдейтера tick он был бы вложенным.
+   */
+  upsertBuildingRule: (tileKey: string, rule: import('./systems/buildingRules').BuildingRule) => void;
+  removeBuildingRule: (tileKey: string, ruleId: string) => void;
+  applyBuildingRules: () => void;
   setBuildingModeForAll: (buildingId: string, mode: import('./gameTypes.buildings').BuildingMode) => void;
   repairBuilding: (tileKey: string) => void;
   repairAllBuildings: () => void;

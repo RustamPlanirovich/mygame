@@ -23,7 +23,6 @@ function input(over: Partial<EnergyBalanceInput> = {}): EnergyBalanceInput {
     buildings: [],
     tilesByBuildingId: new Map(),
     tileDisabled: {},
-    tileSettings: undefined,
     tileLevels: {},
     tileEvolutionLevels: {},
     autoStoppedBuildingIds: null,
@@ -84,11 +83,13 @@ describe('суммирование', () => {
     expect(r.consumption.toString()).toBe('4');
   });
 
-  it('клетка, выключенная в настройках, не считается', () => {
-    const r = computeEnergyBalance({
-      ...oneOfEach(),
-      tileSettings: { '1,0': { enabled: false } },
-    });
+  it('клетка, выключенная из панели настроек, не считается', () => {
+    /*
+     * Флаг остановки ОДИН — tileDisabled (bigplan 42). Раньше панель настроек писала своё
+     * `tileSettings.enabled`, и энергобаланс читал оба; кнопка «ОТКЛЮЧИТЬ» в инспекторе при
+     * этом писала только tileDisabled, поэтому источники расходились.
+     */
+    const r = computeEnergyBalance({ ...oneOfEach(), tileDisabled: { '1,0': true } });
     expect(r.consumption.toString()).toBe('0');
   });
 

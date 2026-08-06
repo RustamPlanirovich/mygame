@@ -145,6 +145,7 @@ import {
 import { INITIAL_NANO_SWARM } from '../core/constants/nanoSwarm';
 import { MEGASTRUCTURES } from '../core/constants/megastructures';
 import type { JobKind } from '../core/systems/jobs';
+import { migrateLegacyConditions } from '../core/systems/buildingRules';
 
 /**
  * Время постройки мегаструктур из каталога, в секундах. Нужно для миграции старых сейвов,
@@ -165,8 +166,10 @@ const MEGASTRUCTURE_BUILD_SECONDS: Partial<Record<MegastructureId, number>> = Ob
  * v1 = first versioned schema: adds the ten previously-unpersisted slices, the
  *      per-tile settings layer, market contracts/orders, galaxy notifications and
  *      the energy telemetry; canonicalises the platform `shieldMaxHp` key.
+ * v2 = building automation rules (bigplan 42): the never-executed `tileSettings.conditions`
+ *      become `tileSettings.rules`, which the game loop actually runs.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // ============================================================================
 // SECTION 1 — primitive + Decimal codecs (symmetric by construction)
@@ -3096,9 +3099,59 @@ const migrateV0toV1: MigrationStep = (save) => {
   return next;
 };
 
+/**
+ * v1 -> v2: правила автоматизации зданий и ОДИН флаг остановки (bigplan 42).
+ *
+ * Первое: `tileSettings.conditions` из «Фазы 5» НИКОГДА не исполнялись — тик их не читал, а
+ * редактора для них не было. Выбросить их молча нельзя: игрок их набирал руками и увидел бы
+ * пустую вкладку как потерю прогресса, поэтому они переносятся в `rules`, которые
+ * действительно работают. Само сопоставление живёт в `core/systems/buildingRules.ts`, здесь
+ * только обход клеток — правила переноса это часть смысла правил, а не формата сейва.
+ *
+ * Второе: `tileSettings.enabled` сворачивается в `grid.tileDisabled`. «Здание остановлено»
+ * хранилось в двух местах, которые расходились: тумблер в панели писал оба, а кнопка
+ * «ОТКЛЮЧИТЬ» в инспекторе — только `tileDisabled`. Клетка, выключенная старой панелью,
+ * обязана остаться выключенной, поэтому `enabled === false` переезжает в общий флаг.
+ */
+const migrateV1toV2: MigrationStep = (save) => {
+  const next: AnyRec = { ...save };
+
+  const grid = rec(next.grid);
+  const tileSettings = rec(grid.tileSettings);
+  const keys = Object.keys(tileSettings);
+
+  if (keys.length > 0) {
+    const nextTileSettings: AnyRec = {};
+    const tileDisabled: AnyRec = { ...rec(grid.tileDisabled) };
+
+    for (const key of keys) {
+      const settings = { ...rec(tileSettings[key]) };
+
+      // Правила уже есть — сейв писала версия с конструктором, трогать нечего.
+      if (!Array.isArray(settings.rules)) {
+        settings.rules = migrateLegacyConditions(settings.conditions);
+      }
+      delete settings.conditions;
+
+      // Только выключенность и переносим: `enabled: true` ничего не значит, а запись
+      // `false` в tileDisabled для каждой работающей клетки — мусор в сейве.
+      if (settings.enabled === false) tileDisabled[key] = true;
+      delete settings.enabled;
+
+      nextTileSettings[key] = settings;
+    }
+
+    next.grid = { ...grid, tileSettings: nextTileSettings, tileDisabled };
+  }
+
+  next.saveVersion = 2;
+  return next;
+};
+
 /** version -> step that upgrades it to version+1. */
 const MIGRATIONS: Record<number, MigrationStep> = {
   0: migrateV0toV1,
+  1: migrateV1toV2,
 };
 
 /**

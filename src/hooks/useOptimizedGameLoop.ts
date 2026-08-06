@@ -58,6 +58,7 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   const saveTimeRef = useRef<number>(0);
   const achievementCheckRef = useRef<number>(0);
   const signalCheckRef = useRef<number>(0);
+  const rulesCheckRef = useRef<number>(0);
   const financeCheckRef = useRef<number>(0);
   const mapCheckRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
@@ -142,6 +143,19 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         signalState.spawnNewSignal();
         signalState.updateSignals();
         signalCheckRef.current = 0;
+      }
+
+      /*
+       * Правила автоматизации зданий (bigplan 42): раз в 1 секунду.
+       * ЗДЕСЬ, а не в `tick`, по той же причине, что и прохождение карты: сработавшее
+       * правило может выдать уведомление, а `addNotification` — отдельный `set`, и вызов
+       * из апдейтера был бы вложенным `set` внутри `set` (пункт 36). Чаще секунды незачем:
+       * правила читают запасы, энергобаланс и цены, а те меняются секундами.
+       */
+      rulesCheckRef.current += dt;
+      if (rulesCheckRef.current >= 1) {
+        rulesCheckRef.current = 0;
+        useGameStore.getState().applyBuildingRules();
       }
 
       /*

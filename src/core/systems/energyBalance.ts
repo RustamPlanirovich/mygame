@@ -35,10 +35,11 @@ export interface EnergyBalanceInput {
   buildings: readonly Building[];
   /** id здания → ключи клеток, где оно стоит (результат скана сетки). */
   tilesByBuildingId: Map<string, string[]>;
-  /** Отключённые клетки: вручную выключенные и строящиеся. */
+  /**
+   * Остановленные клетки: выключенные игроком или правилом и строящиеся.
+   * ЕДИНСТВЕННЫЙ источник правды об остановке (bigplan 42).
+   */
   tileDisabled: Record<string, boolean>;
-  /** Настройки клеток: `enabled: false` — тоже выключено. */
-  tileSettings?: Record<string, { enabled?: boolean } | undefined>;
   tileLevels: Record<string, number>;
   tileEvolutionLevels: Record<string, number>;
   /** Здания, заглушенные политикой: не потребляют и не вырабатывают. */
@@ -71,16 +72,15 @@ export interface EnergyBalance {
 
 const ZERO = D(0);
 
-/** Работает ли клетка: не отключена вручную и не занята стройкой. */
-function tileActive(
-  key: string,
-  tileDisabled: Record<string, boolean>,
-  tileSettings: EnergyBalanceInput['tileSettings'],
-): boolean {
-  if (tileDisabled[key]) return false;
-  const settings = tileSettings?.[key];
-  if (settings && settings.enabled === false) return false;
-  return true;
+/**
+ * Работает ли клетка: не остановлена и не занята стройкой.
+ *
+ * Флаг остановки ОДИН — `tileDisabled` (bigplan 42). Рядом проверялось ещё и
+ * `tileSettings.enabled`, но это был второй источник правды: кнопка «ОТКЛЮЧИТЬ» в инспекторе
+ * писала только в `tileDisabled`, и здесь баланс расходился с тем, что видел игрок.
+ */
+function tileActive(key: string, tileDisabled: Record<string, boolean>): boolean {
+  return !tileDisabled[key];
 }
 
 export function computeEnergyBalance(input: EnergyBalanceInput): EnergyBalance {
@@ -88,7 +88,6 @@ export function computeEnergyBalance(input: EnergyBalanceInput): EnergyBalance {
     buildings,
     tilesByBuildingId,
     tileDisabled,
-    tileSettings,
     tileLevels,
     tileEvolutionLevels,
     autoStoppedBuildingIds,
@@ -115,7 +114,7 @@ export function computeEnergyBalance(input: EnergyBalanceInput): EnergyBalance {
     const policyBuildingMult = buildingTypeMultipliers[b.id] ?? 1;
 
     for (const key of placedKeys) {
-      if (!tileActive(key, tileDisabled, tileSettings)) continue;
+      if (!tileActive(key, tileDisabled)) continue;
 
       const buildingLevel = tileLevels[key] || 1;
       const evolutionLevel = tileEvolutionLevels[key] || 0;
@@ -148,7 +147,7 @@ export function computeEnergyBalance(input: EnergyBalanceInput): EnergyBalance {
 
       let activePlaced = 0;
       for (const key of placedKeys) {
-        if (tileActive(key, tileDisabled, tileSettings)) activePlaced++;
+        if (tileActive(key, tileDisabled)) activePlaced++;
       }
       if (activePlaced === 0) continue;
 

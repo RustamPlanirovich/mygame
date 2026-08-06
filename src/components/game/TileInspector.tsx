@@ -24,6 +24,7 @@ import { BUILDING_EVOLUTIONS, getNextEvolution, getCurrentEvolution, getEvolutio
 import { isBuildingPowered } from '../../utils/powerGridHelpers';
 import { getBuildingsWithCoordinates } from '../../utils/proximityHelpers';
 import { isBuildingDisableable } from '../../core/constants/buildingCategories';
+import { describeRule, rulesControlling, rulesOf } from '../../core/systems/buildingRules';
 import { GameIcon, IconText } from '../ui/icons';
 import { jobProgress, jobRemainingMs, type TileJob } from '../../core/systems/construction';
 import {
@@ -214,6 +215,19 @@ export function TileInspector() {
   const buildingLevel = selectedKey ? (grid.tileLevels?.[selectedKey] || 1) : 1;
   const evolutionLevel = selectedKey ? (grid.tileEvolutionLevels?.[selectedKey] || 0) : 0;
   const isDisabled = selectedKey ? (grid.tileDisabled?.[selectedKey] || false) : false;
+
+  /*
+   * Правила, распоряжающиеся остановкой этой клетки (bigplan 42).
+   *
+   * Кнопка «ОТКЛЮЧИТЬ» и правила пишут ОДИН флаг `grid.tileDisabled`, поэтому остановленное
+   * правилом здание кнопка показывает верно само по себе. Но нажатие тут же откатится на
+   * ближайшей проверке, и без пометки это читается как сломанная кнопка.
+   */
+  const tileSettingsForKey = useGameStore((s) => (selectedKey ? s.grid.tileSettings?.[selectedKey] : undefined));
+  const powerRules = useMemo(
+    () => rulesControlling(rulesOf(tileSettingsForKey), 'power'),
+    [tileSettingsForKey],
+  );
 
   /*
    * Незавершённая стройка/улучшение на этой клетке (bigplan.md, пункты 18–19).
@@ -680,11 +694,15 @@ export function TileInspector() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs">
                     <div className={`font-bold ${isDisabled ? 'text-red-300' : 'text-cyan-300'}`}>
-                      <IconText>{isDisabled ? '⏸️ Здание отключено' : '▶️ Здание работает'}</IconText>
+                      <IconText>
+                        {isDisabled
+                          ? (powerRules.length > 0 ? '🤖 Остановлено правилом' : '⏸️ Здание отключено')
+                          : '▶️ Здание работает'}
+                      </IconText>
                     </div>
                     <div className="text-[10px] text-cyber-gray-light mt-0.5">
-                      {isDisabled 
-                        ? 'Не производит и не потребляет ресурсы' 
+                      {isDisabled
+                        ? 'Не производит и не потребляет ресурсы'
                         : 'Кликни для остановки производства'
                       }
                     </div>
@@ -710,6 +728,20 @@ export function TileInspector() {
                     )}
                   </button>
                 </div>
+
+                {/*
+                  Правило сильнее ручного нажатия: оно перещёлкнет обратно на ближайшей
+                  проверке. Молча возвращающаяся кнопка читается как поломка, поэтому
+                  называем виновника прямо здесь (bigplan 42).
+                */}
+                {powerRules.length > 0 && (
+                  <div className="mt-1.5 border-t border-cyber-border/50 pt-1.5 text-[10px] text-cyber-gray-light">
+                    Остановкой управляет {powerRules.length > 1 ? 'автоматика' : 'правило'}:{' '}
+                    {powerRules.map(r => describeRule(r)).join('; ')}. Ручное переключение
+                    продержится до ближайшей проверки — правило меняется в «Продвинутых
+                    настройках», вкладка «Правила».
+                  </div>
+                )}
               </div>
             )}
 
