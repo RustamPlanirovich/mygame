@@ -6,6 +6,7 @@ import { TopBar } from './components/game/TopBar';
 import { FactoryGrid } from './components/game/FactoryGrid';
 import { SelectionActionBar } from './components/game/SelectionActionBar';
 import { ScenarioGuide } from './components/game/ScenarioGuide';
+import { BaseAttackOverlay } from './components/game/BaseAttackOverlay';
 import { useServerStream } from './hooks/useServerStream';
 import { useAudio } from './hooks/useAudio';
 import { SidePanel } from './components/game/SidePanel';
@@ -381,6 +382,8 @@ function App() {
         <ScenarioGuide />
         {/* Панель массовых действий: появляется только при непустом выделении (пункты 10, 28) */}
         <SelectionActionBar />
+        {/* Тревога «на базу напали» (пункт 39): живёт только во время волны */}
+        <BaseAttackOverlay />
         <SidePanel streamOnline={streamStatus === 'open'} />
       </main>
 

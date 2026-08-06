@@ -38,6 +38,11 @@ import {
   isTileRuined,
   requiredDepositForBuilding,
 } from '../../core/systems/deposits';
+import {
+  BASE_SHIELD_ID,
+  BASE_TURRET_ID,
+  computeBaseDefenseStatus,
+} from '../../core/systems/baseDefenseStatus';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
@@ -124,6 +129,11 @@ export function FactoryGrid() {
     const mapDef = getMapDefinition(currentMapId);
     return mapDef?.gridType ?? 'square';
   }, [currentMapId]);
+  // На мирных картах волн не бывает — боевую индикацию там рисовать не по чему (bigplan 39).
+  const isPeacefulMap = useMemo(() => {
+    if (!currentMapId) return false;
+    return getMapDefinition(currentMapId)?.modifiers?.includes('peaceful') ?? false;
+  }, [currentMapId]);
   
   // Состояние для модального окна предупреждений
   const [pendingPlacement, setPendingPlacement] = useState<{
@@ -175,6 +185,26 @@ export function FactoryGrid() {
   });
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
+  /*
+   * Боевая индикация (bigplan 39) относится к ГЛАВНОЙ базе: state.combat описывает только её,
+   * у платформ бой считается отдельно (galaxies.platforms[].combat). Когда открыта платформа,
+   * подсветку турелей и щитов гасим — иначе она врала бы про чужую сетку.
+   */
+  const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
+  /*
+   * Ключ перерисовки на время боя.
+   *
+   * Пульсация рамок и бегущие дуги прицела живут только за счёт того, что сцена
+   * перерисовывается каждым тиком. Но подписать эффект прямо на объект `combat` нельзя: тик
+   * пересобирает его 20 раз в секунду ВСЕГДА, и спокойная база начала бы перерисовывать всю
+   * сетку без единой причины. Поэтому ключ меняется только пока идёт тревога, а в тишине это
+   * стабильный ноль — ровно одна перерисовка на завершении волны, чтобы погасить индикаторы.
+   */
+  const combatRedrawKey = useMemo(() => {
+    const now = Date.now();
+    const alarm = combat.baseHp.gt(0) && (combat.enemies.length > 0 || combat.waveEndsAt > now);
+    return alarm ? now : 0;
+  }, [combat]);
   // Массовое выделение (bigplan.md, пункты 10 и 28) — UI-состояние, не попадает в сейв.
   const selectedTiles = useUiStore((s) => s.selectedTiles);
   const selectTile = useGameStore((s) => s.selectTile);
@@ -1135,6 +1165,27 @@ export function FactoryGrid() {
     const COLOR_BUILDING_STROKE = THEME_COLORS.cyberBlue;
     const COLOR_DEFAULT_STROKE = THEME_COLORS.cyberGray;
 
+    /*
+     * БОЕВАЯ ИНДИКАЦИЯ (bigplan 39).
+     *
+     * До этого волна выглядела так: где-то по краю карты ползут точки-враги, база молча теряет
+     * HP, а турели и щиты на сетке ничем не отличаются от обычных зданий. Понять, работает ли
+     * оборона вообще, можно было только открыв раздел «Оборона».
+     *
+     * Состояние считаем ОДИН раз до цикла по клеткам: источник у него общий на всю сетку
+     * (`state.combat`), а Decimal-арифметика на каждой клетке при 20 Гц — лишняя работа.
+     * Правила («что считается беззащитной базой») живут в core/systems/baseDefenseStatus.ts,
+     * чтобы карта и плашка тревоги не разошлись в трактовке.
+     */
+    const nowMs = Date.now();
+    const defense = computeBaseDefenseStatus(combat, buildings, nowMs, isPeacefulMap);
+    // На платформе рисуется чужая сетка, а combat описывает только главную базу.
+    const defenseAlarm = defense.alarm && !activePlatformId;
+    const shieldRatio = defense.shieldRatio;
+    const baseTakingDamage = defense.takingDamage;
+    // Общий пульс тревоги: одна фаза на все индикаторы, иначе рамки мигают вразнобой и рябят.
+    const alarmPulse = defenseAlarm ? 0.55 + Math.sin(nowMs / 220) * 0.35 : 0;
+
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const k = `${x},${y}`;
@@ -1240,6 +1291,24 @@ export function FactoryGrid() {
             if (t) {
               t.x = px;
               t.y = py;
+              /*
+               * Красный дом + пульсирующая рамка, пока по базе действительно идёт урон
+               * (bigplan 39). Раньше единственным следом попадания была просевшая полоса HP
+               * в разделе «Оборона» — на карте не менялось вообще ничего.
+               */
+              if (defenseAlarm && baseTakingDamage) {
+                t.tint = THEME_COLORS.cyberRed;
+              }
+            }
+
+            if (defenseAlarm) {
+              const color = baseTakingDamage ? THEME_COLORS.cyberRed : THEME_COLORS.cyberYellow;
+              traceCell(g, px, py, -2, 6);
+              g.stroke({
+                color,
+                width: baseTakingDamage ? 3.5 : 2,
+                alpha: 0.4 + alarmPulse * 0.55,
+              });
             }
           } else if (hasBuilding) {
             const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
@@ -1304,6 +1373,93 @@ export function FactoryGrid() {
                   crack.y = centerY;
                   crack.tint = THEME_COLORS.cyberRed;
                   crack.alpha = 0.85;
+                }
+              }
+            }
+
+            /*
+             * ТУРЕЛИ И ЩИТЫ ВО ВРЕМЯ АТАКИ (bigplan 39).
+             *
+             * Рисуем только пока идёт волна и только у построенных и включённых сооружений:
+             * недостроенная турель и турель на паузе в бою не участвуют, и подсветка на них
+             * означала бы обратное. Индикатор различает ТРИ состояния, потому что игроку нужно
+             * разное действие в каждом: работает (ничего), нет энергии (чинить энергосеть),
+             * щит пробит (уходить в оборону/чинить базу).
+             */
+            if (defenseAlarm && !isDisabled && !job && !isRuined) {
+              /*
+               * Радиус больше, чем у зелёного «кольца загрузки» (0.7): у турели и щита
+               * `production: {}` — пустой, но truthy, поэтому кольцо загрузки им тоже рисуется.
+               * Разводим их по радиусам, иначе две дуги идут по одному следу и сливаются.
+               */
+              const ringRadius = isHex ? HEX_SIZE * 0.85 : CELL / 2 - 1;
+
+              if (buildingId === BASE_TURRET_ID) {
+                /*
+                 * Красный цвет оставлен ровно на один случай — «энергии на залп не хватило».
+                 * Турель, у которой просто ещё нет целей (между спавнами карта пустеет),
+                 * красной быть не должна: это не авария, и лечить её нечем.
+                 */
+                const color = defense.turretsStarved ? THEME_COLORS.cyberRed : THEME_COLORS.cyberYellow;
+
+                traceCell(g, px, py);
+                g.fill({ color, alpha: 0.12 + alarmPulse * 0.12 });
+                traceCell(g, px, py, 1);
+                g.stroke({ color, width: 2.5, alpha: 0.45 + alarmPulse * 0.5 });
+
+                if (defense.firing) {
+                  /*
+                   * Прицельная рамка: две дуги, бегущие по кругу навстречу друг другу. Именно
+                   * ДВИЖЕНИЕ отличает стреляющую турель от просто подсвеченной клетки —
+                   * статичную рамку глаз принимает за очередное предупреждение.
+                   */
+                  const spin = (nowMs / 320) % (Math.PI * 2);
+                  const arc = Math.PI * 0.35;
+                  for (const dir of [0, Math.PI]) {
+                    const a0 = spin + dir;
+                    g.moveTo(px + Math.cos(a0) * ringRadius, py + Math.sin(a0) * ringRadius);
+                    g.arc(px, py, ringRadius, a0, a0 + arc)
+                      .stroke({ color: THEME_COLORS.cyberYellow, width: 3, alpha: 0.95 });
+                  }
+                } else if (defense.turretsStarved && showDetailedText) {
+                  // Молния = «цели есть, а стрелять нечем»: причина в энергосети, не в обороне.
+                  const icon = getIconFromPool('⚡', 14);
+                  if (icon) {
+                    // Левый нижний угол: правый верхний уже занят звездой эволюции и
+                    // процентом логистического штрафа, левый верхний — значком «нет питания».
+                    icon.x = centerX - iconSpan / 4;
+                    icon.y = centerY + iconSpan / 4;
+                    icon.tint = THEME_COLORS.cyberRed;
+                    icon.alpha = 0.9;
+                  }
+                }
+              } else if (buildingId === BASE_SHIELD_ID) {
+                const broken = shieldRatio <= 0;
+                const color = broken ? THEME_COLORS.cyberRed : THEME_COLORS.cyberBlue;
+
+                traceCell(g, px, py);
+                g.fill({ color, alpha: 0.10 + alarmPulse * 0.10 });
+                traceCell(g, px, py, 1);
+                g.stroke({ color, width: 2, alpha: 0.4 + alarmPulse * 0.45 });
+
+                if (!broken) {
+                  /*
+                   * Дуга по кругу клетки = ЗАРЯД щита базы. Щит один на всю базу, поэтому все
+                   * модули показывают одно и то же число — так и задумано: это состояние базы,
+                   * а не отдельного здания, и увидеть его нужно с любого края карты.
+                   */
+                  const start = -Math.PI / 2;
+                  g.moveTo(px + Math.cos(start) * ringRadius, py + Math.sin(start) * ringRadius);
+                  g.arc(px, py, ringRadius, start, start + Math.PI * 2 * shieldRatio)
+                    .stroke({ color: THEME_COLORS.cyberBlue, width: 3, alpha: 0.95 });
+                } else if (showDetailedText) {
+                  const icon = getIconFromPool('⚠', 14);
+                  if (icon) {
+                    icon.x = centerX - iconSpan / 4;
+                    icon.y = centerY + iconSpan / 4;
+                    icon.tint = THEME_COLORS.cyberRed;
+                    icon.alpha = 0.9;
+                  }
                 }
               }
             }
@@ -1596,7 +1752,18 @@ export function FactoryGrid() {
       grid.tileJobs,
       // Подсветка выделенных клеток должна появляться сразу после протяжки рамки.
       selectedTiles,
+      /*
+       * Не сам combat, а ключ тревоги (bigplan 39): он меняется каждым тиком, пока идёт бой,
+       * и замирает в тишине. Так пульсация обороны, заряд щита и краснота базы обновляются
+       * покадрово во время волны, но спокойная база сетку не перерисовывает.
+       */
+      combatRedrawKey,
       combat.enemies.length,
+      // Индикация обороны относится только к базе: на платформе её не рисуем.
+      activePlatformId,
+      // Число турелей и щитов берётся из каталога — от него зависит, что показывать.
+      buildings,
+      isPeacefulMap,
       worldSize,
       buildingsById,
       // Added new dependencies from top-level useMemo

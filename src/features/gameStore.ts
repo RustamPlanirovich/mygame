@@ -6353,6 +6353,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       let bossKillsThisTick = 0;
       let attacksDefendedThisTick = 0;
       let caravansDeliveredThisTick = 0;
+      /*
+       * ОПОВЕЩЕНИЯ ОБ АТАКЕ НА БАЗУ (bigplan 39).
+       *
+       * Про нападение на ПЛАТФОРМУ игра писала уведомление, а про нападение на саму базу —
+       * нет: волна начиналась молча, база теряла HP, а игрок узнавал об этом по просевшему
+       * производству (штраф до −50% за повреждения). Копим текст здесь, а отправляем ниже,
+       * там где объявлен newNotifications — он объявлен уже после боевого блока.
+       */
+      const baseWaveNotices: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
       // Note: We now process combat even when baseHp <= 0 to handle regen
       {
         let baseHp = state.combat.baseHp;
@@ -6371,6 +6380,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         const shieldBuilding = state.buildings.find((b) => b.id === 'shield_mk1');
         const shieldCount = shieldBuilding?.count ?? 0;
         const shieldDef = shieldBuilding?.defense;
+
+        /*
+         * Турели ищем ЗДЕСЬ, а не там, где они стреляют (ниже): по паре «турели + щиты»
+         * решается, писать ли игроку «оборона отсутствует» в момент начала волны — а это
+         * происходит раньше стрельбы.
+         */
+        const turret = state.buildings.find((b) => b.id === 'turret_mk1');
+        const turretCount = turret?.count ?? 0;
+        const turretCombat = turret?.combat;
 
         // Оборонные политики поднимают потолок щита; текущий HP ниже зажимается по нему,
         // поэтому при снятии политики излишек щита срезается сам собой.
@@ -6412,6 +6430,32 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
 
         const waveActive = waveEndsAt > now && !isPeacefulMap;
+
+        /*
+         * Оповещение ровно на переходе «волны не было -> волна идёт» (bigplan 39). Границу
+         * ловим тем же способом, что и счётчик отбитых атак: waveEndsAt меняется один раз за
+         * волну, поэтому отдельного «уже предупредили» в состоянии держать не нужно — а
+         * значит нечему и разъезжаться с сейвом.
+         */
+        if (!waveWasActiveBefore && waveActive && baseHp.gt(0)) {
+          if (turretCount === 0 && shieldCount === 0) {
+            baseWaveNotices.push({
+              type: 'warning',
+              title: '☠️ База без обороны',
+              message:
+                'Началась атака, а на базе нет ни турелей, ни щитов — весь урон идёт прямо по базе. ' +
+                'Постройте «Турель Mk.I» (стреляет) или «Щитовой Модуль Mk.I» (принимает урон на себя).',
+            });
+          } else {
+            baseWaveNotices.push({
+              type: 'attack',
+              title: '⚔️ Атака на базу',
+              message:
+                `Оборона: турелей ${turretCount}, щитов ${shieldCount}. ` +
+                'Во время волны они едят энергию — при её нехватке турели не стреляют, а щит не восстанавливается.',
+            });
+          }
+        }
 
         // Shield regen (only during active wave to create an energy conflict)
         if (baseHp.gt(0) && waveActive && shieldCount > 0 && shieldDef && shieldMaxHp.gt(0) && shieldHp.lt(shieldMaxHp) && dt > 0) {
@@ -6495,10 +6539,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
 
         // Turrets fire if enemies exist (energy is only consumed while firing)
-        const turret = state.buildings.find((b) => b.id === 'turret_mk1');
-        const turretCount = turret?.count ?? 0;
-        const turretCombat = turret?.combat;
-
         if (turretCount > 0 && turretCombat && enemies.length > 0 && baseHp.gt(0)) {
           defenseEnergyNeedPerSecond = turretCombat.energyPerSecond.mul(turretCount);
           const energyNeed = turretCombat.energyPerSecond.mul(turretCount).mul(dt);
@@ -6767,6 +6807,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       // Update platforms (autonomous mining and combat)
       const newNotifications: Array<Omit<import('../core/gameTypes').Notification, 'id' | 'timestamp' | 'read'>> = [];
+      // Оповещения об атаке на базу собраны выше, в боевом блоке (bigplan 39).
+      if (baseWaveNotices.length > 0) newNotifications.push(...baseWaveNotices);
 
       /*
        * Жила кончилась именно сейчас (bigplan.md, пункт 38). Молча вставшая шахта выглядит
