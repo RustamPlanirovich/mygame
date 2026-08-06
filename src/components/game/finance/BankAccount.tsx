@@ -135,10 +135,11 @@ function BankAccountImpl({ creditsBalance, onTransfer }: BankAccountProps) {
         </div>
 
         {/* Статистика */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Подписи укорочены: «Всего заработано» в треть панели не помещалось */}
+        <div className="grid grid-cols-3 gap-1.5">
           <div className="card">
             <Stat
-              label="Всего заработано"
+              label="Заработано"
               value={`+${formatNumber(D(bank.stats.totalInterestEarned))} ₡`}
               tone="accent"
               align="center"
@@ -146,14 +147,14 @@ function BankAccountImpl({ creditsBalance, onTransfer }: BankAccountProps) {
           </div>
           <div className="card">
             <Stat
-              label="Всего внесено"
+              label="Внесено"
               value={`${formatNumber(D(bank.stats.totalDeposited))} ₡`}
               align="center"
             />
           </div>
           <div className="card">
             <Stat
-              label="Всего снято"
+              label="Снято"
               value={`${formatNumber(D(bank.stats.totalWithdrawn))} ₡`}
               align="center"
             />

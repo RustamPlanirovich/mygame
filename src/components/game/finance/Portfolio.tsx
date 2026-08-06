@@ -108,7 +108,7 @@ function PortfolioImpl() {
     <div className="space-y-3">
       {/* Общая статистика */}
       <Panel title="📊 Общий портфель">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <div className="card">
             <Stat
               label="Инвестиции"
@@ -174,7 +174,9 @@ function PortfolioImpl() {
       </Panel>
 
       {/* Табы */}
-      <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" />
+      <div className="overflow-x-auto">
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" scroll />
+      </div>
 
       {/* Контент */}
       {activeTab === 'stocks' && (
@@ -209,7 +211,7 @@ function PortfolioImpl() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-1 mt-2">
+                  <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
                     <Stat label="Акций" value={formatNumber(D(position.shares))} />
                     <Stat label="Ср. цена" value={formatNumber(D(position.avgBuyPrice))} />
                     <Stat label="Сейчас" value={formatNumber(D(stock.currentPrice))} />

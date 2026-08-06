@@ -111,18 +111,23 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
   ];
 
   return (
-    <div className="flex flex-col min-h-full bg-slate-900 text-white">
+    /*
+     * `min-w-0` на корне обязателен. Ряд вкладок — флекс-контейнер с `whitespace-nowrap`
+     * внутри: его min-content равен сумме ширин вкладок, и семь вкладок распирали всю
+     * панель вширь — она уезжала горизонтально целиком, вместе с заголовком.
+     */
+    <div className="flex min-h-full min-w-0 flex-col bg-slate-900 text-white">
       {/* Заголовок */}
-      <div className="p-4 border-b border-slate-700 shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-bold flex items-center gap-2">
+      <div className="shrink-0 border-b border-slate-700 p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-base font-bold">
             <GameIcon icon="💰" /> Финансы
           </h2>
           <CreditScore score={creditScore} compact />
         </div>
 
-        {/* Быстрая статистика */}
-        <div className="grid grid-cols-4 gap-2">
+        {/* Быстрая статистика: две колонки — в четыре подписи не помещались */}
+        <div className="grid grid-cols-2 gap-2">
           <div className="card">
             <Stat
               label="Чистая стоимость"
@@ -155,18 +160,18 @@ function FinancePanelImpl({ creditsBalance, onTransfer }: FinancePanelProps) {
         </div>
       </div>
 
-      {/* Табы */}
-      <div className="shrink-0 px-4 pt-3">
-        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" />
+      {/* Табы: семь штук в 400px не влезают — ряд прокручивается */}
+      <div className="shrink-0 overflow-x-auto px-3 pt-2">
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" scroll />
       </div>
 
       {/* Контент */}
-      <div className="p-4">
+      <div className="min-w-0 p-3">
         {activeTab === 'overview' && (
           <div className="space-y-4">
             <NetWorthTracker />
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-2">
               {/* Краткая информация о портфеле */}
               <div className="card">
                 <h3 className="font-bold mb-3 flex items-center gap-2">

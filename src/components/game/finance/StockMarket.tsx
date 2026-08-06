@@ -148,13 +148,15 @@ function StockMarketImpl() {
       </div>
 
       {/* Таблица акций */}
-      <div className="panel overflow-hidden">
+      {/* Пять колонок с `whitespace-nowrap` шире панели: раньше `overflow-hidden`
+          просто срезал правый край, теперь таблица прокручивается вбок. */}
+      <div className="panel overflow-x-auto">
         {filteredStocks.length === 0 ? (
           <div className="p-3">
             <EmptyState title="Нет акций в этом секторе" hint="Выберите другой сектор или «Все»." />
           </div>
         ) : (
-          <table className="data-table">
+          <table className="data-table min-w-[360px]">
             <thead>
               <tr>
                 <th
@@ -263,7 +265,8 @@ function StockMarketImpl() {
           <p className="text-sm text-slate-300"><IconText>{selectedStock.description}</IconText></p>
 
           {/* Компактные метрики */}
-          <div className="grid grid-cols-4 gap-2">
+          {/* Две колонки: «Волатильность» в четверть панели не помещалась */}
+          <div className="grid grid-cols-2 gap-2">
             <div className="card">
               <Stat label="Цена" value={`${formatNumber(D(selectedStock.currentPrice))} ₡`} />
             </div>

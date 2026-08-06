@@ -289,13 +289,13 @@ function LoanManagerImpl() {
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <Stat
-                      label="Ежемесячный платёж"
+                      label="Платёж/мес"
                       value={`${formatNumber(D(loan.monthlyPayment))} ₡`}
                       align="center"
                     />
-                    <Stat label="Дней до окончания" value={summary.daysRemaining} align="center" />
+                    <Stat label="Дней осталось" value={summary.daysRemaining} align="center" />
                     <Stat
-                      label="Пропущено платежей"
+                      label="Пропущено"
                       value={loan.missedPayments}
                       tone={loan.missedPayments > 0 ? 'danger' : 'neutral'}
                       align="center"
@@ -440,9 +440,9 @@ function LoanManagerImpl() {
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <Stat label="Сумма кредита" value={`${formatNumber(principal)} ₡`} align="center" />
+                    <Stat label="Сумма" value={`${formatNumber(principal)} ₡`} align="center" />
                     <Stat
-                      label="Дней до окончания"
+                      label="Дней осталось"
                       value={daysLeft}
                       tone={daysLeft <= 3 ? 'danger' : 'neutral'}
                       align="center"

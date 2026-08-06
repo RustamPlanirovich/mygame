@@ -79,15 +79,16 @@ function NetWorthTrackerImpl() {
 
   return (
     <div className="card">
-      <div className="flex justify-between items-start gap-4 mb-4">
-        <div>
+      {/* Цифра и мини-график друг под другом: в строку 200px графика не оставляли места сумме */}
+      <div className="mb-3">
+        <div className="min-w-0">
           <h3 className="stat-label">Чистая стоимость</h3>
-          <div className={`font-mono text-3xl font-bold tabular-nums ${
+          <div className={`truncate font-mono text-2xl font-bold tabular-nums ${
             D(netWorth).gt(0) ? 'text-green-400' : D(netWorth).lt(0) ? 'text-red-400' : ''
           }`}>
             {formatNumber(D(netWorth))} ₡
           </div>
-          <div className={`text-sm flex items-center gap-1 font-mono tabular-nums ${
+          <div className={`flex flex-wrap items-center gap-x-1 font-mono text-xs tabular-nums ${
             historyStats.trend === 'up' ? 'text-green-400' :
             historyStats.trend === 'down' ? 'text-red-400' : 'text-slate-400'
           }`}>
@@ -102,14 +103,14 @@ function NetWorthTrackerImpl() {
 
         {/* Мини-график */}
         {netWorthHistory.length > 1 && (
-          <div className="w-[200px] shrink-0">
-            <Sparkline points={chartPoints} height={50} tone={chartTone} />
+          <div className="mt-2">
+            <Sparkline points={chartPoints} height={44} tone={chartTone} />
           </div>
         )}
       </div>
 
-      {/* Статистика */}
-      <div className="grid grid-cols-4 gap-2">
+      {/* Статистика: две колонки — «Прибыль от акций» в четверть панели не помещалась */}
+      <div className="grid grid-cols-2 gap-2">
         <div className="card">
           <Stat label="24ч Максимум" value={formatNumber(historyStats.high)} tone="accent" align="center" />
         </div>

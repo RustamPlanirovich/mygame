@@ -237,7 +237,8 @@ function P2PLendingImpl() {
       {/* Статистика рынка */}
       {p2pStats && (
         <Panel title="💱 P2P Кредитный рынок">
-          <div className="grid grid-cols-4 gap-3">
+          {/* Две колонки: «Всего сделок» и «Ср. ставка» в четверть панели не влезали */}
+          <div className="grid grid-cols-2 gap-2">
             <div className="card">
               <Stat label="Офферов" value={p2pStats.openOffers} tone="info" align="center" />
             </div>
@@ -264,8 +265,10 @@ function P2PLendingImpl() {
         </Panel>
       )}
 
-      {/* Табы */}
-      <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" />
+      {/* Табы: пять штук с подписями — ряд прокручивается, а не распирает панель */}
+      <div className="overflow-x-auto">
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} size="sm" scroll />
+      </div>
 
       {/* Контент */}
       <Panel>

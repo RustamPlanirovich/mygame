@@ -224,16 +224,17 @@ function AIAdvisorImpl() {
           )}
         </Panel>
 
-        {/* Тарифы */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Тарифы в столбик: в половине панели пункты вроде «Рекомендации по
+            покупке/продаже» рассыпались на три строки */}
+        <div className="grid grid-cols-1 gap-2">
           {/* Базовый */}
           <div className="card border border-blue-500">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl"><GameIcon icon="📊" /></span>
               <h4 className="font-bold">Базовый</h4>
             </div>
-            <p className="text-slate-400 text-sm mb-3"><IconText>{ADVISOR_PRICES.basic.description}</IconText></p>
-            <ul className="text-sm space-y-1 mb-4">
+            <p className="mb-2 text-xs text-slate-400"><IconText>{ADVISOR_PRICES.basic.description}</IconText></p>
+            <ul className="mb-3 space-y-1 text-xs">
               <li className="flex items-center gap-2">
                 <span className="text-green-400"><GameIcon icon="✓" /></span> Прогнозы рынка
               </li>
@@ -266,8 +267,8 @@ function AIAdvisorImpl() {
               <h4 className="font-bold">Премиум</h4>
               <Badge className="text-purple-400">РЕКОМЕНДУЕМ</Badge>
             </div>
-            <p className="text-slate-400 text-sm mb-3"><IconText>{ADVISOR_PRICES.premium.description}</IconText></p>
-            <ul className="text-sm space-y-1 mb-4">
+            <p className="mb-2 text-xs text-slate-400"><IconText>{ADVISOR_PRICES.premium.description}</IconText></p>
+            <ul className="mb-3 space-y-1 text-xs">
               <li className="flex items-center gap-2">
                 <span className="text-green-400"><GameIcon icon="✓" /></span> Всё из базового
               </li>
@@ -541,7 +542,7 @@ function AIAdvisorImpl() {
             <div>
               <h5 className="text-sm font-medium mb-2"><GameIcon icon="📈" /> Автоматическая фиксация</h5>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 <Field label="Take-Profit (фиксация прибыли)">
                   <div className="flex items-center gap-2">
                     <input
@@ -589,9 +590,9 @@ function AIAdvisorImpl() {
             </span>
           }
         >
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="mb-3 grid grid-cols-3 gap-1.5">
             <div className="card text-center">
-              <div className="text-2xl mb-1"><GameIcon icon={getSentimentEmoji(marketAnalysis.overallSentiment)} /></div>
+              <div className="mb-1 text-lg"><GameIcon icon={getSentimentEmoji(marketAnalysis.overallSentiment)} /></div>
               <Stat
                 label="Настроение"
                 value={getSentimentText(marketAnalysis.overallSentiment)}
@@ -600,7 +601,7 @@ function AIAdvisorImpl() {
             </div>
 
             <div className="card text-center">
-              <div className="text-2xl mb-1">
+              <div className="mb-1 text-lg">
                 <IconText>{marketAnalysis.creditRatePrediction.rateDirection === 'rising'
                   ? '📈'
                   : marketAnalysis.creditRatePrediction.rateDirection === 'falling'
@@ -615,10 +616,10 @@ function AIAdvisorImpl() {
             </div>
 
             <div className="card text-center">
-              <div className="text-2xl mb-1"><GameIcon icon="🕐" /></div>
+              <div className="mb-1 text-lg"><GameIcon icon="🕐" /></div>
               <Stat
                 label="Обновлено"
-                value={new Date(marketAnalysis.generatedAt).toLocaleTimeString()}
+                value={new Date(marketAnalysis.generatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                 align="center"
               />
             </div>
