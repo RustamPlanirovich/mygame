@@ -1340,7 +1340,6 @@ export interface GameState {
   claimQuestReward: (questId: string) => void;
   activateQuest: (questId: string) => void;
   // Map system (Phase 4)
-  selectMap: (mapId: import('./gameTypes.maps').MapId) => void;
   startMap: (mapId: import('./gameTypes.maps').MapId) => void;
   completeMap: () => void;
   abandonMap: () => void;

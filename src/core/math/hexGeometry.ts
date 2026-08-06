@@ -20,9 +20,10 @@
  * расстояние. Миграция сейвов не требуется вообще.
  *
  * РАСКЛАДКА
- * FactoryGrid рисует flat-top гексы, где НЕЧЁТНЫЕ столбцы сдвинуты вниз на полряда
- * (`offsetY = x % 2 === 1 ? HEX_VERT : 0`). Это раскладка «odd-q». Формулы ниже — для неё,
- * и при смене раскладки в рендере их придётся менять синхронно.
+ * Гексы рисуются с ПЛОСКИМ верхом, нечётные столбцы сдвинуты вниз на полстроки — раскладка
+ * «odd-q». Формулы ниже — для неё. Пиксельная сторона раскладки живёт в hexLayout.ts и
+ * обратна функциям offset <-> cube из этого файла; тесты hexLayout.test.ts не дадут им
+ * разойтись.
  */
 
 export type GridGeometry = 'square' | 'hex';
@@ -50,6 +51,34 @@ export function cubeToOffset(cube: CubeCoord): { col: number; row: number } {
   const col = cube.x;
   const row = cube.z + (cube.x - (cube.x & 1)) / 2;
   return { col, row };
+}
+
+/**
+ * Округление ДРОБНЫХ cube-координат до ближайшего гекса.
+ *
+ * Нужно для обратного преобразования «пиксель -> клетка»: попадание курсора даёт дробные
+ * координаты, и просто округлить каждую из трёх нельзя — сумма перестанет быть нулём и
+ * получится несуществующая клетка. Поэтому округляем все три, а ту, что округлилась дальше
+ * всех, пересчитываем из двух других: инвариант x + y + z = 0 сохраняется по построению.
+ */
+export function cubeRound(cube: CubeCoord): CubeCoord {
+  let rx = Math.round(cube.x);
+  let ry = Math.round(cube.y);
+  let rz = Math.round(cube.z);
+
+  const dx = Math.abs(rx - cube.x);
+  const dy = Math.abs(ry - cube.y);
+  const dz = Math.abs(rz - cube.z);
+
+  if (dx > dy && dx > dz) {
+    rx = -ry - rz;
+  } else if (dy > dz) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+
+  return { x: rx, y: ry, z: rz };
 }
 
 /**

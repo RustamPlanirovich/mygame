@@ -425,6 +425,39 @@ export function getMapDefinition(mapId: string): MapDefinition | undefined {
   return MAP_DEFINITIONS.find(m => m.id === mapId);
 }
 
+/** Прогресс игрока в терминах требований к разблокировке карт. */
+export interface MapUnlockProgress {
+  unlockedTechnologies: Set<string>;
+  ascensionLevel: number;
+  playtimeHours: number;
+}
+
+/**
+ * Выполнено ли требование карты.
+ *
+ * ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ. Раньше правило жило только здесь и работало на экране выбора
+ * карты, а startMap в сторе проверял ДРУГОЕ — массив maps.unlockedMaps. Массив же пополнялся
+ * ровно в одном месте (completeMap), которое ниоткуда не вызывается. Поэтому «доступную» карту
+ * можно было выбрать, а запустить нельзя: startMap молча возвращал состояние без изменений.
+ * Все четыре гексагональные карты закрыты требованиями (технологии и вознесение) — из-за этого
+ * гексагональная сетка была недостижима в игре в принципе, и поле всегда оставалось квадратным.
+ */
+export function isMapUnlocked(map: MapDefinition, progress: MapUnlockProgress): boolean {
+  const req = map.unlockRequirement;
+  switch (req.type) {
+    case 'none':
+      return true;
+    case 'technology':
+      return req.technologyId ? progress.unlockedTechnologies.has(req.technologyId) : true;
+    case 'ascension':
+      return progress.ascensionLevel >= (req.ascensionLevel ?? 0);
+    case 'playtime':
+      return progress.playtimeHours >= (req.playtimeHours ?? 0);
+    default:
+      return false;
+  }
+}
+
 /**
  * Получить список разблокированных карт
  */
@@ -433,21 +466,9 @@ export function getUnlockedMaps(
   ascensionLevel: number,
   playtimeHours: number
 ): MapDefinition[] {
-  return MAP_DEFINITIONS.filter(map => {
-    const req = map.unlockRequirement;
-    switch (req.type) {
-      case 'none':
-        return true;
-      case 'technology':
-        return req.technologyId ? unlockedTechnologies.has(req.technologyId) : true;
-      case 'ascension':
-        return ascensionLevel >= (req.ascensionLevel ?? 0);
-      case 'playtime':
-        return playtimeHours >= (req.playtimeHours ?? 0);
-      default:
-        return false;
-    }
-  });
+  return MAP_DEFINITIONS.filter(map =>
+    isMapUnlocked(map, { unlockedTechnologies, ascensionLevel, playtimeHours })
+  );
 }
 
 /**

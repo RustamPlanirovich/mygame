@@ -159,7 +159,7 @@ const SCENARIO_CHECK_INTERVAL_MS = 1000;
  */
 const appliedGrantIds = new Set<string>();
 import { generateMap } from '../utils/mapGenerator';
-import { getMapDefinition } from '../core/constants/maps';
+import { getMapDefinition, isMapUnlocked, type MapUnlockProgress } from '../core/constants/maps';
 import { CULTURE_BUILDINGS, isCultureBuilding, aggregateCultureEffects } from '../core/constants/cultureBuildings';
 import { getCultureLevel, getCultureProgress } from '../core/constants/cultureLevels';
 import { calculateHappiness, calculateHappinessTrend, smoothHappinessTransition } from '../utils/happinessCalculator';
@@ -811,6 +811,30 @@ const INITIAL_MAPS: import('../core/gameTypes.maps').ActiveMapState = {
   currentEvent: null,
   eventHistory: [],
 };
+
+/**
+ * Прогресс игрока в том виде, в каком его читают требования карт.
+ *
+ * Считается ровно так же, как в App.tsx для экрана выбора карты: наигранное время — это
+ * сохранённое плюс текущая сессия, иначе после перезапуска игры карта «за час игры» снова
+ * оказалась бы закрытой.
+ */
+function mapUnlockProgressOf(state: GameState): MapUnlockProgress {
+  const stats = state.stats;
+  const playtimeSeconds =
+    (stats?.totalPlayTime ?? 0) +
+    (stats?.currentSessionStart ? Math.floor((Date.now() - stats.currentSessionStart) / 1000) : 0);
+
+  return {
+    unlockedTechnologies: new Set(
+      Object.entries(state.research?.technologies ?? {})
+        .filter(([, isUnlocked]) => isUnlocked)
+        .map(([id]) => id),
+    ),
+    ascensionLevel: state.ascension?.ascensionCount ?? 0,
+    playtimeHours: playtimeSeconds / 3600,
+  };
+}
 
 // Culture - Initial State (Phase 7)
 // ============================================================================
@@ -13258,25 +13282,38 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
-  // Map system actions (Phase 4)
-  selectMap: (mapId: MapId) => {
-    set((state) => ({
-      maps: {
-        ...state.maps,
-        currentMapId: mapId,
-      },
-    }));
-  },
-
+  /*
+   * Map system actions (Phase 4)
+   *
+   * selectMap здесь больше нет. Он ставил currentMapId — и только: без генерации карты,
+   * без стартовых ресурсов, без переключения геометрии сетки. Любой его вызов оставлял игру
+   * в состоянии «поле рисуется по одной карте, данные от другой». Точка входа на карту одна —
+   * startMap.
+   */
   startMap: (mapId: MapId) => {
     set((state) => {
-      // Проверяем, разблокирована ли карта
-      if (!state.maps.unlockedMaps.includes(mapId)) {
-        return state;
-      }
-      
       const mapDef = getMapDefinition(mapId);
       if (!mapDef) return state;
+
+      /*
+       * Разблокировка карты — это ВЫПОЛНЕННОЕ ТРЕБОВАНИЕ (технология, вознесение, наигранное
+       * время), ровно то же правило, по которому карта показана доступной на экране выбора.
+       *
+       * Раньше здесь проверялся только массив maps.unlockedMaps, а он пополняется единственным
+       * местом — completeMap, которое ниоткуда не вызывается. То есть массив навсегда оставался
+       * стартовой парой квадратных карт: игрок исследовал полупроводники, видел «Кристальные
+       * Пещеры» доступными, нажимал «Начать игру» — и не происходило НИЧЕГО, startMap молча
+       * возвращал состояние. Все гексагональные карты закрыты требованиями, поэтому гексы
+       * нельзя было увидеть вообще.
+       *
+       * Массив остаётся: он хранит карты, открытые не требованием, а событием (отладочный
+       * переход, будущая награда). Запущенную карту дописываем в него, чтобы две системы
+       * сходились, а не расходились дальше.
+       */
+      const alreadyUnlocked = state.maps.unlockedMaps.includes(mapId);
+      if (!alreadyUnlocked && !isMapUnlocked(mapDef, mapUnlockProgressOf(state))) {
+        return state;
+      }
 
       /*
        * Геометрия сетки — свойство карты (bigplan.md, пункты 21, 31). Устанавливаем её ДО
@@ -13404,6 +13441,9 @@ export const useGameStore = create<GameState>((set, get) => ({
         maps: {
           ...state.maps,
           currentMapId: mapId,
+          unlockedMaps: alreadyUnlocked
+            ? state.maps.unlockedMaps
+            : [...state.maps.unlockedMaps, mapId],
           activeMapData,
           mapSeed: newSeed,
           currentEvent: null,

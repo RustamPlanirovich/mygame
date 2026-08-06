@@ -21,17 +21,20 @@ import { calculateLogisticsEfficiency } from '../../utils/logisticsHelpers';
 import { getCurrentEvolution } from '../../core/constants/buildingEvolutions';
 import { jobProgress } from '../../core/systems/construction';
 import { playSfx } from '../../core/audio/sfx';
-import { setActiveGridGeometry } from '../../core/math/hexGeometry';
+import { setActiveGridGeometry, gridDistance } from '../../core/math/hexGeometry';
+import {
+  CELL,
+  GAP,
+  HEX_SIZE,
+  cellCenterIn,
+  cellStepIn,
+  hexPolygonPoints,
+  pixelToCellIn,
+  worldSizeIn,
+} from '../../core/math/hexLayout';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
 import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
-
-// Hexagonal grid constants (flat-top hexagons)
-const HEX_SIZE = 28; // Radius of hexagon
-const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE; // Width between parallel sides
-const HEX_HEIGHT = 2 * HEX_SIZE; // Height from top to bottom
-const HEX_HORIZ = HEX_WIDTH; // Horizontal spacing between column centers
-const HEX_VERT = HEX_SIZE * 1.5; // Vertical spacing between row centers
 
 // Grid display mode - динамический, берётся из текущей карты.
 // ВАЖНО: схема карт (core/gameTypes.maps.ts -> GridType) допускает ТОЛЬКО 'square' | 'hex',
@@ -40,10 +43,6 @@ const HEX_VERT = HEX_SIZE * 1.5; // Vertical spacing between row centers
 // и помечал ошибкой TS2367 на сравнении `currentGridMode === 'isometric'`.
 // Мёртвый режим удалён — тип теперь честно совпадает с тем, что реально бывает в данных.
 type GridMode = GridType;
-
-// Legacy constants for square mode compatibility
-const CELL = 48; // Увеличен для лучшей видимости, как в Industry Idle
-const GAP = 1;   // Уменьшен зазор для более плотной сетки
 
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4.0;
@@ -100,49 +99,9 @@ function clamp(n: number, min: number, max: number) {
 }
 
 // ─── Конвертеры координат ──────────────────────────────────────────────────
-// Чистые функции уровня модуля: режим сетки приходит АРГУМЕНТОМ, поэтому они
-// физически не могут замкнуться на устаревшем режиме.
-function gridToPixelIn(mode: GridMode, x: number, y: number): { px: number; py: number } {
-  if (mode === 'hex') {
-    // Hexagonal grid (flat-top hexagons). Odd columns are shifted down by HEX_VERT.
-    const offsetY = (x % 2 === 1) ? HEX_VERT : 0;
-    return {
-      px: x * HEX_HORIZ,
-      py: y * HEX_VERT * 2 + offsetY,
-    };
-  }
-  return {
-    px: GAP + x * (CELL + GAP),
-    py: GAP + y * (CELL + GAP),
-  };
-}
-
-function pixelToGridIn(mode: GridMode, px: number, py: number): { x: number; y: number } {
-  if (mode === 'hex') {
-    // Approximate hexagonal conversion
-    const col = Math.round(px / HEX_HORIZ);
-    const offsetY = (col % 2 === 1) ? HEX_VERT : 0;
-    const row = Math.round((py - offsetY) / (HEX_VERT * 2));
-    return { x: col, y: row };
-  }
-  return {
-    x: Math.floor((px - GAP) / (CELL + GAP)),
-    y: Math.floor((py - GAP) / (CELL + GAP)),
-  };
-}
-
-function worldSizeIn(mode: GridMode, width: number, height: number): { w: number; h: number } {
-  if (mode === 'hex') {
-    return {
-      w: (width + 1) * HEX_HORIZ + HEX_WIDTH,
-      h: (height + 1) * HEX_VERT * 2 + HEX_HEIGHT,
-    };
-  }
-  return {
-    w: width * (CELL + GAP) + GAP,
-    h: height * (CELL + GAP) + GAP,
-  };
-}
+// Сама математика раскладки живёт в core/math/hexLayout.ts: её проверяют тесты, и она обратна
+// offset <-> cube из hexGeometry.ts, по которым считается соседство. Здесь остаются только
+// обёртки, читающие АКТУАЛЬНЫЙ режим сетки в момент вызова.
 
 export function FactoryGrid() {
   // Получаем тип сетки из текущей карты
@@ -303,20 +262,22 @@ export function FactoryGrid() {
    * Единственная гарантия, что РЕНДЕР и ЛОГИКА не разойдутся по геометрии
    * (bigplan.md, пункты 21, 31).
    *
-   * Стор ставит геометрию в startMap и при загрузке сейва, но точек входа на карту больше
-   * (selectMap, отладочные переходы), и разойтись они могут незаметно: игрок видит гексы, а
-   * бонусы соседства считаются по квадратам. Здесь мы синхронизируем её с тем же значением,
-   * по которому реально рисуется сетка, — рассогласование становится невозможным.
+   * Стор ставит геометрию в startMap и при загрузке сейва, но разойтись они могут незаметно:
+   * игрок видит гексы, а бонусы соседства считаются по квадратам. Здесь мы синхронизируем её
+   * с тем же значением, по которому реально рисуется сетка, — рассогласование становится
+   * невозможным.
    */
   useEffect(() => {
     setActiveGridGeometry(currentGridMode === 'hex' ? 'hex' : 'square');
   }, [currentGridMode]);
 
-  // Convert grid coordinates to pixel coordinates based on the CURRENT mode
-  const gridToPixel = (x: number, y: number) => gridToPixelIn(gridModeRef.current, x, y);
+  // ЦЕНТР клетки в мировых пикселях — в обеих геометриях. Всё, что рисуется на клетке
+  // (иконка, дуга, рамка), позиционируется от центра; прямоугольник квадратной клетки
+  // смещается на половину стороны там, где рисуется.
+  const cellCenter = (x: number, y: number) => cellCenterIn(gridModeRef.current, x, y);
 
   // Convert pixel coordinates to grid coordinates based on the CURRENT mode
-  const pixelToGrid = (px: number, py: number) => pixelToGridIn(gridModeRef.current, px, py);
+  const pixelToGrid = (px: number, py: number) => pixelToCellIn(gridModeRef.current, px, py);
 
   const worldSize = useMemo(
     () => worldSizeIn(currentGridMode, grid.width, grid.height),
@@ -374,31 +335,39 @@ export function FactoryGrid() {
     // Pre-calculate powered tiles map (O(1) lookup in render loop)
     const sources = getPowerSources(buildingsWithCoords);
     const poweredSet = new Set<string>();
-    
+
+    /*
+     * Покрытие считается ТЕМ ЖЕ правилом, что и в powerGridHelpers.isInRadius: расстояние
+     * в шагах по геометрии карты. Здесь стоял манхэттен (|dx| + |dy| <= radius), из-за чего
+     * подсветка была ромбом и не совпадала с клетками, которые реально получают энергию.
+     * Геометрия берётся из режима сетки явным аргументом, а не из модульного состояния:
+     * этот useMemo считается во время рендера, а setActiveGridGeometry отрабатывает в эффекте
+     * ПОСЛЕ него — на первом кадре после смены карты значение было бы от предыдущей карты.
+     */
     for (const { building, radius } of sources) {
        if (!building.coord) continue;
        const { x: cx, y: cy } = building.coord;
-       
-       // Add all tiles in radius to set
+
+       // Клетка в N шагах не может отличаться по столбцу или строке больше чем на N —
+       // в обеих геометриях. Поэтому квадрат (2N+1)² надёжно накрывает область поиска.
        for (let dy = -radius; dy <= radius; dy++) {
-         const ay = Math.abs(dy);
          const y = cy + dy;
          for (let dx = -radius; dx <= radius; dx++) {
-            const ax = Math.abs(dx);
-            if (ax + ay <= radius) {
-                poweredSet.add(`${cx + dx},${y}`);
+            const x = cx + dx;
+            if (gridDistance(currentGridMode, cx, cy, x, y) <= radius) {
+                poweredSet.add(`${x},${y}`);
             }
          }
        }
     }
 
-    return { 
-        allBuildingsWithCoords: buildingsWithCoords, 
+    return {
+        allBuildingsWithCoords: buildingsWithCoords,
         activeLogisticsHubs: logisticsHubs,
         powerSources: sources,
         poweredTiles: poweredSet
     };
-  }, [grid.tiles, buildingsById]);
+  }, [grid.tiles, buildingsById, currentGridMode]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -541,11 +510,9 @@ export function FactoryGrid() {
           if (!Number.isFinite(gx) || !Number.isFinite(gy)) continue;
 
           // Центр клетки — попадание по центру предсказуемее, чем по любому касанию рамкой.
-          const p = gridToPixel(gx, gy);
-          const cx = currentGridMode === 'hex' ? p.px : p.px + CELL / 2;
-          const cy = currentGridMode === 'hex' ? p.py : p.py + CELL / 2;
+          const { px, py } = cellCenter(gx, gy);
 
-          if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) out.push(key);
+          if (px >= minX && px <= maxX && py >= minY && py <= maxY) out.push(key);
         }
 
         return out;
@@ -672,12 +639,8 @@ export function FactoryGrid() {
         
         // Вычисляем позицию базы в пиксельных координатах
         const basePos = getBasePos(currentGrid);
-        const basePixel = gridToPixel(basePos.x, basePos.y);
-        
-        // Центрируем камеру на базе
-        const baseCenterX = basePixel.px + CELL / 2;
-        const baseCenterY = basePixel.py + CELL / 2;
-        
+        const { px: baseCenterX, py: baseCenterY } = cellCenter(basePos.x, basePos.y);
+
         // Подбираем zoom чтобы база была в центре экрана
         const fit = Math.min(vw / ws.w, vh / ws.h) * 1.2; // Немного ближе для лучшего обзора
         cam.zoom = clamp(fit, ZOOM_MIN, ZOOM_MAX);
@@ -954,12 +917,8 @@ export function FactoryGrid() {
         
         // Вычисляем позицию базы в пиксельных координатах
         const basePos = getBasePos(currentGrid);
-        const basePixel = gridToPixel(basePos.x, basePos.y);
-        
-        // Центрируем камеру на базе
-        const baseCenterX = basePixel.px + CELL / 2;
-        const baseCenterY = basePixel.py + CELL / 2;
-        
+        const { px: baseCenterX, py: baseCenterY } = cellCenter(basePos.x, basePos.y);
+
         // Устанавливаем удобный zoom
         cam.zoom = clamp(1.2, ZOOM_MIN, ZOOM_MAX);
         
@@ -1038,17 +997,27 @@ export function FactoryGrid() {
 
     // НЕ удаляем детей - пул текстов управляется через visible
 
+    const isHex = currentGridMode === 'hex';
+
     // Grid background - темнее, как в Industry Idle
     g.rect(0, 0, worldSize.w, worldSize.h).fill({ color: THEME_COLORS.cyberDark, alpha: 1.0 });
 
-    // Draw hexagon helper
-    const drawHexagon = (g: PIXI.Graphics, cx: number, cy: number, radius: number) => {
-      const points: number[] = [];
-      for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i - Math.PI / 6; // Start from flat top
-        points.push(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle));
+    /*
+     * Контур клетки текущей геометрии вокруг её центра. Единственное место, где форма клетки
+     * превращается в путь: раньше каждый вызывающий сам решал, гекс это или прямоугольник, и
+     * половина мест (подсветка энергосети, зона логистики, рамка штрафа) знала только про
+     * прямоугольник — на hex-картах поверх сот рисовались квадраты 48×48.
+     *
+     * `inset` — насколько контур ужать внутрь клетки (для рамок поверх заливки),
+     * `corner` — скругление углов квадратной клетки (у гекса углов нет).
+     */
+    const traceCell = (g: PIXI.Graphics, cx: number, cy: number, inset = 0, corner = 2) => {
+      if (isHex) {
+        g.poly(hexPolygonPoints(cx, cy, HEX_SIZE - inset));
+      } else {
+        const half = CELL / 2 - inset;
+        g.roundRect(cx - half, cy - half, half * 2, half * 2, corner);
       }
-      g.poly(points);
     };
 
     // Оптимизация: вычисляем видимую область (culling)
@@ -1063,13 +1032,15 @@ export function FactoryGrid() {
     const worldRight = worldLeft + viewportW / cam.zoom;
     const worldBottom = worldTop + viewportH / cam.zoom;
     
-    // Диапазон видимых клеток с запасом +10 клеток для оптимизации
-    const cellSize = CELL + GAP;
+    // Диапазон видимых клеток с запасом +10 клеток для оптимизации.
+    // Шаг сетки зависит от геометрии: у гексов столбцы стоят плотнее строк, и по квадратному
+    // шагу правый край карты обрезался бы (столбцов в тех же пикселях больше).
+    const { colStep, rowStep } = cellStepIn(currentGridMode);
     const bufferCells = 10; // Запас клеток для плавного рендеринга
-    const minX = Math.max(0, Math.floor((worldLeft - GAP) / cellSize) - bufferCells);
-    const maxX = Math.min(grid.width - 1, Math.ceil((worldRight - GAP) / cellSize) + bufferCells);
-    const minY = Math.max(0, Math.floor((worldTop - GAP) / cellSize) - bufferCells);
-    const maxY = Math.min(grid.height - 1, Math.ceil((worldBottom - GAP) / cellSize) + bufferCells);
+    const minX = Math.max(0, Math.floor(worldLeft / colStep) - bufferCells);
+    const maxX = Math.min(grid.width - 1, Math.ceil(worldRight / colStep) + bufferCells);
+    const minY = Math.max(0, Math.floor(worldTop / rowStep) - bufferCells);
+    const maxY = Math.min(grid.height - 1, Math.ceil(worldBottom / rowStep) + bufferCells);
     
     // Показывать текст только при достаточном зуме
     const showText = cam.zoom > 0.4;
@@ -1138,10 +1109,9 @@ export function FactoryGrid() {
     // Cells - рисуем только видимые
     const basePos = getBasePos(grid);
 
-    // OPTIMIZATION: Prepare styles outside loop to avoid repeated object access 
-    const isSquare = currentGridMode === 'square';
-    const isHex = currentGridMode === 'hex';
-    const cellHalf = CELL / 2;
+    // OPTIMIZATION: Prepare styles outside loop to avoid repeated object access
+    // Радиус, в который вписана иконка клетки: у гекса он меньше стороны квадрата.
+    const iconSpan = isHex ? HEX_SIZE : CELL;
 
     // Low zoom optimization flags
     const isZoomVeryLow = cam.zoom < 0.5;
@@ -1165,7 +1135,8 @@ export function FactoryGrid() {
         // Access directly for speed (avoid Boolean wrap if possible in hot loop)
         const buildingId = grid.tiles[k];
         const hasBuilding = !!buildingId;
-        const { px, py } = gridToPixel(x, y);
+        // px, py — ЦЕНТР клетки в обеих геометриях.
+        const { px, py } = cellCenter(x, y);
 
         const isBase = x === basePos.x && y === basePos.y;
         
@@ -1200,23 +1171,15 @@ export function FactoryGrid() {
         }
         
         // Draw Fill
-        if (isHex) {
-          drawHexagon(g, px, py, HEX_SIZE);
-          g.fill({ color: fill, alpha });
-        } else {
-          g.roundRect(px, py, CELL, CELL, 2).fill({ color: fill, alpha });
-        }
+        traceCell(g, px, py);
+        g.fill({ color: fill, alpha });
 
         // Draw Stroke (Conditional)
         const shouldDrawStroke = showText || (hasBuilding && isZoomVeryLow);
         if (shouldDrawStroke) {
            const finalAlpha = strokeAlpha * (showText ? 0.5 : 1);
-           if (isHex) {
-             drawHexagon(g, px, py, HEX_SIZE);
-             g.stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
-           } else {
-             g.roundRect(px, py, CELL, CELL, 2).stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
-           }
+           traceCell(g, px, py);
+           g.stroke({ color: strokeColor, width: strokeWidth, alpha: finalAlpha });
         }
 
         // --- OPTIMIZATION: Merged Power Overlay & Warnings ---
@@ -1225,44 +1188,38 @@ export function FactoryGrid() {
              
              // 1. Green overlay for powered tiles
              if (isPowered) {
-                  // Only draw if square for now for optimization
-                  if (typeof g.rect === 'function') { 
-                      g.rect(px, py, CELL, CELL).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.08 });
-                  }
+                  traceCell(g, px, py);
+                  g.fill({ color: THEME_COLORS.cyberGreen, alpha: 0.08 });
              }
-             
+
              // 2. Logic for buildings (Source icons, Warnings)
              if (hasBuilding) {
                   const bRef = buildingsById[buildingId];
                   if (bRef) {
                       const isSource = bRef.powerGridRadius && bRef.powerGridRadius > 0;
-                      
+
                       // Source Icon (Lightning)
                       if (isSource && showDetailedText && textLayer) {
-                          const centerX = isHex ? px : px + cellHalf;
-                          const centerY = isHex ? py : py + cellHalf;
                           const powerIcon = getIconFromPool('⚡', 18);
                           if (powerIcon) {
-                            powerIcon.x = centerX;
-                            powerIcon.y = centerY - CELL / 4;
+                            powerIcon.x = px;
+                            powerIcon.y = py - iconSpan / 4;
                             powerIcon.alpha = 0.75;
                           }
                       }
-                      
+
                       // Warning Frame (Red) - Unpowered
                       if (!isSource && !isPowered) {
                            const pulse = (Math.sin(Date.now() / 500) * 0.2) + 0.6;
-                           if (isSquare) {
-                               g.roundRect(px + 2, py + 2, CELL - 4, CELL - 4, 2)
-                                .stroke({ color: THEME_COLORS.cyberRed, width: 2, alpha: pulse });
-                           }
-                           
-                           // Warning Icon
+                           traceCell(g, px, py, 2);
+                           g.stroke({ color: THEME_COLORS.cyberRed, width: 2, alpha: pulse });
+
+                           // Warning Icon — в левом верхнем углу клетки, но внутри её формы.
                            if (showDetailedText && textLayer) {
                                const warningIcon = getIconFromPool('⚠', 14);
                                if (warningIcon) {
-                                 warningIcon.x = px + 11;
-                                 warningIcon.y = py + 11;
+                                 warningIcon.x = px - iconSpan / 4;
+                                 warningIcon.y = py - iconSpan / 4;
                                }
                             }
                       }
@@ -1273,12 +1230,10 @@ export function FactoryGrid() {
 
         if (textLayer && showText) {
           if (isBase) {
-            const centerX = isHex ? px : px + cellHalf;
-            const centerY = isHex ? py : py + cellHalf;
             const t = getIconFromPool('🏠', isHex ? HEX_SIZE : CELL * 0.62);
             if (t) {
-              t.x = centerX;
-              t.y = centerY;
+              t.x = px;
+              t.y = py;
             }
           } else if (hasBuilding) {
             const evolutionLevel = grid.tileEvolutionLevels?.[k] || 0;
@@ -1298,9 +1253,9 @@ export function FactoryGrid() {
              */
             const job = grid.tileJobs?.[k];
 
-            const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
-            const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
-            const t = getIconFromPool(emoji, currentGridMode === 'hex' ? HEX_SIZE : CELL * 0.6);
+            const centerX = px;
+            const centerY = py;
+            const t = getIconFromPool(emoji, isHex ? HEX_SIZE : CELL * 0.6);
             if (t) {
               t.x = centerX;
               t.y = centerY - (isDisabled ? 6 : 0);
@@ -1319,7 +1274,7 @@ export function FactoryGrid() {
               // Дуга заполнения по прогрессу: считается от абсолютного времени, поэтому
               // не «замирает», если вкладка была свёрнута.
               const progress = jobProgress(job, Date.now());
-              const radius = currentGridMode === 'hex' ? HEX_SIZE * 0.78 : CELL / 2 - 3;
+              const radius = isHex ? HEX_SIZE * 0.78 : CELL / 2 - 3;
               const startAngle = -Math.PI / 2;
               const endAngle = startAngle + Math.PI * 2 * progress;
               const color = job.kind === 'build' ? THEME_COLORS.cyberBlue : THEME_COLORS.cyberYellow;
@@ -1351,7 +1306,7 @@ export function FactoryGrid() {
                 const arcLength = Math.PI * 0.5; // Длина дуги (90 градусов)
                 const endAngle = startAngle + arcLength;
                 
-                const indicatorRadius = currentGridMode === 'hex' ? HEX_SIZE * 0.7 : CELL / 2 - 4;
+                const indicatorRadius = isHex ? HEX_SIZE * 0.7 : CELL / 2 - 4;
                 const cx = centerX;
                 const cy = centerY;
                 
@@ -1377,7 +1332,7 @@ export function FactoryGrid() {
             if (evolutionLevel > 0 && showDetailedText) {
               const star = getIconFromPool('⭐', 13);
               if (star) {
-                star.x = centerX + (currentGridMode === 'hex' ? 12 : 18);
+                star.x = centerX + (isHex ? 12 : 18);
                 star.y = centerY - 8;
               }
             }
@@ -1386,7 +1341,7 @@ export function FactoryGrid() {
             if (isDisabled && showDetailedText) {
               const pauseIcon = getIconFromPool('⏸️', 13);
               if (pauseIcon) {
-                pauseIcon.x = centerX - (currentGridMode === 'hex' ? 10 : 15);
+                pauseIcon.x = centerX - (isHex ? 10 : 15);
                 pauseIcon.y = centerY - 6;
               }
             }
@@ -1394,13 +1349,11 @@ export function FactoryGrid() {
             // Показываем месторождения только при детальном зуме (>0.7) чтобы не нагружать при отдалении
             const dep = grid.deposits?.[k];
             if (dep && showDetailedText) {
-              const centerX = currentGridMode === 'hex' ? px : px + CELL / 2;
-              const centerY = currentGridMode === 'hex' ? py : py + CELL / 2;
-              const t = getIconFromPool(getDepositEmoji(dep), currentGridMode === 'hex' ? HEX_SIZE * 0.8 : CELL * 0.5);
+              const t = getIconFromPool(getDepositEmoji(dep), isHex ? HEX_SIZE * 0.8 : CELL * 0.5);
               if (t) {
                 t.alpha = 0.5;
-                t.x = centerX;
-                t.y = centerY;
+                t.x = px;
+                t.y = py;
               }
             }
           }
@@ -1446,41 +1399,24 @@ export function FactoryGrid() {
         // Если источник не пересекает видимую область - пропускаем
         if (rangeMinX > rangeMaxX || rangeMinY > rangeMaxY) continue;
 
-        // Заполняем Set
+        // Заполняем Set. Расстояние — в шагах по геометрии карты, тем же правилом, что и
+        // в logisticsHelpers: раньше здесь стоял манхэттен, и нарисованная зона покрытия
+        // не совпадала с той, по которой считается штраф.
         for (let x = rangeMinX; x <= rangeMaxX; x++) {
           for (let y = rangeMinY; y <= rangeMaxY; y++) {
-             const dist = Math.abs(x - cx) + Math.abs(y - cy);
-             if (dist <= radius) {
+             if (gridDistance(currentGridMode, cx, cy, x, y) <= radius) {
                 coveredTiles.add(`${x},${y}`);
              }
           }
         }
 
-        /*
-        // Рисуем контур радиуса логистики (lines are cheap)
-        const centerPixel = gridToPixel(cx, cy);
-        const centerX = centerPixel.px + CELL / 2;
-        const centerY = centerPixel.py + CELL / 2;
-        
-        g.setStrokeStyle({ color: THEME_COLORS.cyberBlue, width: 1.5, alpha: 0.25 })
-         .moveTo(centerX, centerY - radius * (CELL + GAP))
-         .lineTo(centerX + radius * (CELL + GAP), centerY)
-         .lineTo(centerX, centerY + radius * (CELL + GAP))
-         .lineTo(centerX - radius * (CELL + GAP), centerY)
-         .closePath()
-         .stroke();
-         */
-
         // Иконка логистического узла
-        const centerPixel = gridToPixel(cx, cy);
-        const centerX = centerPixel.px + CELL / 2;
-        const centerY = centerPixel.py + CELL / 2;
-
         if (showDetailedText && textLayer) {
+          const hubCenter = cellCenter(cx, cy);
           const logisticsIcon = getIconFromPool('📦', 18);
           if (logisticsIcon) {
-            logisticsIcon.x = centerX;
-            logisticsIcon.y = centerY - CELL / 4;
+            logisticsIcon.x = hubCenter.px;
+            logisticsIcon.y = hubCenter.py - iconSpan / 4;
             logisticsIcon.alpha = 0.75;
           }
         }
@@ -1489,8 +1425,9 @@ export function FactoryGrid() {
       // Batch draw active logistics tiles
       for (const key of coveredTiles) {
          const [x, y] = key.split(',').map(Number);
-         const { px, py } = gridToPixel(x, y);
-         g.rect(px, py, CELL, CELL).fill({ color: THEME_COLORS.cyberBlue, alpha: 0.06 });
+         const { px, py } = cellCenter(x, y);
+         traceCell(g, px, py);
+         g.fill({ color: THEME_COLORS.cyberBlue, alpha: 0.06 });
       }
 
       // Подсвечиваем здания с логистическим штрафом оранжевой рамкой
@@ -1516,19 +1453,19 @@ export function FactoryGrid() {
           );
           
           if (logisticsEfficiency < 1.0 && showDetailedText) {
-            const { px, py } = gridToPixel(x, y);
+            const { px, py } = cellCenter(x, y);
             const penalty = Math.round((1 - logisticsEfficiency) * 100);
-            
-            // Оранжевая рамка для зданий с штрафом
-            g.roundRect(px + 1, py + 1, CELL - 2, CELL - 2, 2)
-             .stroke({ color: THEME_COLORS.cyberYellow, width: 1.5, alpha: 0.5 });
 
-            // Текст со штрафом
+            // Оранжевая рамка для зданий с штрафом
+            traceCell(g, px, py, 1);
+            g.stroke({ color: THEME_COLORS.cyberYellow, width: 1.5, alpha: 0.5 });
+
+            // Текст со штрафом — в правом верхнем углу клетки, внутри её формы.
             if (textLayer) {
               const penaltyText = getTextFromPool(`-${penalty}%`, TEXT_STYLES.missing);
               penaltyText.anchor.set(1, 0);
-              penaltyText.x = px + CELL - 4;
-              penaltyText.y = py + 4;
+              penaltyText.x = px + iconSpan / 2 - 4;
+              penaltyText.y = py - iconSpan / 2 + 4;
               penaltyText.style.fill = THEME_COLORS.cyberYellow;
             }
           }
@@ -1540,8 +1477,8 @@ export function FactoryGrid() {
 
     // Base marker (target) - центр карты
     const baseMarkerPos = getBasePos(grid);
-    const basePixelPos = gridToPixel(baseMarkerPos.x, baseMarkerPos.y);
-    g.circle(basePixelPos.px + CELL / 2, basePixelPos.py + CELL / 2, 8).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.8 });
+    const baseMarkerCenter = cellCenter(baseMarkerPos.x, baseMarkerPos.y);
+    g.circle(baseMarkerCenter.px, baseMarkerCenter.py, 8).fill({ color: THEME_COLORS.cyberGreen, alpha: 0.8 });
 
     // Enemies (visual only) - показываем только при достаточном зуме и ограничиваем количество
     if (combat.enemies.length > 0 && showText) {
@@ -1571,18 +1508,15 @@ export function FactoryGrid() {
 
       // faint line to base
       const baseLinePos = getBasePos(grid);
-      const baseLinePixel = gridToPixel(baseLinePos.x, baseLinePos.y);
-      g.moveTo(GAP, baseLinePixel.py).lineTo(worldSize.w - GAP, baseLinePixel.py).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
+      const baseLineY = cellCenter(baseLinePos.x, baseLinePos.y).py;
+      g.moveTo(GAP, baseLineY).lineTo(worldSize.w - GAP, baseLineY).stroke({ color: THEME_COLORS.cyberGray, width: 1, alpha: 0.25 });
     }
 
     if (grid.selected) {
-      const selPos = gridToPixel(grid.selected.x, grid.selected.y);
-      if (isHex) {
-        drawHexagon(g, selPos.px, selPos.py, HEX_SIZE + 2);
-        g.stroke({ color: THEME_COLORS.cyberGreen, width: 2.5, alpha: 0.9 });
-      } else {
-        g.roundRect(selPos.px - 1, selPos.py - 1, CELL + 2, CELL + 2, 6).stroke({ color: THEME_COLORS.cyberGreen, width: 2, alpha: 0.9 });
-      }
+      const selPos = cellCenter(grid.selected.x, grid.selected.y);
+      // Отрицательный inset — рамка чуть ШИРЕ клетки, чтобы не сливаться с её обводкой.
+      traceCell(g, selPos.px, selPos.py, -2, 6);
+      g.stroke({ color: THEME_COLORS.cyberGreen, width: isHex ? 2.5 : 2, alpha: 0.9 });
     }
 
     /*
@@ -1596,15 +1530,10 @@ export function FactoryGrid() {
         const gy = Number(key.slice(comma + 1));
         if (!Number.isFinite(gx) || !Number.isFinite(gy)) continue;
 
-        const p = gridToPixel(gx, gy);
-        if (isHex) {
-          drawHexagon(g, p.px, p.py, HEX_SIZE + 1);
-          g.stroke({ color: THEME_COLORS.cyberYellow, width: 2, alpha: 0.95 });
-        } else {
-          g.roundRect(p.px - 1, p.py - 1, CELL + 2, CELL + 2, 6)
-            .fill({ color: THEME_COLORS.cyberYellow, alpha: 0.12 })
-            .stroke({ color: THEME_COLORS.cyberYellow, width: 2, alpha: 0.95 });
-        }
+        const p = cellCenter(gx, gy);
+        traceCell(g, p.px, p.py, -1, 6);
+        g.fill({ color: THEME_COLORS.cyberYellow, alpha: 0.12 });
+        g.stroke({ color: THEME_COLORS.cyberYellow, width: 2, alpha: 0.95 });
       }
     }
   }, [

@@ -162,7 +162,6 @@ function App() {
   const research = useGameStore(state => state.research);
   const ascension = useGameStore(state => state.ascension);
   const stats = useGameStore(state => state.stats);
-  const selectMap = useGameStore(state => state.selectMap);
   const startMap = useGameStore(state => state.startMap);
   
   // Вычисляем общее время игры в часах (сохранённое + текущая сессия)
@@ -444,7 +443,10 @@ function App() {
           playtimeHours={playtimeHours}
           currentMapId={maps?.currentMapId ?? undefined}
           onSelectMap={(mapId) => {
-            selectMap(mapId as any);
+            // startMap делает всё: ставит текущую карту, генерирует её и переключает
+            // геометрию сетки. Раньше перед ним вызывался ещё selectMap, который менял
+            // только id карты — если запуск не состоялся, игра оставалась с чужим id:
+            // поле рисовалось по геометрии одной карты, а играло по данным другой.
             startMap(mapId as any);
             setShowMapSelector(false);
           }}
