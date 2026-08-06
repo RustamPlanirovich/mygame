@@ -39,7 +39,7 @@ import type { AdminRole } from './utils/adminApi';
  * живёт лишь в dev), а грузились в главном чанке до первого кадра. Каждое окно теперь
  * монтируется ТОЛЬКО когда открыто: без этого lazy-чанк подтянулся бы сразу и смысла не было.
  */
-const HelpModal = lazy(() => import('./components/game/HelpPanel').then((m) => ({ default: m.HelpModal })));
+const HelpModal = lazy(() => import('./components/game/help/HelpPanel').then((m) => ({ default: m.HelpModal })));
 const SaveManager = lazy(() => import('./components/game/SaveManager').then((m) => ({ default: m.SaveManager })));
 const GameSlotsManager = lazy(() => import('./components/game/GameSlotsManager').then((m) => ({ default: m.GameSlotsManager })));
 const ProfilePanel = lazy(() => import('./components/game/ProfilePanel').then((m) => ({ default: m.ProfilePanel })));

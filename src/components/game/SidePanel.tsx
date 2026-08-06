@@ -41,7 +41,7 @@ const RandomEventsPanel = lazy(() => import('./RandomEventsPanel').then((m) => (
 const AchievementsPanel = lazy(() => import('./AchievementsPanel'));
 const MegastructuresPanel = lazy(() => import('./MegastructuresPanel').then((m) => ({ default: m.MegastructuresPanel })));
 const QuestsPanel = lazy(() => import('./QuestsPanel').then((m) => ({ default: m.QuestsPanel })));
-const HelpPanel = lazy(() => import('./HelpPanel').then((m) => ({ default: m.HelpPanel })));
+const HelpPanel = lazy(() => import('./help/HelpPanel').then((m) => ({ default: m.HelpPanel })));
 const AnalyticsPanel = lazy(() => import('./analytics').then((m) => ({ default: m.AnalyticsPanel })));
 const FinancePanel = lazy(() => import('./finance').then((m) => ({ default: m.FinancePanel })));
 const CulturePanel = lazy(() => import('./culture/CulturePanel').then((m) => ({ default: m.CulturePanel })));
