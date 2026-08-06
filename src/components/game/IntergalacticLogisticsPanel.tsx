@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type Decimal from 'break_eternity.js';
 import { useGameStore } from '../../features/gameStore';
 import { formatNumber } from '../../core/math/format';
-import type { ResourceType, GalaxyId } from '../../core/gameTypes';
+import type { ResourceType, GalaxyId, ResourceState } from '../../core/gameTypes';
 import { RESOURCE_EMOJI } from '../../core/constants/labels';
+import { resourceLabel } from '../../core/i18n/label';
+import { aggregatePolicyEffects } from '../../core/production/policyEffects';
+import { planCargo } from '../../core/logistics/cargoInput';
 import { D } from '../../utils/bigNumber';
 import { notify } from '../../utils/notifications';
 import { GameIcon, IconText } from '../ui/icons';
@@ -13,97 +17,132 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
     galaxies,
     resources,
     currency,
+    politics,
     sendCaravan,
     upgradeCaravanSystem,
   } = useGameStore();
 
   const [selectedFrom, setSelectedFrom] = useState<string>('main_base');
   const [selectedTo, setSelectedTo] = useState<string>('');
-  const [cargoResources, setCargoResources] = useState<Partial<Record<ResourceType, number>>>({});
+  const [cargoInput, setCargoInput] = useState<Record<string, string>>({});
+  const [resourceQuery, setResourceQuery] = useState('');
+  const [showEmpty, setShowEmpty] = useState(false);
 
   const availableDestinations = [
     { id: 'main_base', name: '🏠 Главная база', galaxyId: 'galaxy_1_nebula_beginning' as GalaxyId },
     ...galaxies.platforms.map(p => ({ id: p.id, name: `🛰️ ${p.name}`, galaxyId: p.galaxyId })),
   ].filter(d => d.id !== selectedFrom);
 
+  const sourcePlatform = selectedFrom === 'main_base'
+    ? null
+    : galaxies.platforms.find(p => p.id === selectedFrom) ?? null;
+
+  /*
+   * Список груза берётся со склада ИСТОЧНИКА, а не главной базы. Раньше панель всегда
+   * показывала запасы базы: при отправке с платформы ресурсы, которых на базе нет,
+   * в список не попадали — отправить их было невозможно, а у остальных бралось чужое
+   * ограничение по количеству.
+   */
+  const sourceResources: Partial<Record<ResourceType, ResourceState>> =
+    sourcePlatform ? sourcePlatform.resources : resources;
+
+  const sourceName = sourcePlatform ? sourcePlatform.name : 'Главная база';
+
+  const fromGalaxyId: GalaxyId = sourcePlatform?.galaxyId ?? 'galaxy_1_nebula_beginning';
+  const toGalaxyId: GalaxyId = selectedTo === 'main_base' || !selectedTo
+    ? 'galaxy_1_nebula_beginning'
+    : galaxies.platforms.find(p => p.id === selectedTo)?.galaxyId ?? 'galaxy_1_nebula_beginning';
+
+  /** Что реально уедет: положительные количества, обрезанные по складу источника. */
+  const cargoEntries = useMemo(
+    () => planCargo(cargoInput, sourceResources),
+    [cargoInput, sourceResources]
+  );
+
+  const totalCargo = useMemo(
+    () => cargoEntries.reduce((sum, [, amount]) => sum.plus(amount), D(0)),
+    [cargoEntries]
+  );
+
+  // Та же формула, что в sendCaravan (включая скидку политики trade_routes), иначе панель
+  // блокировала бы отправку из-за топлива, которое стор на самом деле не спросит.
+  const isIntergalactic = fromGalaxyId !== toGalaxyId;
+  const fuelCost = useMemo(() => {
+    const discount = isIntergalactic
+      ? aggregatePolicyEffects(politics.activePolicies).specials.interTradeCost
+      : 1;
+    return totalCargo.mul(0.01).mul(isIntergalactic ? 3 : 1).mul(D(discount));
+  }, [totalCargo, isIntergalactic, politics.activePolicies]);
+
+  // Топливо списывается с ГЛАВНОЙ БАЗЫ даже для рейсов между платформами (см. sendCaravan).
+  const availableFuel = (resources.liquid_fuel?.amount ?? D(0)).plus(resources.gasoline?.amount ?? D(0));
+
+  const allSourceTypes = useMemo(
+    () => Object.keys(sourceResources) as ResourceType[],
+    [sourceResources]
+  );
+  const inStockCount = useMemo(
+    () => allSourceTypes.filter(t => (sourceResources[t]?.amount ?? D(0)).gt(0)).length,
+    [allSourceTypes, sourceResources]
+  );
+
+  const cargoRows = useMemo(() => {
+    const query = resourceQuery.trim().toLowerCase();
+    return allSourceTypes
+      .map(resType => ({ resType, available: sourceResources[resType]?.amount ?? D(0) }))
+      .filter(row => showEmpty || row.available.gt(0))
+      .filter(row =>
+        !query ||
+        resourceLabel(row.resType).toLowerCase().includes(query) ||
+        row.resType.includes(query)
+      )
+      .sort((a, b) => {
+        // Сначала то, что есть на складе: пустые строки нужны только для справки.
+        const aEmpty = a.available.gt(0) ? 0 : 1;
+        const bEmpty = b.available.gt(0) ? 0 : 1;
+        if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+        return resourceLabel(a.resType).localeCompare(resourceLabel(b.resType), 'ru');
+      });
+  }, [allSourceTypes, sourceResources, resourceQuery, showEmpty]);
+
+  const handleSourceChange = (nextFrom: string) => {
+    setSelectedFrom(nextFrom);
+    // Количества относились к другому складу — переносить их на новый источник нельзя.
+    setCargoInput({});
+    if (nextFrom === selectedTo) setSelectedTo('');
+  };
+
   const handleSendCaravan = () => {
     if (!selectedTo) {
       notify.warning('Выберите пункт назначения');
       return;
     }
-
-    const cargo: Partial<Record<ResourceType, import('break_eternity.js').default>> = {};
-    let hasAnyCargo = false;
-    let totalCargoAmount = D(0);
-    
-    Object.entries(cargoResources).forEach(([res, amount]) => {
-      if (amount && amount > 0) {
-        cargo[res as ResourceType] = D(amount);
-        totalCargoAmount = totalCargoAmount.plus(amount);
-        hasAnyCargo = true;
-      }
-    });
-
-    if (!hasAnyCargo) {
+    if (selectedFrom !== 'main_base' && !sourcePlatform) {
+      notify.error('Платформа-источник не найдена');
+      return;
+    }
+    if (cargoEntries.length === 0) {
       notify.warning('Добавьте ресурсы для отправки');
       return;
     }
-
-    // Pre-check: Do we have enough fuel?
-    const fromGalaxyId = selectedFrom === 'main_base' 
-      ? 'galaxy_1_nebula_beginning' 
-      : galaxies.platforms.find(p => p.id === selectedFrom)?.galaxyId || 'galaxy_1_nebula_beginning';
-    const toGalaxyId = selectedTo === 'main_base'
-      ? 'galaxy_1_nebula_beginning'
-      : galaxies.platforms.find(p => p.id === selectedTo)?.galaxyId || 'galaxy_1_nebula_beginning';
-    
-    const fuelCost = totalCargoAmount.mul(0.01).mul(fromGalaxyId === toGalaxyId ? 1 : 3);
-    const liquidFuel = resources.liquid_fuel?.amount || D(0);
-    const gasoline = resources.gasoline?.amount || D(0);
-    const totalFuel = liquidFuel.plus(gasoline);
-    
-    if (totalFuel.lt(fuelCost)) {
-      notify.error(`Недостаточно топлива! Нужно: ${formatNumber(fuelCost)}, есть: ${formatNumber(totalFuel)}`);
+    if (availableFuel.lt(fuelCost)) {
+      notify.error(`Недостаточно топлива! Нужно: ${formatNumber(fuelCost)}, есть: ${formatNumber(availableFuel)}`);
       return;
     }
 
-    // Pre-check: Do we have enough resources at source?
-    if (selectedFrom === 'main_base') {
-      for (const [resType, amount] of Object.entries(cargo)) {
-        if (amount) {
-          const available = resources[resType as ResourceType]?.amount || D(0);
-          if (available.lt(amount)) {
-            notify.error(`Недостаточно ${RESOURCE_EMOJI[resType as ResourceType] || resType}! Нужно: ${formatNumber(amount)}, есть: ${formatNumber(available)}`);
-            return;
-          }
-        }
-      }
-    } else {
-      const sourcePlatform = galaxies.platforms.find(p => p.id === selectedFrom);
-      if (!sourcePlatform) {
-        notify.error('Платформа-источник не найдена');
-        return;
-      }
-      for (const [resType, amount] of Object.entries(cargo)) {
-        if (amount) {
-          const available = sourcePlatform.resources[resType as ResourceType]?.amount || D(0);
-          if (available.lt(amount)) {
-            notify.error(`Недостаточно ${RESOURCE_EMOJI[resType as ResourceType] || resType} на платформе! Нужно: ${formatNumber(amount)}, есть: ${formatNumber(available)}`);
-            return;
-          }
-        }
-      }
-    }
+    // Количества уже обрезаны по складу источника в cargoEntries, поэтому проверка
+    // «хватает ли ресурсов» здесь не нужна — отправить больше, чем есть, нельзя в принципе.
+    const cargo: Partial<Record<ResourceType, Decimal>> = {};
+    for (const [resType, amount] of cargoEntries) cargo[resType] = amount;
 
-    // All checks passed, send the caravan
     const caravanCountBefore = intergalacticLogistics.caravans.length;
     sendCaravan(selectedFrom, selectedTo, cargo);
-    
-    // Check if caravan was actually added by subscribing to store update
-    // Since sendCaravan is synchronous with zustand, we can check immediately after
+
+    // sendCaravan синхронный (zustand), поэтому результат видно сразу: караван либо добавился,
+    // либо стор отказал по своей проверке.
     const currentState = useGameStore.getState();
     if (currentState.intergalacticLogistics.caravans.length > caravanCountBefore) {
-      setCargoResources({});
+      setCargoInput({});
       notify.success('Караван отправлен!');
     } else {
       notify.error('Не удалось отправить караван');
@@ -205,7 +244,7 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
             <label className="text-[10px] text-gray-400">Откуда:</label>
             <select
               value={selectedFrom}
-              onChange={(e) => setSelectedFrom(e.target.value)}
+              onChange={(e) => handleSourceChange(e.target.value)}
               className="w-full bg-gray-600 text-white p-1 rounded text-[11px]"
             >
               <option value="main_base"><GameIcon icon="🏠" /> Главная база</option>
@@ -231,32 +270,91 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
         </div>
 
         <div className="mb-1">
-          <label className="text-[10px] text-gray-400 mb-0.5 block">Груз (введите количество):</label>
-          <div className="grid grid-cols-2 gap-1">
-            {Object.entries(resources)
-              .filter(([_, res]) => res.amount.gt(0))
-              .map(([resType, res]) => (
-                <div key={resType} className="flex items-center gap-1 bg-gray-600 p-1 rounded">
-                  <span className="text-xs flex-shrink-0"><IconText>{RESOURCE_EMOJI[resType as ResourceType] || '📦'}</IconText></span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={res.amount.toNumber()}
-                    value={cargoResources[resType as ResourceType] || 0}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0;
-                      setCargoResources(prev => ({
-                        ...prev,
-                        [resType]: Math.min(val, res.amount.toNumber()),
-                      }));
-                    }}
-                    className="w-12 bg-gray-700 text-white p-0.5 rounded text-[10px]"
-                    placeholder="0"
-                  />
-                  <span className="text-[9px] text-gray-400 truncate flex-1">/{formatNumber(res.amount)}</span>
-                </div>
-              ))}
+          <div className="flex items-center justify-between gap-2 mb-0.5">
+            <label className="text-[10px] text-gray-400">
+              Груз со склада «{sourceName}» ({inStockCount} из {allSourceTypes.length} с запасом):
+            </label>
+            {cargoEntries.length > 0 && (
+              <button
+                onClick={() => setCargoInput({})}
+                className="text-[9px] text-gray-300 hover:text-white underline flex-shrink-0"
+              >
+                Очистить
+              </button>
+            )}
           </div>
+
+          <div className="flex items-center gap-1 mb-1">
+            <input
+              type="text"
+              value={resourceQuery}
+              onChange={(e) => setResourceQuery(e.target.value)}
+              placeholder="Поиск ресурса"
+              className="flex-1 min-w-0 bg-gray-600 text-white p-1 rounded text-[10px]"
+            />
+            <label className="flex items-center gap-1 text-[9px] text-gray-400 flex-shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showEmpty}
+                onChange={(e) => setShowEmpty(e.target.checked)}
+              />
+              Показать пустые
+            </label>
+          </div>
+
+          {cargoRows.length === 0 ? (
+            <p className="text-[10px] text-gray-400">
+              {resourceQuery.trim()
+                ? 'По запросу ничего не найдено'
+                : 'На складе источника нет ресурсов — включите «показать пустые», чтобы увидеть список'}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-1 max-h-56 overflow-y-auto pr-0.5">
+              {cargoRows.map(({ resType, available }) => {
+                const empty = available.lte(0);
+                return (
+                  <div
+                    key={resType}
+                    className={`flex items-center gap-1 bg-gray-600 p-1 rounded ${empty ? 'opacity-50' : ''}`}
+                  >
+                    <span className="text-xs flex-shrink-0 w-5 text-center">
+                      <IconText>{RESOURCE_EMOJI[resType] || '📦'}</IconText>
+                    </span>
+                    <span className="text-[10px] text-gray-200 truncate flex-1" title={resourceLabel(resType)}>
+                      {resourceLabel(resType)}
+                    </span>
+                    <span className="text-[9px] text-gray-400 flex-shrink-0">{formatNumber(available)}</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={cargoInput[resType] ?? ''}
+                      disabled={empty}
+                      onChange={(e) =>
+                        setCargoInput(prev => ({ ...prev, [resType]: e.target.value }))
+                      }
+                      className="w-16 flex-shrink-0 bg-gray-700 text-white p-0.5 rounded text-[10px] disabled:opacity-40"
+                      placeholder="0"
+                    />
+                    <button
+                      onClick={() => setCargoInput(prev => ({ ...prev, [resType]: available.toString() }))}
+                      disabled={empty}
+                      className="text-[9px] py-0.5 px-1 rounded flex-shrink-0 bg-gray-500 hover:bg-gray-400 disabled:opacity-40 disabled:hover:bg-gray-500"
+                    >
+                      Всё
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="text-[10px] text-gray-300 mb-1">
+          В грузе: {cargoEntries.length} видов, {formatNumber(totalCargo)} ед. · топливо:{' '}
+          <span className={availableFuel.lt(fuelCost) ? 'text-red-400' : 'text-green-400'}>
+            {formatNumber(fuelCost)}
+          </span>{' '}
+          из {formatNumber(availableFuel)} на главной базе
         </div>
 
         <button
@@ -333,7 +431,8 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
         <p className="font-semibold mb-0.5"><GameIcon icon="💡" /> Как работает:</p>
         <ul className="list-disc list-inside space-y-0.5">
           <li>Караваны перевозят ресурсы между базой и платформами</li>
-          <li>Требуется топливо (жидкое топливо или бензин)</li>
+          <li>Список груза — это склад выбранного источника: с платформы отправляется то, что лежит на ней</li>
+          <li>Требуется топливо (жидкое топливо или бензин) — оно всегда списывается с главной базы</li>
           <li>Есть риск атаки пиратами (зависит от опасности галактики)</li>
           <li>Улучшайте систему для более быстрой и безопасной доставки</li>
         </ul>
