@@ -2631,6 +2631,34 @@ const scatterDepositsInto = (
   }
 };
 
+/**
+ * Размер сетки после загрузки сейва на карте с известными размерами.
+ *
+ * ПОЧЕМУ ТОЛЬКО РАСШИРЕНИЕ
+ * Здесь стояло безусловное `width = mapWidth; height = mapHeight`, и это молча съедало
+ * половину базы при перезагрузке страницы. Сетка растёт ВЫШЕ размеров карты законным
+ * образом: buyUpgrade('sector_expansion') зовёт ensureGridSize на 18 + 2×уровень и на
+ * размеры карты не смотрит. На карте 16×16 с третьим уровнем исследования сетка — 24×24,
+ * ровно это уходило в сейв, а загрузка обрезала её обратно до 16×16.
+ *
+ * Симптом ровно такой, каким его видел игрок: после перезагрузки видна не вся карта, а
+ * покупка следующего уровня «Сектор: Расширение» возвращает её целиком (тот же
+ * ensureGridSize снова растит сетку до 18 + 2×уровень) и сверх того добавляет свои клетки.
+ *
+ * Обрезка была вдвойне разрушительной: getBasePos — это ЦЕНТР сетки (width/2, height/2),
+ * поэтому вместе с шириной уезжала и база — на клетку, где уже могло стоять здание.
+ *
+ * Расширение вверх оставлено: сейв, сделанный на сетке меньше карты, должен получить всю
+ * площадь карты — ради этого синхронизация и появилась.
+ */
+export const gridSizeForLoadedMap = (
+  current: { width: number; height: number },
+  mapDimensions: { width: number; height: number },
+): { width: number; height: number } => ({
+  width: Math.max(current.width, mapDimensions.width),
+  height: Math.max(current.height, mapDimensions.height),
+});
+
 const ensureGridSize = (
   grid: typeof DEFAULT_GRID,
   targetWidth: number,
@@ -8509,17 +8537,21 @@ export const useGameStore = create<GameState>((set, get) => ({
            */
           setActiveGridGeometry(mapDef.gridType === 'hex' ? 'hex' : 'square');
 
-          const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
+          /*
+           * Сетку здесь можно только РАСШИРИТЬ до размеров карты — см. gridSizeForLoadedMap.
+           * Обрезка до mapDimensions теряла клетки, добытые «Сектор: Расширение», и сдвигала
+           * базу (она в центре), то есть перезагрузка страницы откатывала прогресс.
+           */
           const currentGrid = state.grid;
-          
-          // Если размеры grid не соответствуют карте, обновляем их
-          if (currentGrid.width !== mapWidth || currentGrid.height !== mapHeight) {
-            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${mapWidth}x${mapHeight}`);
+          const target = gridSizeForLoadedMap(currentGrid, mapDef.gridDimensions);
+
+          if (currentGrid.width !== target.width || currentGrid.height !== target.height) {
+            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${target.width}x${target.height}`);
             set((s) => ({
               grid: {
                 ...s.grid,
-                width: mapWidth,
-                height: mapHeight,
+                width: target.width,
+                height: target.height,
               },
             }));
           }
@@ -9517,17 +9549,21 @@ export const useGameStore = create<GameState>((set, get) => ({
            */
           setActiveGridGeometry(mapDef.gridType === 'hex' ? 'hex' : 'square');
 
-          const { width: mapWidth, height: mapHeight } = mapDef.gridDimensions;
+          /*
+           * Сетку здесь можно только РАСШИРИТЬ до размеров карты — см. gridSizeForLoadedMap.
+           * Обрезка до mapDimensions теряла клетки, добытые «Сектор: Расширение», и сдвигала
+           * базу (она в центре), то есть перезагрузка страницы откатывала прогресс.
+           */
           const currentGrid = state.grid;
-          
-          // Если размеры grid не соответствуют карте, обновляем их
-          if (currentGrid.width !== mapWidth || currentGrid.height !== mapHeight) {
-            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${mapWidth}x${mapHeight}`);
+          const target = gridSizeForLoadedMap(currentGrid, mapDef.gridDimensions);
+
+          if (currentGrid.width !== target.width || currentGrid.height !== target.height) {
+            console.log(`🔧 Синхронизация grid с картой: ${currentGrid.width}x${currentGrid.height} -> ${target.width}x${target.height}`);
             set((s) => ({
               grid: {
                 ...s.grid,
-                width: mapWidth,
-                height: mapHeight,
+                width: target.width,
+                height: target.height,
               },
             }));
           }
