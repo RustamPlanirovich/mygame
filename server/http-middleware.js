@@ -21,12 +21,29 @@ import zlib from 'node:zlib';
 const COMPRESSIBLE = /^(?:application\/(?:json|javascript|manifest\+json)|text\/|image\/svg\+xml)/i;
 
 /**
+ * Ответы, которые НЕЛЬЗЯ копить в буфере, — они не заканчиваются.
+ *
+ * Это не оптимизация, а исправление отказа. Буферизация ниже держит тело до res.end(); у SSE
+ * (`/api/stream`) end() не наступает никогда, поэтому В БРАУЗЕРЕ НЕ УХОДИЛО НИЧЕГО — даже
+ * заголовки, потому что Node отправляет их вместе с первой записью в тело. Realtime-канал
+ * (чат, чат гильдии, админские начисления, плашки о заказах на бирже) был мёртв целиком.
+ *
+ * Почему это не заметили раньше: curl без --compressed НЕ шлёт Accept-Encoding, и на нём поток
+ * работает идеально. Заголовок шлёт именно браузер — то есть ровно тот клиент, который в
+ * тестах не участвовал. Проверка `no-transform` в shouldCompress() уже была, но срабатывала
+ * в res.end(), куда поток не доходит; смотреть надо в момент установки заголовков.
+ */
+const NEVER_BUFFER_TYPE = /^text\/event-stream/i;
+
+/**
  * gzip/deflate/br for responses above a threshold.
  *
  * Implemented by wrapping res.write/res.end rather than piping, because the API sends everything
  * through res.json() in one shot — so there is no stream to pipe and buffering is already what
  * happens. Small bodies are left alone: below ~1KB the CPU and the 20-byte gzip header cost more
  * than they save.
+ *
+ * Потоковые ответы из этой схемы выпадают и обслуживаются напрямую (см. NEVER_BUFFER_TYPE).
  */
 export function compression({ threshold = 1024, level = zlib.constants.Z_DEFAULT_COMPRESSION } = {}) {
   return function compressionMiddleware(req, res, next) {
@@ -48,6 +65,61 @@ export function compression({ threshold = 1024, level = zlib.constants.Z_DEFAULT
     const originalWrite = res.write.bind(res);
     const originalEnd = res.end.bind(res);
     const originalSetHeader = res.setHeader.bind(res);
+    const originalWriteHead = res.writeHead.bind(res);
+
+    /*
+     * ОТКАЗ ОТ БУФЕРИЗАЦИИ ДЛЯ ПОТОКОВ.
+     *
+     * Возвращаем res.write/res.end как были и отдаём то, что успели накопить. Вызывается в
+     * момент, когда стал известен Content-Type: у SSE это res.writeHead() в самом начале,
+     * так что копить к этому моменту ещё нечего, и flush ниже — страховка на случай, если
+     * тип выставили после первой записи.
+     */
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      res.write = originalWrite;
+      res.end = originalEnd;
+      res.setHeader = originalSetHeader;
+      res.writeHead = originalWriteHead;
+      if (length > 0) {
+        originalWrite(chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, length));
+        chunks.length = 0;
+        length = 0;
+      }
+    };
+
+    /** Заголовок велит не трогать тело или объявляет бесконечный поток. */
+    const forbidsBuffering = (name, value) => {
+      const key = String(name).toLowerCase();
+      if (key === 'content-type') return NEVER_BUFFER_TYPE.test(String(value));
+      if (key === 'cache-control') return /no-transform/i.test(String(value));
+      return false;
+    };
+
+    res.setHeader = function setHeader(name, value) {
+      const result = originalSetHeader(name, value);
+      if (forbidsBuffering(name, value)) release();
+      return result;
+    };
+
+    /*
+     * writeHead — а не только setHeader: realtime.js выставляет весь набор заголовков одним
+     * вызовом res.writeHead(200, {...}), и setHeader там не участвует вовсе.
+     */
+    res.writeHead = function writeHead(...args) {
+      const headers = args.find((arg) => arg && typeof arg === 'object');
+      const streaming =
+        headers != null &&
+        Object.entries(headers).some(([name, value]) => forbidsBuffering(name, value));
+
+      const result = originalWriteHead(...args);
+      // Строго ПОСЛЕ writeHead: release() дописывает накопленное, а тело не может уйти раньше
+      // заголовков — иначе Node отправит собственные, вычисленные по умолчанию.
+      if (streaming) release();
+      return result;
+    };
 
     const shouldCompress = () => {
       if (res.getHeader('Content-Encoding')) return false; // already encoded upstream
