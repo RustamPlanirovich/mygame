@@ -21,6 +21,7 @@ import { createOfflineTradingRoutes, initOfflineTradingTables } from './offline-
 import { createAdminRoutes, initAdminTables, bootstrapRoleForEmail } from './admin.js';
 import { realtimeHub } from './realtime.js';
 import { createChatRoutes, initChatTables } from './chat.js';
+import { createPlansRoutes, initPlansTables } from './plans.js';
 import {
   compression,
   rateLimit,
@@ -1232,6 +1233,9 @@ await initP2PLendingTables(pool);
 // Чат: общий канал (гильдейский живёт в market.js вместе с таблицами гильдий)
 await initChatTables(pool);
 
+// Списки производства: «что мне нужно построить» + заметки игрока (bigplan.md, пункт 37)
+await initPlansTables(pool);
+
 // Регистрация маршрутов для торговой биржи и гильдий
 createMarketRoutes(app, pool, authMiddleware);
 createMarketSimRoutes(app, pool);
@@ -1256,6 +1260,9 @@ createP2PLendingRoutes(app, pool, authMiddleware);
 
 // Чат: общий и гильдейский (bigplan.md, пункты 12, 13)
 createChatRoutes(app, pool, authMiddleware);
+
+// Списки производства (/api/plans) — bigplan.md, пункт 37
+createPlansRoutes(app, pool, authMiddleware);
 
 // Админ-панель (/api/admin/*) и публичные объявления (/api/announcements)
 createAdminRoutes(app, pool, authMiddleware);

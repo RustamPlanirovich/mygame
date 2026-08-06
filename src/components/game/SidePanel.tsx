@@ -10,6 +10,7 @@ import { ChevronLeft, X } from 'lucide-react';
 import { BuildPanel } from './BuildPanel';
 import { TileInspector } from './TileInspector';
 import { useChatStore } from '../../features/chatStore';
+import { selectPinnedOpenCount, usePlansStore } from '../../features/plansStore';
 
 /*
  * ЛЕНИВАЯ ЗАГРУЗКА ПАНЕЛЕЙ (bigplan.md, пункт 34)
@@ -47,6 +48,7 @@ const CulturePanel = lazy(() => import('./culture/CulturePanel').then((m) => ({ 
 const EnergyBalancePanel = lazy(() => import('./EnergyBalancePanel').then((m) => ({ default: m.EnergyBalancePanel })));
 const PollutionPanel = lazy(() => import('./PollutionPanel').then((m) => ({ default: m.PollutionPanel })));
 const SettingsPanel = lazy(() => import('./SettingsPanel').then((m) => ({ default: m.SettingsPanel })));
+const PlansPanel = lazy(() => import('./plans').then((m) => ({ default: m.PlansPanel })));
 
 
 /*
@@ -78,6 +80,8 @@ const GROUPS: SectionGroup[] = [
       { id: 'inspector', label: 'Инспектор', icon: 'eye', Component: TileInspector },
       { id: 'power', label: 'Энергия и экология', icon: 'bolt' },
       { id: 'chains', label: 'Цепочки', icon: 'network', Component: ProductionChainVisualizer },
+      // Планы (пункт 37) стоят рядом с цепочками: там игрок понимает, ЧТО нужно, здесь — записывает.
+      { id: 'plans', label: 'Планы', icon: 'clipboard', Component: PlansPanel },
       { id: 'analytics', label: 'Аналитика', icon: 'chartBars', Component: AnalyticsPanel },
     ],
   },
@@ -179,6 +183,9 @@ export function SidePanel({ streamOnline = true }: { streamOnline?: boolean }) {
     (s) => s.quests.activeQuests.filter((q) => q.isCompleted && q.isActive).length,
   );
   const chatUnread = useChatStore((s) => s.unread);
+  // Закреплённые и ещё не сделанные пункты планов (пункт 37): игрок закрепил их именно затем,
+  // чтобы не забыть, поэтому счётчик виден и с закрытой панелью.
+  const pinnedPlanItems = usePlansStore(selectPinnedOpenCount);
 
   const quests = useGameStore((s) => s.quests.activeQuests);
   const claimQuestReward = useGameStore((s) => s.claimQuestReward);
@@ -252,8 +259,9 @@ export function SidePanel({ streamOnline = true }: { streamOnline?: boolean }) {
       // Новые сообщения чата, пришедшие пока панель закрыта (пункты 12, 13):
       // иначе чат в меню разделов ничем не отличается от пустого.
       chat: chatUnread,
+      plans: pinnedPlanItems,
     }),
-    [activeEventsCount, recentAchievements, claimableQuests, chatUnread],
+    [activeEventsCount, recentAchievements, claimableQuests, chatUnread, pinnedPlanItems],
   );
 
   const handleClose = () => {

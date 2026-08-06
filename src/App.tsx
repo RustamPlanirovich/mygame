@@ -19,6 +19,7 @@ import { Minimap } from './components/game/Minimap';
 import { AuthForm } from './components/auth/AuthForm';
 import { useOfflineTrading } from './components/game/finance/OfflineProfitModal';
 import { useAdvisorStore } from './features/advisorStore';
+import { usePlansStore } from './features/plansStore';
 import { useAutosave } from './hooks/useAutosave';
 import { useGameHotkeys } from './hooks/useHotkeys';
 import { useMarketTransactions } from './hooks/useMarketTransactions';
@@ -157,6 +158,20 @@ function App() {
   
   // Offline trading hook - автоматически сохраняет состояние и считает прибыль
   useOfflineTrading(currentSlotId);
+
+  /*
+   * Списки производства (bigplan.md, пункт 37) грузим на входе и перезагружаем при смене слота.
+   * Не по открытию раздела: счётчик закреплённых пунктов висит на кнопке в быстрой панели, и без
+   * загрузки он бы загорался только после того, как игрок сам зайдёт в раздел — то есть никогда
+   * не напомнил бы. Планы привязаны к слоту, поэтому при переключении читаем заново (force).
+   */
+  useEffect(() => {
+    if (!user) {
+      usePlansStore.getState().reset();
+      return;
+    }
+    usePlansStore.getState().load(currentSlotId, true);
+  }, [user, currentSlotId]);
   
   // Get map-related state
   const maps = useGameStore(state => state.maps);

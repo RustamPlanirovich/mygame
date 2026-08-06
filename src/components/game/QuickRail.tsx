@@ -1,5 +1,6 @@
 import { useUiStore, type PanelSectionId } from '../../features/uiStore';
 import { useGameStore } from '../../features/gameStore';
+import { selectPinnedOpenCount, usePlansStore } from '../../features/plansStore';
 import { GameIcon } from '../ui/icons';
 
 /*
@@ -12,6 +13,7 @@ const RAIL: Array<{ id: PanelSectionId; icon: string; label: string }> = [
   { id: 'build', icon: 'crane', label: 'Строительство' },
   { id: 'inspector', icon: 'eye', label: 'Инспектор клетки' },
   { id: 'power', icon: 'bolt', label: 'Энергия и экология' },
+  { id: 'plans', icon: 'clipboard', label: 'Планы и заметки' },
   { id: 'market', icon: 'market', label: 'Рынок' },
   { id: 'research', icon: 'research', label: 'Исследования' },
   { id: 'analytics', icon: 'chartBars', label: 'Аналитика' },
@@ -27,12 +29,15 @@ export function QuickRail() {
   const claimableQuests = useGameStore(
     (s) => s.quests.activeQuests.filter((q) => q.isCompleted && q.isActive).length,
   );
+  // Закреплённые незакрытые пункты планов (пункт 37) — то, что игрок сам попросил не забыть.
+  const pinnedPlanItems = usePlansStore(selectPinnedOpenCount);
 
   // События и достижения показывают свои счётчики в меню разделов — здесь только то,
   // на что игрок должен реагировать сразу.
   const badgeFor = (id: PanelSectionId) => {
     if (id === 'quests') return claimableQuests;
     if (id === 'combat') return enemies;
+    if (id === 'plans') return pinnedPlanItems;
     return 0;
   };
 
