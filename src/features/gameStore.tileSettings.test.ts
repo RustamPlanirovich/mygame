@@ -79,10 +79,8 @@ describe('загрузка сейва: продвинутые настройки
     useGameStore.getState().resetGame();
   });
 
-  it('режим, приоритет, авто-продажа и правила возвращаются после загрузки', async () => {
-    const res = await useGameStore.getState().loadGameFromSave(1);
-    expect(res.ok).toBe(true);
-
+  /** Обе ветки восстановления забыли tileSettings, поэтому проверяются обе. */
+  const expectRestored = () => {
     const settings = useGameStore.getState().grid.tileSettings?.[TILE];
     expect(settings).toBeDefined();
     expect(settings?.mode).toBe('economy');
@@ -91,5 +89,34 @@ describe('загрузка сейва: продвинутые настройки
       { enabled: true, resource: 'ore', threshold: 60, keepAmount: '0' },
     ]);
     expect(settings?.rules?.map((r) => r.id)).toEqual(['rule_test']);
+  };
+
+  it('loadGameFromSave: режим, приоритет, авто-продажа и правила возвращаются', async () => {
+    const res = await useGameStore.getState().loadGameFromSave(1);
+    expect(res.ok).toBe(true);
+    expectRestored();
+  });
+
+  // Ветка перезагрузки страницы: App вызывает именно loadGame, а не loadGameFromSave.
+  it('loadGame: настройки возвращаются при входе в игру', async () => {
+    await useGameStore.getState().loadGame();
+    expectRestored();
+  });
+
+  /*
+   * Сброс на сервер при уходе со страницы и выход из аккаунта зовут saveGame поверх таймера
+   * автосейва. Две одновременные записи в одну строку — это 409 SAVE_OUTDATED, а конфликт по
+   * правилу перезагружает состояние с сервера, то есть выбрасывает то самое изменение, ради
+   * которого сброс и делался.
+   */
+  it('второй saveGame во время первого не уходит на сервер', async () => {
+    const first = useGameStore.getState().saveGame();
+    const second = await useGameStore.getState().saveGame();
+    expect(second).toEqual({ ok: false, error: 'SAVE_IN_FLIGHT' });
+
+    await first;
+    // Замок снят: следующая запись проходит.
+    const third = await useGameStore.getState().saveGame();
+    expect(third).not.toEqual({ ok: false, error: 'SAVE_IN_FLIGHT' });
   });
 });

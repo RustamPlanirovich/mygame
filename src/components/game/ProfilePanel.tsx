@@ -48,6 +48,7 @@ export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: Pr
   const [activeSave, setActiveSave] = useState<ActiveSaveInfo | null>(null);
 
   const getSavesList = useGameStore(state => state.getSavesList);
+  const saveGame = useGameStore(state => state.saveGame);
 
   // Загружаем информацию о сессии и настройки
   useEffect(() => {
@@ -124,6 +125,19 @@ export const ProfilePanel = ({ onShowSaveManager, onShowGameSlots, onClose }: Pr
   };
 
   const handleLogout = async () => {
+    /*
+     * Прогресс сбрасываем на сервер ДО выхода: `logout` убивает токен, после него записать
+     * уже нечем. Раньше выхода-с-сохранением не было вообще, и всё сделанное после последнего
+     * автосейва (таймер на 30 секунд) пропадало — «внёс изменения, вышел, вошёл, изменений
+     * нет». Ошибку записи глотаем: не сохранившийся прогресс не повод запереть игрока в
+     * аккаунте, а saveGame сам показывает уведомление, если сервер отказал.
+     */
+    try {
+      await saveGame();
+    } catch (error) {
+      console.error('Не удалось сохранить прогресс перед выходом:', error);
+    }
+
     try {
       await logout();
       onClose();

@@ -191,6 +191,16 @@ const appliedGrantIds = new Set<string>();
  */
 const buildingRuleFiredCache = new Map<string, Record<string, boolean>>();
 
+/*
+ * Идёт ли прямо сейчас автосохранение.
+ *
+ * Автосейв по таймеру (раз в 30 с) больше не единственный: сброс на сервер зовут ещё выход из
+ * аккаунта и уход со страницы. Две записи в одну строку разошлись бы по `baseRevision` —
+ * вторая получила бы 409 SAVE_OUTDATED и по правилу конфликта перезагрузила состояние с
+ * сервера, то есть выбросила бы ровно то изменение, ради которого сброс и делался.
+ */
+let saveInFlight = false;
+
 /**
  * Забыть, какие правила срабатывали. Зовётся при смене базы (загрузка сейва, новая игра):
  * ключ кэша — координата клетки, а на другой карте по тем же координатам стоит другое
@@ -8341,6 +8351,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   saveGame: async () => {
+    // Запись уже идёт — вторая гарантированно получила бы 409, см. saveInFlight.
+    if (saveInFlight) return { ok: false as const, error: 'SAVE_IN_FLIGHT' };
+
     const state = get();
     // Serialization lives in ./gameSave.ts. It used to be three byte-identical 155-line
     // object literals (saveGame / saveGameManual / overwriteSave), which is why ten
@@ -8349,12 +8362,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     // were never persisted: adding a feature meant editing four places and nobody did.
     const save = { ...serializeGame(state), finance: serializeFinance() };
 
+    saveInFlight = true;
     try {
       if (!isAuthenticated()) {
         console.warn('No authenticated user found, skipping save');
         return;
       }
-      
+
       const currentSaveId = await loadCurrentSaveIdFromServer();
 
       const response = await fetch('/api/saves', {
@@ -8453,6 +8467,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       // a transient blip should not spam the player on every 30s tick.
       console.warn('[save] autosave failed', e);
       return { ok: false as const, error: String(e) };
+    } finally {
+      saveInFlight = false;
     }
   },
 
