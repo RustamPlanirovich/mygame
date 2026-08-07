@@ -70,6 +70,41 @@ export function parseGrantDeltas(deltas: GrantDeltas | null | undefined): Parsed
   return result;
 }
 
+/**
+ * ПРАВИЛА РАБОТЫ С ОЧЕРЕДЬЮ ВЫДАЧ (server/admin.js, таблица player_grants).
+ *
+ * Вынесены сюда из стора не для красоты: это ровно те два решения, ошибка в которых
+ * либо теряет начисление, либо начисляет его дважды, — и проверять их надо тестом, а не
+ * прогоном интерфейса.
+ */
+
+/** Какие выдачи адресованы текущей партии. slotId === null — «в любую». */
+export function selectGrantsForSlot<T extends { slotId: number | null }>(
+  grants: readonly T[],
+  currentSlotId: number | null,
+): T[] {
+  /*
+   * Чужие НЕ отбрасываем, а оставляем в очереди: игрок вернётся в тот слот — тогда и начислим.
+   * Прибавить их к текущей партии значило бы выдать ресурсы не в ту игру.
+   */
+  return grants.filter((g) => g.slotId === null || g.slotId === currentSlotId);
+}
+
+/**
+ * Какие выдачи можно подтверждать серверу.
+ *
+ * ТОЛЬКО те, что доехали до сохранения: ack закрывает строку навсегда, и подтверждение
+ * начисления, которое живёт лишь в памяти вкладки, стирает его при первой же перезагрузке.
+ * Обратный порядок безопасен — сохранённое, но не подтверждённое начисление придёт в очереди
+ * ещё раз и будет отсечено по тому же списку.
+ */
+export function selectAckableGrants<T extends { grantId: string }>(
+  grants: readonly T[],
+  persistedGrantIds: ReadonlySet<string>,
+): string[] {
+  return grants.filter((g) => persistedGrantIds.has(g.grantId)).map((g) => g.grantId);
+}
+
 /** Есть ли что применять. */
 export function isEmptyGrant(parsed: ParsedGrant): boolean {
   return (

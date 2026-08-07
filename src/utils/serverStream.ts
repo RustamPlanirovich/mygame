@@ -26,7 +26,19 @@ export type ServerStreamEvent =
   | { type: 'stream.ready'; payload: { at: number } }
   | { type: 'chat.message'; payload: ChatMessagePayload }
   | { type: 'market.order.created'; payload: MarketOrderPayload }
-  | { type: 'admin.grant.applied'; payload: AdminGrantPayload };
+  | { type: 'admin.grant.applied'; payload: AdminGrantPayload }
+  /**
+   * «В очереди лежит начисление» — подсказка, а не доставка. Сама выдача забирается запросом
+   * (utils/grantsApi.ts), поэтому потерянное событие ничего не ломает: игрок получит начисление
+   * при следующей загрузке. Payload нужен только для мгновенной реакции UI.
+   */
+  | { type: 'admin.grant.pending'; payload: PendingGrantPayload };
+
+export interface PendingGrantPayload {
+  grantId: string;
+  slotId: number | null;
+  deltas: Record<string, string>;
+}
 
 export interface ChatMessagePayload {
   id: string;

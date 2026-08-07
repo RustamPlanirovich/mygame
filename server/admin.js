@@ -302,6 +302,46 @@ export async function initAdminTables(pool) {
       ON admin_announcements(active, created_at DESC);
   `);
 
+  /*
+   * ОЧЕРЕДЬ ВЫДАЧ (bigplan.md, пункт 9 — доработка после разбора 07.08.2026).
+   *
+   * ЗАЧЕМ ОТДЕЛЬНАЯ ТАБЛИЦА, А НЕ ПАТЧ СЕЙВА.
+   * Патч game_save + revision + 1 не переживает игрока с открытой вкладкой: его автосохранение
+   * получает 409 SAVE_OUTDATED, а обработчик конфликта (gameStore.ts) по правилу «активная
+   * вкладка выигрывает» ПОВТОРЯЕТ ту же запись поверх новой версии — и стирает выдачу. Админка
+   * при этом рапортует «выдано», в журнале applied с before/after. Молчаливая потеря начислений.
+   *
+   * Очередь снимает саму гонку: начисление лежит СВОЕЙ строкой, клиент забирает её, прибавляет
+   * к состоянию в памяти и сохраняет обычным автосейвом — перезаписывать нечего.
+   *
+   * ПОБОЧНЫЙ ЭФФЕКТ, РАДИ КОТОРОГО ЭТО И ЗАТЕВАЛОСЬ: пропадает вопрос «в сети ли игрок».
+   * realtimeHub.hasUser() — это Set в памяти процесса, и в кластере чужой воркер отвечает на
+   * него неправильно. Пока от него зависела корректность выдачи, instances > 1 был закрыт;
+   * теперь он влияет только на то, применится начисление сейчас или при следующей загрузке.
+   *
+   * applied_at — единственный признак «выдано»: claim идёт через
+   * UPDATE ... WHERE applied_at IS NULL RETURNING, поэтому две вкладки не начислят дважды.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_grants (
+      id BIGSERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      slot_id INTEGER,
+      deltas JSONB NOT NULL,
+      admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      admin_email TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      applied_at TIMESTAMPTZ,
+      applied_save_id INTEGER,
+      applied_report JSONB
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_player_grants_pending
+      ON player_grants(user_id) WHERE applied_at IS NULL;
+  `);
+
   // Бутстрап администраторов из ADMIN_EMAILS — единственный способ создать первого админа.
   const emails = bootstrapAdminEmails();
   if (emails.length === 0) {
@@ -1130,7 +1170,13 @@ export function createAdminRoutes(app, pool, authMiddleware) {
     if (!target) return;
 
     const body = req.body ?? {};
-    const { slotId, credits, researchPoints, influence, resources, force } = body;
+    /*
+     * `force` из тела больше не читается. Он существовал, чтобы выдать вопреки предупреждению
+     * «игрок в сети и перезапишет начисление» — но именно выдача с force и терялась. Теперь
+     * игроку в сети начисление кладётся в очередь, форсировать нечего. Поле в запросе
+     * игнорируется молча: старая админка на новом сервере должна продолжать работать.
+     */
+    const { slotId, credits, researchPoints, influence, resources } = body;
 
     // 1. Разбираем и валидируем величины ДО любых записей.
     const deltas = {};
@@ -1174,40 +1220,7 @@ export function createAdminRoutes(app, pool, authMiddleware) {
       return;
     }
 
-    /*
-     * 2. Клиент запущенного игрока перезапишет выдачу следующим автосохранением — патч в БД
-     *    сам по себе до него не доходит. Это и есть пункт 9 в bigplan.md: «при выдаче ресурсы
-     *    не сохраняются».
-     *
-     *    Теперь есть realtime-канал (пункт 24), поэтому различаем два случая:
-     *
-     *    а) игрок ПОДКЛЮЧЁН к потоку — патчим БД и досылаем ему дельту событием
-     *       `admin.grant.applied`. Клиент применяет её к состоянию в памяти, и следующее
-     *       автосохранение уже содержит выдачу. force не нужен;
-     *
-     *    б) активная сессия есть, но потока нет (старая вкладка, клиент без поддержки канала,
-     *       протухшая сессия) — досылать некуда, поведение прежнее: 409 и явный force.
-     */
-    const sessionInfo = await pool.query(
-      `SELECT COUNT(*)::int AS active_sessions, MAX(last_activity_at) AS last_activity_at
-       FROM sessions WHERE user_id = $1 AND expires_at > NOW()`,
-      [target.id]
-    );
-    const activeSessions = sessionInfo.rows[0].active_sessions;
-    const lastActivityAt = sessionInfo.rows[0].last_activity_at;
-    const onlineNow = !!lastActivityAt && Date.now() - new Date(lastActivityAt).getTime() < 5 * 60 * 1000;
-    const streamConnected = realtimeHub.hasUser(target.id);
-
-    if (activeSessions > 0 && !streamConnected && force !== true) {
-      bad(res, 409, 'PLAYER_HAS_ACTIVE_SESSION',
-        'У игрока есть активная сессия, но он не подключён к realtime-каналу — его клиент ' +
-        'перезапишет выдачу следующим автосохранением. Передайте force: true, чтобы выдать ' +
-        'всё равно (лучше сначала вызвать logout-all).',
-        { activeSessions, onlineNow, lastActivityAt, streamConnected });
-      return;
-    }
-
-    // 3. Выбираем слот и его самое свежее сохранение.
+    // 2. Слот. Нужен обеим веткам ниже: и очереди (в какую партию начислять), и прямому патчу.
     let effectiveSlotId = null;
     if (slotId !== undefined && slotId !== null) {
       const parsedSlot = parseId(slotId);
@@ -1223,6 +1236,79 @@ export function createAdminRoutes(app, pool, authMiddleware) {
       effectiveSlotId = parsedSlot;
     } else {
       effectiveSlotId = target.current_slot_id ?? null;
+    }
+
+    /*
+     * 3. РАЗВИЛКА: есть ли кому перезаписать выдачу.
+     *
+     * Предикат — только `sessions` в БД, никакой памяти процесса: в кластере таблица одна для
+     * всех воркеров, а realtimeHub.hasUser() — Set внутри одного из них.
+     *
+     *   активная сессия ЕСТЬ -> кладём в очередь (player_grants). Клиент заберёт её и прибавит
+     *     к состоянию в памяти сам: сервер не трогает game_save, значит и перезаписывать
+     *     автосохранению нечего. Раньше здесь был 409 + force, и выдача с force ТЕРЯЛАСЬ —
+     *     автосейв повторял свою запись поверх патча (см. комментарий у player_grants);
+     *
+     *   активной сессии НЕТ -> патчим сейв напрямую, как раньше. Перезаписать его некому:
+     *     без сессии автосохранение получит 401. Зато админ сразу видит before/after по
+     *     каждому полю, а игрок увидит начисление уже в загруженном сейве.
+     */
+    const sessionInfo = await pool.query(
+      `SELECT COUNT(*)::int AS active_sessions, MAX(last_activity_at) AS last_activity_at
+       FROM sessions WHERE user_id = $1 AND expires_at > NOW()`,
+      [target.id]
+    );
+    const activeSessions = sessionInfo.rows[0].active_sessions;
+    const lastActivityAt = sessionInfo.rows[0].last_activity_at;
+    const onlineNow = !!lastActivityAt && Date.now() - new Date(lastActivityAt).getTime() < 5 * 60 * 1000;
+    // Только для ответа и журнала: на корректность выдачи больше не влияет (и потому кластеробезопасно).
+    const streamConnected = realtimeHub.hasUser(target.id);
+
+    if (activeSessions > 0) {
+      const queuedDeltas = buildGrantDeltas(deltas, resourceDeltas);
+      const inserted = await pool.query(
+        `INSERT INTO player_grants (user_id, slot_id, deltas, admin_id, admin_email)
+         VALUES ($1, $2, $3::jsonb, $4, $5)
+         RETURNING id, created_at`,
+        [target.id, effectiveSlotId, JSON.stringify(queuedDeltas), req.userId, req.userEmail ?? null]
+      );
+      const grantId = String(inserted.rows[0].id);
+
+      /*
+       * Подсказка «загляни в очередь», а не сама выдача: если событие не дойдёт (другой воркер,
+       * разрыв, закрытая вкладка), клиент всё равно заберёт начисление при следующей загрузке.
+       * Поэтому доставка события ни на что не влияет и её результат не проверяется.
+       */
+      realtimeHub.sendToUser(target.id, 'admin.grant.pending', {
+        grantId,
+        slotId: effectiveSlotId,
+        deltas: queuedDeltas,
+      });
+
+      await audit(req, 'player.grant', target.id, {
+        email: target.email,
+        queued: true,
+        grantId,
+        slotId: effectiveSlotId,
+        activeSessions,
+        streamConnected,
+        requested: queuedDeltas,
+      });
+
+      res.json({
+        ok: true,
+        queued: true,
+        grantId,
+        slotId: effectiveSlotId,
+        deltas: queuedDeltas,
+        activeSessions,
+        onlineNow,
+        streamConnected,
+        message: streamConnected
+          ? 'Начисление отправлено игроку — применится в течение нескольких секунд.'
+          : 'Начисление поставлено в очередь: применится, как только игрок откроет игру.',
+      });
+      return;
     }
 
     const client = await pool.connect();
@@ -1349,12 +1435,11 @@ export function createAdminRoutes(app, pool, authMiddleware) {
         clamped: patch.clamped,
         pushedToClient,
         /*
-         * Предупреждение теперь появляется только когда оно правда актуально: подключённому
-         * игроку дельта дослана, и его автосохранение уже содержит выдачу.
+         * Предупреждения здесь больше нет и быть не может: в эту ветку попадают только игроки
+         * без активной сессии, а значит перезаписать патч автосохранением некому — с истёкшей
+         * сессией PUT /api/saves отвечает 401. Игроки в сети идут веткой очереди выше.
          */
-        warning: activeSessions > 0 && !pushedToClient
-          ? 'У игрока есть активная сессия, но он не подключён к realtime-каналу: его клиент может перезаписать выдачу автосохранением. Рекомендуется logout-all.'
-          : null,
+        queued: false,
       });
     } catch (e) {
       await client.query('ROLLBACK').catch(() => {});
@@ -1707,11 +1792,91 @@ export function createAdminRoutes(app, pool, authMiddleware) {
     );
     res.json({ ok: true, announcements: result.rows });
   }));
+
+  // --------------------------------------------------------------------------
+  // ОЧЕРЕДЬ ВЫДАЧ — ручки ИГРОКА (не админские, guard здесь не нужен)
+  // --------------------------------------------------------------------------
+
+  /**
+   * GET /api/grants/pending — что администратор начислил, но игрок ещё не применил.
+   *
+   * Клиент зовёт это при загрузке и по подсказке из realtime-канала. Слот не фильтруем на
+   * сервере: игрок может переключить партию между запросом и применением, поэтому решение
+   * «эта выдача моему текущему слоту или подождёт» принимает клиент (slot_id = NULL — любому).
+   */
+  app.get('/api/grants/pending', authMiddleware, route(async (req, res) => {
+    const result = await pool.query(
+      `SELECT id, slot_id, deltas, created_at
+         FROM player_grants
+        WHERE user_id = $1 AND applied_at IS NULL
+        ORDER BY id ASC
+        LIMIT 100`,
+      [req.userId]
+    );
+    res.json({
+      ok: true,
+      grants: result.rows.map((r) => ({
+        grantId: String(r.id),
+        slotId: r.slot_id,
+        deltas: r.deltas,
+        createdAt: new Date(r.created_at).getTime(),
+      })),
+    });
+  }));
+
+  /**
+   * POST /api/grants/ack — «начисление применено и сохранено».
+   *
+   * Claim-паттерн (UPDATE ... WHERE applied_at IS NULL RETURNING) — не для красоты: две вкладки
+   * одного игрока забирают одну и ту же очередь одновременно, и без него обе начислили бы себе.
+   * Ответ возвращает список реально закрытых id, вторая вкладка получит пустой.
+   *
+   * Порядок на клиенте: применить -> сохранить -> ack. Если ack не дойдёт, выдача останется
+   * pending, а повторное начисление отсечётся списком применённых id внутри самого сейва.
+   */
+  app.post('/api/grants/ack', authMiddleware, route(async (req, res) => {
+    const { grantIds, saveId, report } = req.body ?? {};
+    if (!Array.isArray(grantIds) || grantIds.length === 0 || grantIds.length > 100) {
+      bad(res, 400, 'INVALID_GRANT_IDS', 'grantIds должен быть непустым массивом (до 100 значений).');
+      return;
+    }
+    const ids = grantIds.map((raw) => Number(raw)).filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (ids.length === 0) {
+      bad(res, 400, 'INVALID_GRANT_IDS', 'Ни один id не распознан.');
+      return;
+    }
+
+    const parsedSaveId = saveId === undefined || saveId === null ? null : parseId(saveId);
+    const result = await pool.query(
+      `UPDATE player_grants
+          SET applied_at = NOW(), applied_save_id = $3, applied_report = $4::jsonb
+        WHERE user_id = $1 AND id = ANY($2::bigint[]) AND applied_at IS NULL
+        RETURNING id`,
+      [req.userId, ids, parsedSaveId, JSON.stringify(isPlainObject(report) ? redact(report) : {})]
+    );
+
+    res.json({ ok: true, acked: result.rows.map((r) => String(r.id)) });
+  }));
 }
 
 // ============================================================================
 // Выдача ресурсов: аккуратный патч сохранения (break_eternity-строки)
 // ============================================================================
+
+/**
+ * Собирает дельты для ОЧЕРЕДИ в том же плоском виде, в каком их уже умеет применять клиент:
+ * `{ 'currency.credits': '500', 'resources.ore': '100' }` (см. core/systems/adminGrant.ts).
+ *
+ * Почему запрошенные величины, а не before/after: сейв в этой ветке не читается вообще — его
+ * содержимое устарело бы к моменту применения, ведь игрок продолжает играть. Обрезку по
+ * вместимости склада делает клиент, у которого состояние настоящее, и отчитывается о ней в ack.
+ */
+export function buildGrantDeltas(deltas = {}, resourceDeltas = {}) {
+  const out = {};
+  for (const [key, value] of Object.entries(deltas)) out[`currency.${key}`] = value.toString();
+  for (const [key, value] of Object.entries(resourceDeltas)) out[`resources.${key}`] = value.toString();
+  return out;
+}
 
 /**
  * Добавляет величины в data.currency.* и в буферы ресурсов.

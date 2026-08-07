@@ -6,7 +6,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { describeGrant, isEmptyGrant, parseGrantDeltas } from './adminGrant';
+import {
+  describeGrant,
+  isEmptyGrant,
+  parseGrantDeltas,
+  selectAckableGrants,
+  selectGrantsForSlot,
+} from './adminGrant';
 
 describe('parseGrantDeltas', () => {
   it('разбирает валюты и ресурсы', () => {
@@ -77,5 +83,45 @@ describe('describeGrant', () => {
 
   it('на пустой выдаче даёт пустую строку', () => {
     expect(describeGrant(parseGrantDeltas({}), (id) => id)).toBe('');
+  });
+});
+
+/**
+ * ОЧЕРЕДЬ ВЫДАЧ (server/admin.js, player_grants).
+ *
+ * Оба правила ниже защищают от вещей, которые уже ломались вживую: начисление, применённое не
+ * в ту партию, и начисление, подтверждённое раньше записи в сейв (после перезагрузки его нет
+ * ни в сохранении, ни в очереди — оно просто исчезает).
+ */
+describe('selectGrantsForSlot', () => {
+  const grants = [
+    { grantId: '1', slotId: 7 },
+    { grantId: '2', slotId: null },
+    { grantId: '3', slotId: 9 },
+  ];
+
+  it('берёт выдачи текущего слота и «безслотовые»', () => {
+    expect(selectGrantsForSlot(grants, 7).map((g) => g.grantId)).toEqual(['1', '2']);
+  });
+
+  it('чужой слот не трогает — иначе ресурсы уедут не в ту партию', () => {
+    expect(selectGrantsForSlot(grants, 9).map((g) => g.grantId)).toEqual(['2', '3']);
+  });
+
+  it('без текущего слота применимы только «безслотовые»', () => {
+    expect(selectGrantsForSlot(grants, null).map((g) => g.grantId)).toEqual(['2']);
+  });
+});
+
+describe('selectAckableGrants', () => {
+  const grants = [{ grantId: '1' }, { grantId: '2' }, { grantId: '3' }];
+
+  it('подтверждает только то, что доехало до сейва', () => {
+    expect(selectAckableGrants(grants, new Set(['1', '3']))).toEqual(['1', '3']);
+  });
+
+  it('ничего не подтверждает, пока сохранения не было', () => {
+    // Ровно этот случай терял выдачу: ack закрывает строку навсегда.
+    expect(selectAckableGrants(grants, new Set())).toEqual([]);
   });
 });

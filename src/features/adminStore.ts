@@ -485,11 +485,19 @@ export const useAdminStore = create<AdminStoreState>((set, get) => {
         'grant',
         () => adminApi.grantToPlayer(id, payload),
         (r) => {
-          const applied = Object.keys(r.applied).length;
+          /*
+           * Две ветки ответа (bigplan.md, пункт 9). Формулировки разные намеренно: «в очереди»
+           * означает, что сейв ещё не содержит начисления, и админ не должен принять это за
+           * готовый результат — раньше он видел «выдано», а выдача терялась под автосохранением.
+           */
+          if (r.queued) {
+            const fields = Object.keys(r.deltas ?? {}).length;
+            return `${r.message ?? 'Начисление поставлено в очередь.'} Полей: ${fields}.`;
+          }
+          const applied = Object.keys(r.applied ?? {}).length;
           const parts = [`изменено полей: ${applied}`];
-          if (r.skipped.length > 0) parts.push(`пропущено: ${r.skipped.length}`);
-          if (r.clamped.length > 0) parts.push(`обрезано складом: ${r.clamped.join(', ')}`);
-          if (r.warning) parts.push(r.warning);
+          if (r.skipped?.length) parts.push(`пропущено: ${r.skipped.length}`);
+          if (r.clamped?.length) parts.push(`обрезано складом: ${r.clamped.join(', ')}`);
           return `Выдача применена к сохранению #${r.saveId} — ${parts.join('; ')}`;
         },
         // Меняется только сохранение — список игроков и сводка не затронуты.

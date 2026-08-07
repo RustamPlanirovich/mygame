@@ -76,6 +76,17 @@ export function useServerStream(): StreamStatus {
             break;
           }
 
+          case 'admin.grant.pending': {
+            /*
+             * Администратор начислил ресурсы игроку, который сейчас в игре (bigplan.md, пункт 9).
+             * Само начисление лежит в очереди на сервере — здесь только повод её забрать.
+             * Уведомление и применение делает drainPendingGrants: если это событие не дойдёт,
+             * всё то же самое произойдёт при следующей загрузке.
+             */
+            void useGameStore.getState().drainPendingGrants();
+            break;
+          }
+
           case 'admin.grant.applied': {
             /*
              * Администратор выдал ресурсы (bigplan.md, пункт 9). Сервер уже записал патч

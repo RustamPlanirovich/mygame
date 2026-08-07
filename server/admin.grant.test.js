@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import Decimal from 'break_eternity.js';
-import { applyGrantToSaveData } from './admin.js';
+import { applyGrantToSaveData, buildGrantDeltas } from './admin.js';
 
 const D = (v) => new Decimal(v);
 
@@ -90,5 +90,32 @@ describe('applyGrantToSaveData: битые данные', () => {
     });
     expect(r.skipped.some((s) => s.field === 'currency.credits')).toBe(true);
     expect(r.data.currency.influence).toBe('15');
+  });
+});
+
+/**
+ * ОЧЕРЕДЬ ВЫДАЧ (player_grants) — формат дельт.
+ *
+ * Клиент применяет их той же функцией, что и события realtime-канала
+ * (src/core/systems/adminGrant.ts), а она понимает ТОЛЬКО плоские ключи с точкой. Разъедься
+ * формат — выдача из очереди тихо попадёт в `unknown` и не начислится.
+ */
+describe('buildGrantDeltas', () => {
+  it('складывает валюты и ресурсы в плоский словарь с точкой', () => {
+    expect(buildGrantDeltas({ credits: D(500), influence: D(-5) }, { ore: D(100) })).toEqual({
+      'currency.credits': '500',
+      'currency.influence': '-5',
+      'resources.ore': '100',
+    });
+  });
+
+  it('на пустом запросе даёт пустой словарь, а не мусор', () => {
+    expect(buildGrantDeltas({}, {})).toEqual({});
+  });
+
+  it('величины остаются строками break_eternity, а не числами', () => {
+    const out = buildGrantDeltas({ credits: D('1e100') }, {});
+    expect(typeof out['currency.credits']).toBe('string');
+    expect(out['currency.credits']).toBe(D('1e100').toString());
   });
 });

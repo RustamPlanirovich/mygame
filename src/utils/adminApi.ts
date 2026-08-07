@@ -380,8 +380,6 @@ export interface GrantRequest {
   researchPoints?: string;
   influence?: string;
   resources?: Record<string, string>;
-  /** Выдать, даже если у игрока есть активная сессия (иначе сервер вернёт 409). */
-  force?: boolean;
 }
 
 export interface GrantAppliedEntry {
@@ -391,18 +389,33 @@ export interface GrantAppliedEntry {
   cappedAt?: string | null;
 }
 
+/**
+ * Ответ на выдачу. Две формы — по числу веток на сервере (bigplan.md, пункт 9):
+ *
+ *   queued: true  — у игрока есть активная сессия, начисление положено в очередь и будет
+ *                   применено его клиентом. Сейв не тронут, поэтому applied/skipped тут нет:
+ *                   что именно поместилось на склад, знает только клиент;
+ *   queued: false — игрок офлайн, сохранение пропатчено сразу, и видно before/after по полям.
+ *
+ * Раньше третьей формой был 409 PLAYER_HAS_ACTIVE_SESSION с предложением force — и выдача с
+ * force терялась под автосохранением игрока. Ни кода, ни флага больше нет.
+ */
 export interface GrantResponse extends OkResponse {
-  saveId: number;
+  queued?: boolean;
+  /** queued: id строки очереди. */
+  grantId?: string;
+  /** queued: что поставлено в очередь, плоские дельты вида `{'currency.credits': '500'}`. */
+  deltas?: Record<string, string>;
+  message?: string;
+  /** Патч сейва: заполнены только при queued: false. */
+  saveId?: number;
   slotId: number | null;
-  applied: Record<string, GrantAppliedEntry>;
-  skipped: Array<{ field: string; reason: string }>;
-  clamped: string[];
-  /**
-   * Дослана ли выдача подключённому игроку по realtime-каналу (bigplan.md, пункт 9).
-   * false означает, что она лежит только в БД и применится при следующей загрузке.
-   */
+  applied?: Record<string, GrantAppliedEntry>;
+  skipped?: Array<{ field: string; reason: string }>;
+  clamped?: string[];
+  /** Дослано ли событие в открытую вкладку. На сохранность начисления не влияет. */
   pushedToClient?: boolean;
-  warning: string | null;
+  streamConnected?: boolean;
 }
 
 export interface CancelOrdersResponse extends OkResponse {

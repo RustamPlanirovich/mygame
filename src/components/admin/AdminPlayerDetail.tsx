@@ -212,7 +212,6 @@ export function AdminPlayerDetail({
   const [grantCredits, setGrantCredits] = useState('');
   const [grantResearch, setGrantResearch] = useState('');
   const [grantInfluence, setGrantInfluence] = useState('');
-  const [grantForce, setGrantForce] = useState(false);
   const [grantResources, setGrantResources] = useState<Array<{ key: string; value: string }>>([]);
 
   // Просмотр сохранения
@@ -247,7 +246,6 @@ export function AdminPlayerDetail({
     setGrantResearch('');
     setGrantInfluence('');
     setGrantResources([]);
-    setGrantForce(false);
   }, [playerId]);
 
   const close = () => actions.selectPlayer(null);
@@ -311,7 +309,7 @@ export function AdminPlayerDetail({
   };
 
   const submitGrant = () => {
-    const payload: GrantRequest = { force: grantForce };
+    const payload: GrantRequest = {};
     if (grantSlotId !== '') payload.slotId = Number(grantSlotId);
     if (grantCredits.trim() !== '') payload.credits = grantCredits.trim();
     if (grantResearch.trim() !== '') payload.researchPoints = grantResearch.trim();
@@ -533,11 +531,6 @@ export function AdminPlayerDetail({
                 {action.error && (
                   <Alert tone="danger" title="Действие не выполнено">
                     {action.error}
-                    {action.code === 'PLAYER_HAS_ACTIVE_SESSION' && (
-                      <p className="mt-1">
-                        Отметьте «выдать принудительно» или сначала завершите сессии игрока.
-                      </p>
-                    )}
                   </Alert>
                 )}
                 {action.result && (
@@ -852,26 +845,17 @@ export function AdminPlayerDetail({
                       </button>
                     </div>
 
-                    <label className="flex items-center gap-2 text-xs text-content-secondary">
-                      <input
-                        type="checkbox"
-                        checked={grantForce}
-                        onChange={(e) => setGrantForce(e.target.checked)}
-                        className="h-3.5 w-3.5"
-                      />
-                      Выдать принудительно (сессия есть, но игрок не в сети)
-                    </label>
                     {/*
-                      Пункт 9 в bigplan.md: раньше клиент онлайн-игрока перезаписывал выдачу
-                      автосохранением, и force был единственным выходом. Теперь подключённому
-                      игроку выдача досылается по realtime-каналу и применяется сразу —
-                      force нужен только когда сессия есть, а канала нет (старая вкладка).
+                      Пункт 9 в bigplan.md. Флажка «выдать принудительно» здесь больше нет:
+                      именно выдача с force и терялась — сервер патчил сейв, а автосохранение
+                      игрока повторяло свою запись поверх патча. Теперь игроку с активной
+                      сессией начисление кладётся в очередь и применяется его же клиентом,
+                      офлайн-игроку сейв патчится сразу. Форсировать стало нечего.
                     */}
                     <p className="text-3xs text-content-faint">
-                      Если игрок подключён к серверу, выдача применится у него сразу и force не
-                      нужен. Флажок — для случая, когда сессия висит, но связи нет: тогда клиент
-                      может перезаписать выдачу автосохранением, и надёжнее сначала завершить
-                      его сессии.
+                      Игроку в игре начисление уйдёт в очередь и применится у него в течение
+                      нескольких секунд; офлайн-игроку — прямо в сохранение. Завершать его
+                      сессии перед выдачей больше не нужно.
                     </p>
 
                     <div className="flex gap-2">

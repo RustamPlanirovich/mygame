@@ -49,7 +49,8 @@ import { serializeGame, loadSavePayload } from './gameSave';
 // serializeGame (который работает только с GameState).
 import { serializeFinance, hydrateFinance, registerGameCreditsAdapter, resetFinanceState } from './financeStore';
 import { baseResearchPointsPerSecond } from '../core/production/currencyRates';
-import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated } from '../utils/settingsApi';
+import { loadCurrentSaveIdFromServer, saveCurrentSaveIdToServer, getAuthHeaders, isAuthenticated, getCurrentSlotId } from '../utils/settingsApi';
+import { ackGrants, fetchPendingGrants, type PendingGrant } from '../utils/grantsApi';
 import { rememberSaveRevision, getSaveRevisionFor } from './saveRevision';
 import { isBuildingDisableable } from '../core/constants/buildingCategories';
 import {
@@ -135,7 +136,7 @@ import { shouldSpawnSignal, spawnSignal, calculateNextSignalTime, removeExpiredB
 import { REPEATABLE_RESEARCHES } from '../core/constants/repeatableResearch';
 import { BUILDING_EVOLUTIONS, getNextEvolution } from '../core/constants/buildingEvolutions';
 import { generateGalaxy, getDiscoveryCost } from '../utils/galaxyGenerator';
-import { localizeGeneratedName } from '../core/i18n/label';
+import { localizeGeneratedName, resourceLabel } from '../core/i18n/label';
 import {
   buildDurationSeconds,
   collectCompletedJobs,
@@ -163,7 +164,13 @@ import {
   rollRuinRefundRate,
   type DepositReserves,
 } from '../core/systems/deposits';
-import { isEmptyGrant, parseGrantDeltas } from '../core/systems/adminGrant';
+import {
+  describeGrant,
+  isEmptyGrant,
+  parseGrantDeltas,
+  selectAckableGrants,
+  selectGrantsForSlot,
+} from '../core/systems/adminGrant';
 import { computeOfflineMining } from '../core/systems/offlineProgress';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
@@ -178,10 +185,42 @@ const SCENARIO_CHECK_INTERVAL_MS = 1000;
 
 /*
  * Уже применённые админские выдачи (bigplan.md, пункт 9). Живёт вне стора: это защита от
- * повторной доставки события, а не игровое состояние — в сейв ей попадать незачем, и при
- * перезагрузке страницы дедупликация не нужна (патч уже в сохранении).
+ * повторного начисления, а не игровое состояние.
+ *
+ * ПОЧЕМУ ДВА НАБОРА, А НЕ ОДИН. С переходом на очередь (utils/grantsApi.ts) выдача забирается
+ * запросом, а не приходит событием, и дедупликации «на время жизни вкладки» стало мало:
+ *   - applied — начислено в ПАМЯТЬ. Отсекает повтор в этой сессии (две вкладки, два события);
+ *   - persisted — начисление доехало до СЕЙВА. Только такие можно подтверждать серверу: ack
+ *     закрывает строку навсегда, и подтвердив несохранённое, мы потеряли бы его при перезагрузке.
+ * persisted переживает перезагрузку (пишется в payload сейва рядом с finance), поэтому выдача,
+ * применённая, но не подтверждённая из-за обрыва сети, не начислится второй раз.
  */
 const appliedGrantIds = new Set<string>();
+const persistedGrantIds = new Set<string>();
+
+/** Снимок для payload сейва: см. serializeFinance — тот же приём, GameState тут ни при чём. */
+function serializeAppliedGrants(): string[] {
+  // Список растёт только на админских выдачах, но потолок нужен: сейв не место для журнала.
+  return [...appliedGrantIds].slice(-200);
+}
+
+function hydrateAppliedGrants(raw: unknown): void {
+  appliedGrantIds.clear();
+  persistedGrantIds.clear();
+  if (!Array.isArray(raw)) return;
+  for (const id of raw) {
+    if (typeof id !== 'string' || id.length === 0) continue;
+    appliedGrantIds.add(id);
+    // Раз оно пришло из сейва — оно в сейве и есть.
+    persistedGrantIds.add(id);
+  }
+}
+
+/** Параллельный забор очереди (загрузка + событие из канала) начислил бы дважды. */
+let grantDrainInFlight = false;
+
+/** Идёт loadGame: очередь выдач в этот момент забирать нельзя — см. drainPendingGrants. */
+let gameLoadInFlight = false;
 
 /*
  * Какие правила автоматизации были истинны на прошлой проверке (bigplan 42). key = tileKey.
@@ -8360,7 +8399,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     // GameState slices — prestige, ascension, artifacts, repeatableResearch,
     // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
     // were never persisted: adding a feature meant editing four places and nobody did.
-    const save = { ...serializeGame(state), finance: serializeFinance() };
+    /*
+     * Список применённых выдач едет в сейве (bigplan.md, пункт 9): по нему после перезагрузки
+     * видно, что начисление уже учтено, даже если подтвердить его серверу не удалось.
+     * Снимок берём здесь же, до запроса: выдача, применённая ПОКА идёт запись, в этот payload
+     * не попала — пометить её сохранённой значило бы потерять её при следующей загрузке.
+     */
+    const grantsInPayload = serializeAppliedGrants();
+    const save = { ...serializeGame(state), finance: serializeFinance(), appliedGrants: grantsInPayload };
 
     saveInFlight = true;
     try {
@@ -8434,6 +8480,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (response.ok) {
             const retryBody = await response.json().catch(() => null);
             rememberSaveRevision(retryBody?.save?.id, retryBody?.save?.revision);
+            for (const id of grantsInPayload) persistedGrantIds.add(id);
             return { ok: true as const };
           }
 
@@ -8487,6 +8534,8 @@ export const useGameStore = create<GameState>((set, get) => ({
            запись просто получит 409 и перезагрузится */
       }
 
+      // Запись прошла — теперь эти выдачи можно подтверждать серверу (см. drainPendingGrants).
+      for (const id of grantsInPayload) persistedGrantIds.add(id);
       return { ok: true as const };
     } catch (e) {
       // Network-level failure (offline, server restarting). Worth surfacing too, but quietly:
@@ -8506,7 +8555,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     // GameState slices — prestige, ascension, artifacts, repeatableResearch,
     // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
     // were never persisted: adding a feature meant editing four places and nobody did.
-    const save = { ...serializeGame(state), finance: serializeFinance() };
+    // appliedGrants едет в любом сейве: иначе загрузка ручного сохранения потеряла бы отметку
+    // «эта выдача уже начислена» и очередь начислила бы её второй раз.
+    const save = { ...serializeGame(state), finance: serializeFinance(), appliedGrants: serializeAppliedGrants() };
 
     // Логируем что сохраняем
     console.log('💾 Saving game manually:', {
@@ -8615,6 +8666,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Финансы живут в отдельном store; без этого портфель, вклады и кредиты
         // терялись при каждом входе (clearAllUserData стирает finance-storage).
         hydrateFinance((save as { finance?: unknown }).finance);
+        // Какие админские выдачи уже начислены в этом сейве — иначе очередь начислит их снова.
+        hydrateAppliedGrants((save as { appliedGrants?: unknown }).appliedGrants);
 
         console.log('📝 Внутри set(), обрабатываем состояние...');
         const loadedResearch: ResearchState = save.research && save.research.levels
@@ -9138,7 +9191,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     // GameState slices — prestige, ascension, artifacts, repeatableResearch,
     // proceduralGalaxies, retention, signalInterception, megastructures, endgame, fleet —
     // were never persisted: adding a feature meant editing four places and nobody did.
-    const save = { ...serializeGame(state), finance: serializeFinance() };
+    const save = { ...serializeGame(state), finance: serializeFinance(), appliedGrants: serializeAppliedGrants() };
 
     // Логируем перезапись сохранения
     console.log('💾 Overwriting save:', {
@@ -9185,6 +9238,13 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   loadGame: async () => {
     let save: any;
+    /*
+     * Пока идёт загрузка, очередь выдач трогать нельзя (bigplan.md, пункт 9): начисление
+     * прибавляется к состоянию в памяти, а загрузка это состояние целиком заменяет — дельта
+     * исчезла бы, оставшись подтверждённой на сервере. Событие из realtime-канала приходит
+     * когда угодно, в том числе ровно в этот момент.
+     */
+    gameLoadInFlight = true;
     try {
       if (!isAuthenticated()) {
         console.warn('No user found, skipping load');
@@ -9264,6 +9324,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         // Финансы живут в отдельном store; без этого портфель, вклады и кредиты
         // терялись при каждом входе (clearAllUserData стирает finance-storage).
         hydrateFinance((save as { finance?: unknown }).finance);
+        // Какие админские выдачи уже начислены в этом сейве — иначе очередь начислит их снова.
+        hydrateAppliedGrants((save as { appliedGrants?: unknown }).appliedGrants);
 
         const loadedResearch: ResearchState = save.research && save.research.levels
           ? {
@@ -10172,6 +10234,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       get().creditOfflineMining(savedAt);
     } catch (e) {
       console.error("Failed to load save", e);
+    } finally {
+      gameLoadInFlight = false;
     }
   },
 
@@ -11159,6 +11223,71 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     return true;
+  },
+
+  /**
+   * ЗАБРАТЬ ОЧЕРЕДЬ АДМИНСКИХ ВЫДАЧ (bigplan.md, пункт 9).
+   *
+   * Вызывается после загрузки игры и по подсказке `admin.grant.pending` из realtime-канала.
+   * Событие — не доставка, а всего лишь повод заглянуть: не дошло (закрытая вкладка, разрыв,
+   * в кластере — другой воркер) — начисление заберётся при следующей загрузке.
+   *
+   * ПОРЯДОК ШАГОВ ВАЖЕН: применить -> СОХРАНИТЬ -> подтвердить.
+   * ack закрывает строку на сервере навсегда. Подтвердить раньше записи значит потерять выдачу,
+   * если вкладку закроют между этими шагами. Обратный риск (сохранили, но не подтвердили)
+   * безобиден: id уже в сейве, и повторный забор отсечётся по persistedGrantIds.
+   */
+  drainPendingGrants: async () => {
+    // Загрузка заменит состояние целиком: применённая сейчас дельта пропала бы вместе с ним.
+    if (grantDrainInFlight || gameLoadInFlight) return;
+    grantDrainInFlight = true;
+    try {
+      const pending = await fetchPendingGrants();
+      if (pending.length === 0) return;
+
+      /*
+       * Выдача адресована конкретной партии. slotId === null — «в любую» (у игрока не было
+       * текущего слота на момент выдачи). Чужие оставляем в очереди: переключится на тот слот —
+       * тогда и начислим, а не подмешаем ресурсы не в ту игру.
+       */
+      const mine = selectGrantsForSlot(pending, getCurrentSlotId());
+      if (mine.length === 0) return;
+
+      const freshlyApplied: PendingGrant[] = [];
+      for (const grant of mine) {
+        if (get().applyAdminGrant(grant.grantId, grant.deltas)) freshlyApplied.push(grant);
+      }
+
+      if (freshlyApplied.length > 0) {
+        const saved = await get().saveGame();
+        if (!saved?.ok) {
+          // Не подтверждаем: выдача останется в очереди и доедет следующим заходом.
+          console.warn('[grant] выдача применена, но сейв не записан — подтверждение отложено');
+        }
+
+        const summary = freshlyApplied
+          .map((g) => describeGrant(parseGrantDeltas(g.deltas), resourceLabel))
+          .filter(Boolean)
+          .join('; ');
+        get().addNotification({
+          type: 'success',
+          title: 'Начисление от администратора',
+          message: summary ? `Начислено: ${summary}` : 'Ваши ресурсы изменены администратором.',
+        });
+      }
+
+      // Подтверждаем ТОЛЬКО то, что доехало до сейва (включая применённое в прошлый заход,
+      // когда запись не удалась, — оно уже в сохранении и подтверждения ещё ждёт).
+      const ackable = selectAckableGrants(mine, persistedGrantIds);
+      if (ackable.length > 0) {
+        await ackGrants(ackable, await loadCurrentSaveIdFromServer(), { applied: ackable });
+      }
+    } catch (e) {
+      // Очередь переживёт: не подтверждённое начисление заберётся при следующем заходе.
+      console.warn('[grant] не удалось забрать очередь выдач:', e);
+    } finally {
+      grantDrainInFlight = false;
+    }
   },
 
   /**

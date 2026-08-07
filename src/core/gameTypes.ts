@@ -1349,6 +1349,11 @@ export interface GameState {
    * Возвращает false, если применять нечего или эта выдача уже применена.
    */
   applyAdminGrant: (grantId: string, deltas: Record<string, string>) => boolean;
+  /**
+   * Забрать очередь админских выдач с сервера и применить те, что адресованы текущему слоту
+   * (bigplan.md, пункт 9). Ошибки глотает: не забранное начисление никуда не денется.
+   */
+  drainPendingGrants: () => Promise<void>;
   markNotificationRead: (notificationId: string) => void;
   clearNotifications: () => void;
   // Intergalactic logistics
