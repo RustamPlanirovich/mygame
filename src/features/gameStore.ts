@@ -8805,7 +8805,20 @@ export const useGameStore = create<GameState>((set, get) => ({
               tiles: save.grid.tiles ?? {},
               tileLevels: save.grid.tileLevels ?? {},
               tileEvolutionLevels: save.grid.tileEvolutionLevels ?? {},
-              tileDisabled: save.grid.tileDisabled ?? {},
+              /*
+               * Продвинутые настройки клеток: режим работы, приоритеты, авто-продажа, правила,
+               * здоровье. Строки здесь не было вовсе, и `...state.grid` подставлял пустой
+               * INITIAL — любая настройка здания жила до первой перезагрузки: игрок менял
+               * режим, автосейв его честно писал (`serializeGame` их сериализует), а загрузка
+               * молча выбрасывала. Читается как «настройки не сохраняются».
+               *
+               * Источник — `restored`, а не сырой `save.grid`: там настройки уже прогнаны через
+               * миграции (`conditions` → `rules`, `enabled` → `tileDisabled`). По той же причине
+               * и `tileDisabled` берётся оттуда: у сейва до bigplan 42 остановка лежала внутри
+               * tileSettings, и без миграции выключенное здание ожило бы.
+               */
+              tileSettings: restored.grid?.tileSettings ?? state.grid.tileSettings ?? {},
+              tileDisabled: restored.grid?.tileDisabled ?? save.grid.tileDisabled ?? {},
               /*
                * Незавершённые стройки/улучшения. Без этой строки перезагрузка съедала бы уже
                * оплаченную стройку: клетка занята, ресурсы списаны, работы нет — здание
@@ -9838,7 +9851,12 @@ export const useGameStore = create<GameState>((set, get) => ({
               tiles: save.grid.tiles && typeof save.grid.tiles === 'object' ? save.grid.tiles : state.grid.tiles,
               tileLevels: save.grid.tileLevels && typeof save.grid.tileLevels === 'object' ? save.grid.tileLevels : (state.grid.tileLevels ?? {}),
               tileEvolutionLevels: save.grid.tileEvolutionLevels && typeof save.grid.tileEvolutionLevels === 'object' ? save.grid.tileEvolutionLevels : (state.grid.tileEvolutionLevels ?? {}),
-              tileDisabled: save.grid.tileDisabled && typeof save.grid.tileDisabled === 'object' ? save.grid.tileDisabled : (state.grid.tileDisabled ?? {}),
+              // Продвинутые настройки клеток и остановка — из `restored`, см. пояснение
+              // в loadGameFromSave выше: без tileSettings настройки здания терялись при
+              // каждой загрузке, а tileDisabled без миграции оживлял выключённые клетки.
+              tileSettings: restored.grid?.tileSettings ?? state.grid.tileSettings ?? {},
+              tileDisabled: restored.grid?.tileDisabled
+                ?? (save.grid.tileDisabled && typeof save.grid.tileDisabled === 'object' ? save.grid.tileDisabled : (state.grid.tileDisabled ?? {})),
               // Незавершённые стройки/улучшения — см. пояснение в loadGame выше.
               tileJobs: save.grid.tileJobs && typeof save.grid.tileJobs === 'object' ? save.grid.tileJobs : {},
               deposits: save.grid.deposits && typeof save.grid.deposits === 'object' ? save.grid.deposits : state.grid.deposits,
