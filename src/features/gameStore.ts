@@ -8814,13 +8814,19 @@ export const useGameStore = create<GameState>((set, get) => ({
           ? { ...state.intergalacticLogistics, ...save.intergalacticLogistics }
           : state.intergalacticLogistics;
 
-        let newResources = state.resources;
+        // Ставку выработки восстанавливаем так же, как в loadGame (см. пояснение там), и
+        // не правим объекты прежнего состояния на месте: это живой стор, а не черновик.
+        let newResources = { ...state.resources };
         if (save.resources) {
           for (const key of Object.keys(save.resources) as ResourceType[]) {
             const val = save.resources[key];
-            if (val && typeof val === 'object' && 'amount' in val && 'max' in val) {
-              newResources[key].amount = D(val.amount);
-              newResources[key].max = D(val.max);
+            if (val && typeof val === 'object' && 'amount' in val && 'max' in val && newResources[key]) {
+              newResources[key] = {
+                ...newResources[key],
+                amount: D(val.amount),
+                max: D(val.max),
+                production: val.production != null ? D(val.production) : D(0),
+              };
             }
           }
         }
@@ -9052,7 +9058,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       });
       
       console.log('✅ set() успешно выполнен');
-      
+
+      /*
+       * Ручная загрузка сейва офлайн-добычу не начисляет (иначе за одно и то же отсутствие
+       * платили бы столько раз, сколько раз открыли сейв), но и висящий отчёт от ПРЕЖНЕЙ базы
+       * пережить её не должен: «Забрать» начислило бы чужие ставки в только что загруженную.
+       */
+      if (get().offlineMining) set({ offlineMining: null });
+
       // После загрузки синхронизируем размеры grid с текущей картой
       const state = get();
       const currentMapId = state.maps.currentMapId;
@@ -9549,12 +9562,28 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           : state.aegis;
 
+        /*
+         * `production` восстанавливается наравне с amount/max, и это не косметика:
+         * ставка выработки — ЕДИНСТВЕННЫЙ вход офлайн-добычи (core/systems/offlineProgress.ts),
+         * которая считается ниже по этой же функции из уже загруженного состояния. Пока поле
+         * терялось, каждая загрузка выглядела как «0/с по всем ресурсам», computeOfflineMining
+         * возвращала null, и окно «С возвращением!» не открывалось НИКОГДА.
+         *
+         * Первый же тик пересчитает ставку заново; до тех пор в панели ресурсов стоит та
+         * цифра, которую игрок видел перед выходом, а не ноль.
+         */
         let newResources = { ...state.resources };
         for (const [k, v] of Object.entries(save.resources as Record<string, any>)) {
-           if (newResources[k as ResourceType]) {
-             newResources[k as ResourceType].amount = D(v.amount);
-             newResources[k as ResourceType].max = D(v.max);
-           }
+          const key = k as ResourceType;
+          const cur = newResources[key];
+          if (!cur) continue;
+          newResources[key] = {
+            ...cur,
+            amount: D(v.amount),
+            max: D(v.max),
+            // Сейвы, записанные до появления поля, не должны превращаться в NaN.
+            production: v.production != null ? D(v.production) : D(0),
+          };
         }
 
         let newBuildings = state.buildings.map(b => {
@@ -10136,30 +10165,11 @@ export const useGameStore = create<GameState>((set, get) => ({
        */
       const savedAt = Number(save?.savedAt ?? save?.lastTick ?? 0);
       /*
-       * Демон «Ночная смена» читается из УЖЕ ЗАГРУЖЕННОГО состояния: важно, был ли он
-       * включён на момент выхода, а не включён ли он сейчас. Плату он берёт из офлайн-энергии
-       * внутри computeOfflineMining — см. её шапку.
+       * Чужой отчёт до этой точки не доживает: он посчитан по ставкам ПРЕДЫДУЩЕГО слота, и
+       * «Забрать» после смены слота начислило бы его в новую базу.
        */
-      const nightShiftOn = get().demons.active.night_shift;
-      const offlineMining = computeOfflineMining({
-        resources: get().resources,
-        savedAt,
-        now: Date.now(),
-        ...(nightShiftOn
-          ? {
-              nightShift: {
-                rentPerSecond: DEMON_BALANCE.NIGHT_SHIFT_ENERGY_PER_SECOND,
-                boostedEfficiency: DEMON_BALANCE.NIGHT_SHIFT_EFFICIENCY,
-              },
-            }
-          : {}),
-      });
-      if (offlineMining) {
-        console.log(
-          `⛏️ Офлайн-добыча: ${offlineMining.gains.length} ресурсов за ${offlineMining.creditedSeconds} с`,
-        );
-        set({ offlineMining });
-      }
+      if (get().offlineMining) set({ offlineMining: null });
+      get().creditOfflineMining(savedAt);
     } catch (e) {
       console.error("Failed to load save", e);
     }
@@ -11149,6 +11159,52 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     return true;
+  },
+
+  /**
+   * Посчитать офлайн-добычу за отрезок [since, сейчас] и показать отчёт.
+   *
+   * Двух вызывающих: `loadGame` (точка отсчёта — savedAt сейва) и игровой цикл, когда игрок
+   * возвращается к свёрнутой вкладке (точка отсчёта — момент, с которого база не считалась).
+   * Раньше расчёт жил прямо в loadGame, и офлайн существовал ТОЛЬКО для перезагрузки страницы.
+   *
+   * Ставки берутся из ТЕКУЩЕГО состояния (resources[*].production): в loadGame это ставки
+   * только что загруженного сейва, при возвращении — ставки, замороженные на момент ухода
+   * (тик их не трогал, потому что не шёл). Вместимость складов тоже текущая, и обрезка по
+   * свободному месту идёт по реальным складам, а не по тем, что были при записи сейва.
+   */
+  creditOfflineMining: (since: number) => {
+    const state = get();
+    /*
+     * Непрочитанный отчёт не перетираем: игрок уже увидел сумму, и подмена её другой была бы
+     * молчаливой потерей. Уход со страницы этот случай закрывает — игровой цикл забирает
+     * висящий отчёт за игрока, как это делает крестик в окне.
+     */
+    if (state.offlineMining) return;
+
+    /*
+     * Демон «Ночная смена» читается из состояния НА МОМЕНТ РАСЧЁТА: важно, был ли он включён,
+     * когда база стояла, а не включён ли он сейчас. Плату он берёт из офлайн-энергии внутри
+     * computeOfflineMining — см. её шапку.
+     */
+    const nightShiftOn = state.demons.active.night_shift;
+    const report = computeOfflineMining({
+      resources: state.resources,
+      savedAt: since,
+      now: Date.now(),
+      ...(nightShiftOn
+        ? {
+            nightShift: {
+              rentPerSecond: DEMON_BALANCE.NIGHT_SHIFT_ENERGY_PER_SECOND,
+              boostedEfficiency: DEMON_BALANCE.NIGHT_SHIFT_EFFICIENCY,
+            },
+          }
+        : {}),
+    });
+
+    if (!report) return;
+    console.log(`⛏️ Офлайн-добыча: ${report.gains.length} ресурсов за ${report.creditedSeconds} с`);
+    set({ offlineMining: report });
   },
 
   /**

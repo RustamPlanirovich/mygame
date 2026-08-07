@@ -1226,8 +1226,9 @@ export interface GameState {
    *
    * Живёт только в памяти и НЕ сериализуется: отчёт целиком выводится из сейва
    * (`savedAt` + ставки `resources[*].production`), а лишнее поле в сохранении означало бы
-   * второй источник правды и риск начислить одно и то же дважды. Считается один раз при
-   * загрузке (`loadGame`), обнуляется выдачей (`claimOfflineMining`) или отказом.
+   * второй источник правды и риск начислить одно и то же дважды. Считается при загрузке
+   * (`loadGame`) и при возвращении к свёрнутой вкладке (`creditOfflineMining`), обнуляется
+   * выдачей (`claimOfflineMining`) или отказом.
    */
   offlineMining: import('./systems/offlineProgress').OfflineMiningReport | null;
 
@@ -1255,6 +1256,11 @@ export interface GameState {
   cancelTradingOrder: (orderId: string) => void;
   tick: (dt: number) => void;
   loadGame: () => Promise<void>;
+  /**
+   * Посчитать офлайн-добычу за отрезок от `since` (мс) до сейчас и показать отчёт.
+   * Непрочитанный отчёт не перетирает: то, что игрок уже увидел, не должно исчезать.
+   */
+  creditOfflineMining: (since: number) => void;
   /**
    * Начислить накопленную офлайн-добычу и очистить отчёт. Повторный вызов ничего не делает:
    * отчёт уже пуст, а значит окно нельзя «нажать дважды».

@@ -31,6 +31,25 @@ function isCurrentMapCompleted(state: GameState): boolean {
   return false;
 }
 
+/**
+ * Сколько времени, пока вкладка была скрыта, база НЕ СЧИТАЛАСЬ (мс) — вход офлайн-добычи.
+ *
+ * Не «сколько вкладка была скрыта»: отдельные браузеры продолжают будить rAF в фоне, и за
+ * эти кадры выработка уже начислена по полной ставке. Оплачивать их вторым разом по офлайн-
+ * ставке значило бы платить дважды, поэтому просчитанное игровое время вычитается.
+ *
+ * Отрицательного результата не бывает: системные часы могут прыгнуть назад, и «долгом»
+ * это становиться не должно.
+ */
+export function unsimulatedAwayMs(
+  hiddenSince: number | null,
+  simulatedMs: number,
+  now: number,
+): number {
+  if (hiddenSince === null || !Number.isFinite(hiddenSince) || !Number.isFinite(now)) return 0;
+  return Math.max(0, now - hiddenSince - Math.max(0, simulatedMs));
+}
+
 /** Сколько незавершённых работ на базе. Дёшево: в очереди обычно 0-3 записи. */
 function countTileJobs(state: GameState): number {
   const jobs = state.grid.tileJobs;
@@ -65,6 +84,16 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   const fpsRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
   const lastLogTimeRef = useRef<number>(0);
+
+  /*
+   * Учёт свёрнутой вкладки — вход офлайн-добычи (см. эффект visibilitychange ниже).
+   * `hiddenSince` — когда вкладку скрыли, `simulatedWhileHidden` — сколько ИГРОВОГО времени
+   * всё-таки успело просчитаться за это время: отдельные браузеры будят rAF и в фоне, и за
+   * эти кадры база уже получила своё по полной ставке.
+   */
+  const isHiddenRef = useRef<boolean>(false);
+  const hiddenSinceRef = useRef<number | null>(null);
+  const simulatedWhileHiddenRef = useRef<number>(0);
 
   // КЛЮЧЕВАЯ ОПТИМИЗАЦИЯ: Логика обновляется с фиксированной частотой
   // Для idle-игры 20 тиков/сек достаточно - визуально разницы нет
@@ -185,6 +214,9 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         financeCheckRef.current = 0;
       }
 
+      // Просчитанное в фоне игровое время вычтется из офлайна: платить дважды не за что.
+      if (isHiddenRef.current) simulatedWhileHiddenRef.current += logicFrameTime;
+
       accumulatedTimeRef.current -= logicFrameTime;
       updates++;
     }
@@ -232,13 +264,53 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
    *
    * Таймер после сброса не сбрасываем намеренно: `saveGame` сам не даст двум записям идти
    * одновременно (см. saveInFlight), а лишний автосейв через несколько секунд безвреден.
+   *
+   * ВОЗВРАЩЕНИЕ К СВЁРНУТОЙ ВКЛАДКЕ — ТОЖЕ ОФЛАЙН (второе назначение этого же эффекта).
+   *
+   * rAF в скрытой вкладке браузер не вызывает, а накопитель времени зажат `maxFrameTime`:
+   * догоняющих тиков нет, база стоит намертво. При этом отчёт об офлайн-добыче считался
+   * ТОЛЬКО в `loadGame`, то есть при перезагрузке страницы. Игрок, который свернул вкладку
+   * (или закрыл крышку ноутбука) на четверть часа и вернулся в ту же вкладку, не получал
+   * ничего: ни выработки, потому что тик не шёл, ни компенсации, потому что сейв не грузился.
+   * Ровно так офлайн-добыча и выглядела «неработающей».
+   *
+   * Считаем не «сколько вкладка была скрыта», а сколько времени НЕ БЫЛО ПРОСЧИТАНО:
+   * фоновые кадры, если браузер их всё-таки дал, уже начислены по полной ставке.
+   *
+   * Порог в 60 секунд (OFFLINE_MIN_SECONDS) остаётся за computeOfflineMining, поэтому
+   * переключение на соседнюю вкладку и обратно окна не открывает.
    */
   useEffect(() => {
-    const flush = () => {
-      if (document.visibilityState === 'hidden') void saveGameRef.current();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        isHiddenRef.current = true;
+        hiddenSinceRef.current = Date.now();
+        simulatedWhileHiddenRef.current = 0;
+
+        /*
+         * Висящий отчёт забираем за игрока — тем же правилом, по которому его начисляет
+         * крестик в окне: потерять добычу, уйдя со страницы с открытой модалкой, нельзя.
+         * Заодно это гарантия для creditOfflineMining, что перетирать будет нечего.
+         * claimOfflineMining сам пишет сейв, поэтому отдельный сброс тут не нужен.
+         */
+        const store = useGameStore.getState();
+        if (store.offlineMining) store.claimOfflineMining();
+        else void saveGameRef.current();
+        return;
+      }
+
+      isHiddenRef.current = false;
+      const now = Date.now();
+      const away = unsimulatedAwayMs(hiddenSinceRef.current, simulatedWhileHiddenRef.current, now);
+      hiddenSinceRef.current = null;
+      simulatedWhileHiddenRef.current = 0;
+      if (away <= 0) return;
+
+      useGameStore.getState().creditOfflineMining(now - away);
     };
-    document.addEventListener('visibilitychange', flush);
-    return () => document.removeEventListener('visibilitychange', flush);
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
   return {
