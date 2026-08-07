@@ -20,6 +20,7 @@ import {
   localRecommendations,
 } from './market-sim/index.js';
 import { STOCKS, FUNDS, SECTOR_RU } from './market-sim/universe.js';
+import { withAdvisoryLock } from './market-sim/persistence.js';
 import { describeError } from './error-detail.js';
 
 const AI_CONFIG = {
@@ -31,6 +32,25 @@ const AI_CONFIG = {
 
 // Интервал обновления: 1 час
 const UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Ключ advisory-lock: один цикл оракула на всю БД, а не на процесс.
+ *
+ * Флага `oracleRunning` для этого недостаточно: это обычная переменная в памяти процесса,
+ * поэтому два процесса против одной БД (PM2 cluster, второй инстанс во время reload, запущенный
+ * рядом `npm run dev:api`) о ней ничего не знают. Цена промаха тут не «лишняя работа»: цикл
+ * платно ходит в DeepSeek (до MAX_REQUESTS_PER_CYCLE запросов) и перезаписывает одни и те же
+ * строки ai_oracle_data, так что параллельные циклы дают двойной счёт от провайдера и гонку
+ * записи, в которой побеждает тот, кто закончил позже.
+ *
+ * Именно pg_try_advisory_lock, а не гейт по NODE_APP_INSTANCE === 0: лок отпускается сам при
+ * обрыве соединения, поэтому смерть конкретного воркера не оставляет оракул без обновлений,
+ * а во время reload перекрывающиеся старый и новый воркеры не тикают вдвоём.
+ *
+ * Значение не должно совпадать с MARKET_LOCK_KEY и MARKET_SIM_LOCK_KEY — это одно
+ * пространство ключей на всю базу.
+ */
+const AI_ORACLE_LOCK_KEY = 0x41494f52; // 'AIOR'
 
 // Максимум запросов к DeepSeek за один цикл
 const MAX_REQUESTS_PER_CYCLE = 5;
@@ -559,15 +579,34 @@ async function runOracleUpdate(pool) {
   return { requestCount, totalTokens, sources: { ...lastSources } };
 }
 
-/** Обёртка с защитой от наложения запусков. */
+/**
+ * Обёртка с защитой от наложения запусков — в два слоя.
+ *
+ * Сначала локальный флаг: он ловит самый частый случай (предыдущий цикл этого же процесса ещё
+ * идёт) без похода в пул за соединением. Затем advisory-лок, который делает то же самое поперёк
+ * процессов — см. AI_ORACLE_LOCK_KEY.
+ *
+ * Не получить лок — НОРМАЛЬНЫЙ исход, а не ошибка: значит цикл уже крутит кто-то другой, и
+ * данные в ai_oracle_data всё равно обновятся. Поэтому здесь warn, а не error, и `skipped`
+ * с причиной, чтобы в логах было видно, почему тик прошёл без запросов к DeepSeek.
+ */
 async function runOracleUpdateGuarded(pool) {
   if (oracleRunning) {
     console.warn('[AI Oracle] previous cycle still running, skipping this tick');
-    return { skipped: true };
+    return { skipped: true, reason: 'local' };
   }
   oracleRunning = true;
   try {
-    return await runOracleUpdate(pool);
+    const { locked, result } = await withAdvisoryLock(
+      pool,
+      () => runOracleUpdate(pool),
+      AI_ORACLE_LOCK_KEY
+    );
+    if (!locked) {
+      console.warn('[AI Oracle] цикл уже выполняет другой процесс, тик пропущен');
+      return { skipped: true, reason: 'locked-elsewhere' };
+    }
+    return result;
   } finally {
     oracleRunning = false;
   }

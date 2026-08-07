@@ -13,7 +13,7 @@
  */
 import Decimal from 'break_eternity.js';
 import { encodePasswordForStorage } from './auth-password.js';
-import { runOracleUpdate } from './ai-oracle.js';
+import { runOracleUpdateGuarded } from './ai-oracle.js';
 import { realtimeHub } from './realtime.js';
 
 // ============================================================================
@@ -1650,9 +1650,16 @@ export function createAdminRoutes(app, pool, authMiddleware) {
   app.post('/api/admin/maintenance/oracle-refresh', authMiddleware, guard('admin'), mutationLimiter, route(async (req, res) => {
     const startedAt = Date.now();
     let failure = null;
+    let skipped = null;
     try {
-      // Без DEEPSEEK_API_KEY функция сама подставляет офлайн-значения.
-      await runOracleUpdate(pool);
+      /*
+       * Именно Guarded, а не runOracleUpdate напрямую: ручка доступна в любой момент, в том
+       * числе пока идёт плановый часовой цикл. Прямой вызов запускал второй цикл поверх первого —
+       * двойной платный поход в DeepSeek и гонка записи в ai_oracle_data.
+       * Без DEEPSEEK_API_KEY функция сама подставляет офлайн-значения.
+       */
+      const outcome = await runOracleUpdateGuarded(pool);
+      if (outcome?.skipped) skipped = outcome.reason ?? 'unknown';
     } catch (e) {
       failure = String(e?.message ?? e);
       console.error('[admin] oracle-refresh failed:', e);
@@ -1663,13 +1670,26 @@ export function createAdminRoutes(app, pool, authMiddleware) {
     await audit(req, 'maintenance.oracle_refresh', null, {
       durationMs: Date.now() - startedAt,
       error: failure,
+      skipped,
       dataTypes: fresh.rows.map((r) => r.data_type),
     });
     if (failure) {
       bad(res, 502, 'ORACLE_REFRESH_FAILED', 'Обновление оракула не удалось.', { detail: failure });
       return;
     }
-    res.json({ ok: true, durationMs: Date.now() - startedAt, oracle: fresh.rows });
+    /*
+     * skipped — не ошибка, но и не «обновлено»: цикл уже крутит кто-то другой. Молчать нельзя,
+     * иначе админ видит «готово» и решает, что в ответе свежие данные, хотя generated_at прежний.
+     */
+    res.json({
+      ok: true,
+      durationMs: Date.now() - startedAt,
+      skipped,
+      message: skipped
+        ? 'Обновление уже выполняется, данные появятся через несколько секунд.'
+        : undefined,
+      oracle: fresh.rows,
+    });
   }));
 
   // --------------------------------------------------------------------------
