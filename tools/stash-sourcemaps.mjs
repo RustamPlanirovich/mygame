@@ -21,11 +21,13 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const DIST = join(ROOT, 'dist');
+// Папку сборки можно передать аргументом: production собирается в dist.next и подменяет dist
+// одним переименованием уже после того, как карты вынесены (tools/publish-dist.mjs).
+const DIST = join(ROOT, process.argv[2] ?? 'dist');
 const TARGET = join(ROOT, 'sourcemaps');
 
 if (!existsSync(DIST)) {
-  console.log('stash-sourcemaps: dist/ нет, нечего переносить');
+  console.log(`stash-sourcemaps: ${process.argv[2] ?? 'dist'}/ нет, нечего переносить`);
   process.exit(0);
 }
 
@@ -60,6 +62,6 @@ if (moved === 0) {
 } else {
   console.log(
     `stash-sourcemaps: ${moved} карт (${(bytes / 1024 / 1024).toFixed(1)} МБ) перенесено ` +
-      'из dist/ в sourcemaps/ — наружу они больше не раздаются',
+      `из ${process.argv[2] ?? 'dist'}/ в sourcemaps/ — наружу они больше не раздаются`,
   );
 }

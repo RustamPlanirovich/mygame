@@ -328,6 +328,43 @@ export function securityHeaders({ isProduction = false } = {}) {
    ========================================================================== */
 
 /**
+ * Методы ответа, которые после отправки заголовков бросают ERR_HTTP_HEADERS_SENT.
+ * `write`/`end` в списке нет намеренно: до них дело не доходит (json/send вызываются раньше),
+ * а глушить их — значит ломать нормальное завершение уже отправленного 503.
+ */
+const LATE_RESPONSE_METHODS = ['json', 'send', 'sendFile', 'redirect', 'jsonp', 'writeHead', 'setHeader'];
+
+/**
+ * ГЛУШИТ ОТВЕТ, КОТОРЫЙ ОПОЗДАЛ НА СВОЙ ЖЕ ТАЙМАУТ.
+ *
+ * Наблюдалось живьём (07.08.2026, деплой): запрос висел 30 с, таймаут ниже отдавал 503 — а
+ * потом обработчик всё-таки досчитывал и звал свой res.json(). Дальше по цепочке:
+ *   res.json -> setHeader -> ERR_HTTP_HEADERS_SENT из НЕДР обработчика;
+ *   его catch зовёт res.status(500).json(...) — и бросает ВТОРОЙ раз, уже из catch-блока;
+ *   ошибка уходит в замыкающий обработчик, и в лог попадает «Cannot set headers» вместо
+ *   настоящей причины (`[vault] GET /api/market/vault/pending: <реальная ошибка>`).
+ * То есть один опоздавший ответ давал три записи в логе и стирал диагностику.
+ *
+ * Чинить это по одному res.json в каждом из ~200 обработчиков бессмысленно: условие «ответ уже
+ * ушёл» создаёт не обработчик, а мидлвара таймаута — значит и снимать его ей. После 503 любые
+ * попытки ответить становятся no-op с ОДНОЙ предупреждающей строкой: молча глотать нельзя,
+ * иначе настоящие двойные ответы (баг в обработчике) станут невидимыми.
+ */
+function silenceLateResponse(req, res) {
+  let warned = false;
+  for (const name of LATE_RESPONSE_METHODS) {
+    if (typeof res[name] !== 'function') continue;
+    res[name] = function swallowLateResponse() {
+      if (!warned) {
+        warned = true;
+        console.warn(`[http] ответ после таймаута отброшен (res.${name}): ${req.method} ${req.originalUrl}`);
+      }
+      return res;
+    };
+  }
+}
+
+/**
  * Caps how long a single request may occupy a socket. Paired with the pool's
  * statement_timeout this bounds the worst case for a stuck handler.
  */
@@ -337,6 +374,8 @@ export function requestTimeout(ms = 30_000) {
       if (res.headersSent || res.writableEnded) return;
       console.warn(`[http] request timeout after ${ms}ms: ${req.method} ${req.originalUrl}`);
       res.status(503).json({ ok: false, error: 'REQUEST_TIMEOUT' });
+      // Строго ПОСЛЕ отправки 503: глушим только то, что придёт следом за ним.
+      silenceLateResponse(req, res);
     }, ms);
     timer.unref();
 

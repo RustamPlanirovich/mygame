@@ -390,8 +390,16 @@ function createOfflineTradingRoutes(app, pool, authMiddleware) {
   
   // Специальный эндпоинт для sendBeacon (token в body вместо header)
   app.post('/api/offline-trading/beacon-save', async (req, res) => {
-    console.log('[Beacon Save] Received request, body:', JSON.stringify(req.body).slice(0, 200));
-    
+    /*
+     * ТЕЛО ЗАПРОСА В ЛОГ НЕ ПИШЕМ.
+     *
+     * Здесь token лежит именно в body (у sendBeacon нет заголовков), а первые 200 символов
+     * JSON — это ровно он: в mygame-out.log лежали живые сессионные токены целиком, а логи
+     * читает вся команда и забирает LogViewer. Токен = полный доступ к аккаунту до истечения
+     * сессии. Логируем только slotId, по которому и разбираются проблемы с сохранением.
+     */
+    console.log('[Beacon Save] Received request, slot:', req.body?.slotId ?? null);
+
     try {
       const { token, slotId, ...state } = req.body;
       

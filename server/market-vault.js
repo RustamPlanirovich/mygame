@@ -552,6 +552,14 @@ function createTokenBucketLimiter({ capacity, refillPerSecond, name, message }) 
 // ============================================================================
 
 function fail(res, status, error, message, extra = {}) {
+  /*
+   * Ответ мог уже уйти — например, мидлвара таймаута отдала 503 на 30-й секунде, а обработчик
+   * досчитал позже (наблюдалось 07.08.2026 на /api/market/vault/pending). Без этой проверки
+   * res.json бросал ERR_HTTP_HEADERS_SENT прямо из catch-блока, и в лог вместо настоящей
+   * причины попадала «ошибка обработки ошибки». Сам поздний ответ глушится в http-middleware,
+   * здесь — второй рубеж на случай двойного ответа внутри самого обработчика.
+   */
+  if (res.headersSent) return;
   res.status(status).json({ ok: false, error, message, ...extra });
 }
 

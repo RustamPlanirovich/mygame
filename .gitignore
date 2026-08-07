@@ -9,6 +9,9 @@ lerna-debug.log*
 
 node_modules
 dist
+# Промежуточные папки атомарной публикации сборки (tools/publish-dist.mjs)
+dist.next
+dist.prev
 dist-ssr
 # Карты кода выносятся из dist после сборки (tools/stash-sourcemaps.mjs)
 sourcemaps

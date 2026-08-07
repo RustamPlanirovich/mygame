@@ -42,6 +42,18 @@ const SAVE_ID = process.env.SAVE_ID ?? 'local';
 const isProduction = process.env.NODE_ENV === 'production';
 const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 
+/*
+ * Заглушка на те миллисекунды, пока деплой подменяет dist/ (см. SPA-fallback ниже).
+ * Ни одной внешней ссылки: файлы сборки в этот момент как раз недоступны. Мета-refresh, а не
+ * скрипт, — страница обязана перезагрузиться и при отключённом JS.
+ */
+const DEPLOY_IN_PROGRESS_PAGE = `<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">
+<title>PROTOCOL: YGGDRASIL — обновление</title>
+<style>body{background:#282a36;color:#f8f8f2;font:16px/1.6 system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;text-align:center}
+h1{font-size:20px;color:#bd93f9;margin:0 0 8px}p{margin:0;color:#6272a4}</style></head>
+<body><div><h1>Обновляем сервер</h1><p>Страница перезагрузится сама через несколько секунд.</p></div></body></html>`;
+
 const app = express();
 
 /*
@@ -1285,7 +1297,23 @@ if (isProduction) {
 
   app.use(express.static(distDir));
   app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
-    res.sendFile(path.join(distDir, 'index.html'));
+    res.sendFile(path.join(distDir, 'index.html'), (err) => {
+      if (!err || res.headersSent || res.writableEnded) return;
+      /*
+       * ENOENT здесь означает не «страницы нет», а «идёт сборка»: vite чистит dist/ ПЕРЕД
+       * сборкой, и старый процесс всё это время раздаёт пустую папку. Наблюдалось живьём
+       * (07.08.2026): ENOENT на '/' и '/favicon.ico' прилетал в замыкающий обработчик и уходил
+       * в лог как «необработанная ошибка» со стеком — при том что сервер был полностью исправен.
+       *
+       * 503 + Retry-After, а не 404: 404 говорит клиенту и мониторингу «такой страницы не
+       * существует», после чего браузер закеширует отказ, а мы будем искать несуществующий
+       * сломанный маршрут. Сборка теперь идёт в dist.next со свопом (tools/publish-dist.mjs),
+       * так что окно — миллисекунды, но раз оно есть, объясняться оно должно честно.
+       */
+      console.warn(`[server] SPA-fallback: dist/index.html недоступен (${err.code ?? err.message})`);
+      res.setHeader('Retry-After', '5');
+      res.status(503).type('html').send(DEPLOY_IN_PROGRESS_PAGE);
+    });
   });
 }
 
