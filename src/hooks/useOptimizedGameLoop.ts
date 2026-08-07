@@ -50,12 +50,12 @@ function countTileJobs(state: GameState): number {
 export const useOptimizedGameLoop = (targetFPS: number = 60) => {
   // ОПТИМИЗАЦИЯ: Получаем функции один раз, не подписываясь на изменения
   const tickRef = useRef(useGameStore.getState().tick);
+  // Нужен для сброса сейва при скрытии вкладки (см. эффект visibilitychange ниже).
   const saveGameRef = useRef(useGameStore.getState().saveGame);
   
   const requestRef = useRef<number>();
   const previousTimeRef = useRef<number>();
   const accumulatedTimeRef = useRef<number>(0);
-  const saveTimeRef = useRef<number>(0);
   const achievementCheckRef = useRef<number>(0);
   const signalCheckRef = useRef<number>(0);
   const rulesCheckRef = useRef<number>(0);
@@ -120,12 +120,20 @@ export const useOptimizedGameLoop = (targetFPS: number = 60) => {
         playSfx('complete');
       }
 
-      // Auto-save tracking - раз в 30 секунд
-      saveTimeRef.current += dt;
-      if (saveTimeRef.current >= 30) {
-        void saveGameRef.current();
-        saveTimeRef.current = 0;
-      }
+      /*
+       * ЗДЕСЬ БЫЛО ВТОРОЕ АВТОСОХРАНЕНИЕ — и это был не дубль-безобидность, а причина
+       * потери прогресса.
+       *
+       * `useAutosave(30)` в App.tsx уже пишет сейв раз в 30 секунд. Этот таймер писал его
+       * ещё раз, со своим отсчётом по игровому времени: в БД шло ДВЕ записи за 30 секунд
+       * (видно по game_save.revision — +2 за полминуты), каждая на ~1 МБ. Хуже трафика то,
+       * что каждая запись — это ещё один шанс разойтись версиями: проигравшая гонку запись
+       * получает 409 SAVE_OUTDATED, а обработчик конфликта перезагружает состояние с
+       * сервера и ВЫБРАСЫВАЕТ всё несохранённое. Игрок менял продвинутые настройки здания,
+       * ловил 409 — и настройка исчезала вместе с остальными несохранёнными действиями.
+       *
+       * Автосохранение теперь ровно одно, в App.tsx.
+       */
 
       // Achievement checking - раз в 10 секунд (было 5)
       achievementCheckRef.current += dt;

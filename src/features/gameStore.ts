@@ -8371,20 +8371,23 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const currentSaveId = await loadCurrentSaveIdFromServer();
 
-      const response = await fetch('/api/saves', {
-        method: 'PUT',
-        headers: {
-          ...getAuthHeaders(),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          saveType: 'auto',
-          data: save,
-          saveId: currentSaveId,
-          // Версия, поверх которой мы пишем (bigplan.md, пункт 30.3).
-          baseRevision: getSaveRevisionFor(currentSaveId),
-        }),
-      });
+      const put = (baseRevision: number | null) =>
+        fetch('/api/saves', {
+          method: 'PUT',
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            saveType: 'auto',
+            data: save,
+            saveId: currentSaveId,
+            // Версия, поверх которой мы пишем (bigplan.md, пункт 30.3).
+            baseRevision,
+          }),
+        });
+
+      let response = await put(getSaveRevisionFor(currentSaveId));
 
       /*
        * The response used to be discarded entirely. That made autosave failure completely
@@ -8404,20 +8407,43 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         /*
          * КОНФЛИКТ ВЕРСИЙ (bigplan.md, пункт 30.3). Сохранение изменено не нами: вторая
-         * вкладка или админская выдача. Записывать поверх нельзя — это и есть та самая
-         * тихая потеря прогресса, от которой версия и защищает.
+         * вкладка или админская выдача.
          *
-         * Перезагружаем состояние из БД. Да, несохранённое с последнего автосохранения
-         * теряется — но альтернатива хуже: мы бы затёрли ЧУЖУЮ запись, и потерял бы её
-         * автор, ничего об этом не узнав.
+         * РАНЬШЕ здесь сразу шла перезагрузка состояния из БД. Защита от затирания чужой
+         * записи работала, но ценой гарантированной потери СВОЕЙ: всё, что игрок сделал с
+         * последнего автосохранения, молча исчезало, а сообщение говорило лишь «загружаю
+         * актуальное состояние». Именно так пропадали продвинутые настройки здания —
+         * игрок менял режим, автосейв ловил 409, и настройка стиралась из памяти.
+         *
+         * Теперь сначала ОДНА повторная запись поверх версии, которую сервер назвал в
+         * ответе. Смысл: в этой игре слот принадлежит одному игроку, и «чужая» запись —
+         * это почти всегда его же вторая вкладка или фоновый сброс сейва, где состояние
+         * СТАРЕЕ того, что игрок видит перед собой. Активная вкладка должна выигрывать.
+         *
+         * Если и повтор упёрся в конфликт — значит рядом кто-то пишет по-настоящему часто,
+         * и вот тогда перезагружаемся, как раньше, но говорим игроку прямо, что
+         * несохранённые изменения потеряны и почему.
          */
         if (response.status === 409 && detail === 'SAVE_OUTDATED') {
-          console.warn('[save] версия сохранения устарела, перезагружаем состояние', body);
+          console.warn('[save] версия сохранения устарела, повторяем запись', body);
           rememberSaveRevision(body?.saveId, body?.revision);
+
+          const retryRevision = getSaveRevisionFor(currentSaveId);
+          response = await put(retryRevision);
+
+          if (response.ok) {
+            const retryBody = await response.json().catch(() => null);
+            rememberSaveRevision(retryBody?.save?.id, retryBody?.save?.revision);
+            return { ok: true as const };
+          }
+
+          console.error('[save] повторная запись тоже конфликтует, перезагружаем состояние');
           get().addNotification({
             type: 'warning',
             title: 'Состояние изменено',
-            message: 'Сохранение обновлено из другой вкладки. Загружаю актуальное состояние.',
+            message:
+              'Игра открыта где-то ещё и переписала сохранение. Загружаю актуальное состояние — ' +
+              'изменения за последние секунды в этой вкладке потеряны. Закройте лишние вкладки игры.',
           });
           try {
             await get().loadGame();
