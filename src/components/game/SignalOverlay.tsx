@@ -14,7 +14,7 @@ import {
   formatBoostTimeRemaining,
   getSignalRewardDescription 
 } from '../../utils/signalHelpers';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { GameIcon } from '../ui/icons';
 
 export const SignalOverlay = () => {
@@ -23,6 +23,23 @@ export const SignalOverlay = () => {
   const { activeSignal, activeBoosts } = signalInterception;
 
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
+
+  // Плашка буста висит поверх правой панели и перехватывает клики: пока буст не истечёт,
+  // кнопки под ней недоступны. Крестик прячет только индикатор, сам буст продолжает работать.
+  const [dismissedBoosts, setDismissedBoosts] = useState<string[]>([]);
+  const visibleBoosts = activeBoosts.filter(b => !dismissedBoosts.includes(b.id));
+
+  // Чистим список скрытых, когда бусты истекают, чтобы он не рос бесконечно.
+  useEffect(() => {
+    setDismissedBoosts(prev => {
+      const alive = prev.filter(id => activeBoosts.some(b => b.id === id));
+      return alive.length === prev.length ? prev : alive;
+    });
+  }, [activeBoosts]);
+
+  const dismissBoost = (id: string) => {
+    setDismissedBoosts(prev => (prev.includes(id) ? prev : [...prev, id]));
+  };
 
   // Обновляем таймер каждую секунду
   useEffect(() => {
@@ -51,10 +68,10 @@ export const SignalOverlay = () => {
 
   if (!activeSignal || activeSignal.claimed) {
     // Показываем только активные бусты
-    return activeBoosts.length > 0 ? (
+    return visibleBoosts.length > 0 ? (
       <div className="fixed top-20 right-4 z-30 space-y-2">
-        {activeBoosts.map((boost) => (
-          <BoostIndicator key={boost.id} boost={boost} />
+        {visibleBoosts.map((boost) => (
+          <BoostIndicator key={boost.id} boost={boost} onDismiss={dismissBoost} />
         ))}
       </div>
     ) : null;
@@ -125,10 +142,10 @@ export const SignalOverlay = () => {
       </div>
 
       {/* Активные бусты в углу */}
-      {activeBoosts.length > 0 && (
+      {visibleBoosts.length > 0 && (
         <div className="fixed top-20 right-4 z-30 space-y-2">
-          {activeBoosts.map((boost) => (
-            <BoostIndicator key={boost.id} boost={boost} />
+          {visibleBoosts.map((boost) => (
+            <BoostIndicator key={boost.id} boost={boost} onDismiss={dismissBoost} />
           ))}
         </div>
       )}
@@ -137,7 +154,13 @@ export const SignalOverlay = () => {
 };
 
 // Индикатор активного буста
-const BoostIndicator = ({ boost }: { boost: import('../../core/gameTypes').ActiveBoost }) => {
+const BoostIndicator = ({
+  boost,
+  onDismiss,
+}: {
+  boost: import('../../core/gameTypes').ActiveBoost;
+  onDismiss: (id: string) => void;
+}) => {
   const [timeLeft, setTimeLeft] = useState<string>('');
 
   useEffect(() => {
@@ -160,7 +183,18 @@ const BoostIndicator = ({ boost }: { boost: import('../../core/gameTypes').Activ
           <Sparkles className="w-5 h-5 text-cyber-green" />
           <span className="text-sm font-bold text-cyber-text">{boost.type}</span>
         </div>
-        <span className="text-xs text-cyber-green font-mono">{timeLeft}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-cyber-green font-mono">{timeLeft}</span>
+          <button
+            type="button"
+            onClick={() => onDismiss(boost.id)}
+            className="text-cyber-text-dim hover:text-cyber-text transition-colors -mr-1 -mt-0.5 p-0.5 rounded hover:bg-cyber-bg-darker"
+            title="Скрыть плашку (буст продолжит действовать)"
+            aria-label="Скрыть плашку буста"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
       
       <div className="flex items-center gap-2 mb-2">
