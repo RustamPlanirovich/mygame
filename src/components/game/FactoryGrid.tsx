@@ -32,6 +32,7 @@ import {
   pixelToCellIn,
   worldSizeIn,
 } from '../../core/math/hexLayout';
+import { clampCamera } from '../../core/math/cameraClamp';
 import {
   depositRatio,
   isDepositExhausted,
@@ -679,32 +680,24 @@ export function FactoryGrid() {
         }
       };
 
+      /*
+       * Свободное панорамирование: камера прижимается не к краям сетки, а только к правилу
+       * «сетка не уезжает из кадра целиком» — вся математика и разбор прежнего поведения
+       * лежат в core/math/cameraClamp.ts (там же тесты).
+       */
       const updateCameraClamp = () => {
         const cam = camRef.current;
         const r = app.renderer;
-        const vw = r.width;
-        const vh = r.height;
 
         const ws = worldSizeRef.current;
-        const scaledW = ws.w * cam.zoom;
-        const scaledH = ws.h * cam.zoom;
-
-        // Clamp when content is larger; center when content is smaller.
-        if (scaledW <= vw) {
-          cam.x = Math.floor((vw - scaledW) / 2);
-        } else {
-          const minX = vw - scaledW;
-          const maxX = 0;
-          cam.x = clamp(cam.x, minX, maxX);
-        }
-
-        if (scaledH <= vh) {
-          cam.y = Math.floor((vh - scaledH) / 2);
-        } else {
-          const minY = vh - scaledH;
-          const maxY = 0;
-          cam.y = clamp(cam.y, minY, maxY);
-        }
+        const next = clampCamera(
+          cam.x,
+          cam.y,
+          { w: r.width, h: r.height },
+          { w: ws.w * cam.zoom, h: ws.h * cam.zoom },
+        );
+        cam.x = next.x;
+        cam.y = next.y;
 
         const world = worldRef.current;
         if (world) {
