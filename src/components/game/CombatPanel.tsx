@@ -19,11 +19,14 @@ import {
   computeAegisTurretOverdriveMultiplier,
   computeAegisAutoRepairPerSecond,
 } from '../../core/constants/aegis';
+import { BASE_TURRET_ID, countBaseDefense } from '../../core/systems/baseDefenseStatus';
 import { GameIcon, IconText } from '../ui/icons';
 
 export function CombatPanel() {
   const combat = useGameStore((s) => s.combat);
-  const buildings = useGameStore((s) => s.buildings);
+  const tiles = useGameStore((s) => s.grid.tiles);
+  const tileDisabled = useGameStore((s) => s.grid.tileDisabled);
+  const tileJobs = useGameStore((s) => s.grid.tileJobs);
   const energy = useGameStore((s) => s.resources.energy.amount);
   const steel = useGameStore((s) => s.resources.steel?.amount ?? D(0));
   const researchLevels = useGameStore((s) => s.research.levels);
@@ -40,9 +43,15 @@ export function CombatPanel() {
   const REPAIR_COST_STEEL = D(50);
   const REPAIR_HP = D(50);
 
-  const turretCount = useMemo(() => {
-    return buildings.find((b) => b.id === 'turret_mk1')?.count ?? 0;
-  }, [buildings]);
+  /*
+   * Турели считаем по клеткам базы, а не по счётчику каталога: постройка на орбитальной
+   * платформе увеличивает тот же счётчик, и раздел «Оборона» показывал стволы, которых на
+   * базе нет (см. core/systems/baseDefenseStatus.countBaseDefense).
+   */
+  const turretCount = useMemo(
+    () => countBaseDefense(tiles, tileDisabled, tileJobs).find((b) => b.id === BASE_TURRET_ID)?.count ?? 0,
+    [tiles, tileDisabled, tileJobs],
+  );
 
   const { basePct, secondsToNextWave, secondsToWaveEnd, waveActive, baseRegen, baseDamagePenalty, canRepair, needsRepair } = useMemo(() => {
     const now = Date.now();

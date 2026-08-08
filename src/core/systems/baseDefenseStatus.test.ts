@@ -4,6 +4,7 @@ import {
   BASE_SHIELD_ID,
   BASE_TURRET_ID,
   computeBaseDefenseStatus,
+  countBaseDefense,
   type BaseDefenseCombatInput,
 } from './baseDefenseStatus';
 
@@ -116,5 +117,36 @@ describe('computeBaseDefenseStatus', () => {
   it('секунды до конца волны округляются вверх', () => {
     const s = computeBaseDefenseStatus(combat({ waveEndsAt: NOW + 4_200 }), [], NOW);
     expect(s.secondsLeft).toBe(5);
+  });
+});
+
+describe('countBaseDefense', () => {
+  const countOf = (list: ReturnType<typeof countBaseDefense>, id: string) =>
+    list.find((b) => b.id === id)?.count ?? 0;
+
+  it('считает только турели и щиты базы на её сетке', () => {
+    const list = countBaseDefense({
+      '0,0': BASE_TURRET_ID,
+      '1,0': BASE_TURRET_ID,
+      '2,0': BASE_SHIELD_ID,
+      '3,0': 'iron_mine',
+      // Платформенные здания на базе оборону не усиливают.
+      '4,0': 'defense_turret_mk1',
+    });
+    expect(countOf(list, BASE_TURRET_ID)).toBe(2);
+    expect(countOf(list, BASE_SHIELD_ID)).toBe(1);
+  });
+
+  it('строящаяся и выключенная оборона не стреляет', () => {
+    const tiles = { '0,0': BASE_TURRET_ID, '1,0': BASE_TURRET_ID, '2,0': BASE_SHIELD_ID };
+    const list = countBaseDefense(tiles, { '1,0': true }, { '2,0': { kind: 'build' } });
+    expect(countOf(list, BASE_TURRET_ID)).toBe(1);
+    expect(countOf(list, BASE_SHIELD_ID)).toBe(0);
+  });
+
+  it('пустая сетка — нули, а не отсутствующие записи', () => {
+    const list = countBaseDefense({});
+    expect(countOf(list, BASE_TURRET_ID)).toBe(0);
+    expect(countOf(list, BASE_SHIELD_ID)).toBe(0);
   });
 });

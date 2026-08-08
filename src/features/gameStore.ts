@@ -174,6 +174,12 @@ import {
 } from '../core/systems/adminGrant';
 import { computeOfflineMining } from '../core/systems/offlineProgress';
 import { computePlatformTick } from '../core/systems/platformProduction';
+import {
+  BASE_SHIELD_ID,
+  BASE_TURRET_ID,
+  countBaseDefense,
+} from '../core/systems/baseDefenseStatus';
+import { computePlatformDefense, platformDefenseDps } from '../core/systems/platformDefense';
 import { payTransportFuel } from '../core/systems/transportFuel';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
@@ -3716,8 +3722,13 @@ export const useGameStore = create<GameState>((set, get) => ({
           [k]: buildId,
         };
 
+        /*
+         * Лимиты складов БАЗЫ считаются по клеткам БАЗЫ. Здесь передавались клетки платформы:
+         * на кадр между постройкой и следующим тиком база теряла все складские бонусы, а
+         * `recomputeCaps` тем же вызовом обрезает `amount` по этому заниженному потолку.
+         */
         const capsMult = computeCapsMultiplier(state.research.levels, state.meta.qubits);
-        const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, nextPlatformTiles);
+        const capped = recomputeCaps(newResources, newBuildings, capsMult, state.grid.tileLevels || {}, state.grid.tiles);
 
         // Стройка на платформе идёт по тем же правилам, что и на базе (см. пункт 18).
         const platformPaidCost: Partial<Record<ResourceType, string>> = {};
@@ -6626,8 +6637,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         let baseDamageTaken = D(0);
         let baseRegenPerSecond = D(0);
 
-        const shieldBuilding = state.buildings.find((b) => b.id === 'shield_mk1');
-        const shieldCount = shieldBuilding?.count ?? 0;
+        /*
+         * КОЛИЧЕСТВО — ОТ СЕТКИ, ХАРАКТЕРИСТИКИ — ОТ КАТАЛОГА (bigplan.md, пункт 46).
+         *
+         * Раньше и то, и другое бралось из `state.buildings[].count`, а этот счётчик растёт
+         * и при постройке на ОРБИТАЛЬНОЙ ПЛАТФОРМЕ: турель в другой галактике отбивала волну
+         * у главной базы и тратила её энергию. Считаем по клеткам базовой сетки — тем же
+         * `countBaseDefense`, которым считают плашка тревоги и подсветка обороны на карте.
+         * Заодно перестают стрелять строящиеся и выключенные турели: карта их и так не
+         * подсвечивала, а симуляция с ней спорила.
+         */
+        const baseDefenseCounts = countBaseDefense(tiles, tileDisabled);
+        const shieldBuilding = state.buildings.find((b) => b.id === BASE_SHIELD_ID);
+        const shieldCount = baseDefenseCounts.find((b) => b.id === BASE_SHIELD_ID)?.count ?? 0;
         const shieldDef = shieldBuilding?.defense;
 
         /*
@@ -6635,8 +6657,8 @@ export const useGameStore = create<GameState>((set, get) => ({
          * решается, писать ли игроку «оборона отсутствует» в момент начала волны — а это
          * происходит раньше стрельбы.
          */
-        const turret = state.buildings.find((b) => b.id === 'turret_mk1');
-        const turretCount = turret?.count ?? 0;
+        const turret = state.buildings.find((b) => b.id === BASE_TURRET_ID);
+        const turretCount = baseDefenseCounts.find((b) => b.id === BASE_TURRET_ID)?.count ?? 0;
         const turretCombat = turret?.combat;
 
         // Оборонные политики поднимают потолок щита; текущий HP ниже зажимается по нему,
@@ -7215,6 +7237,31 @@ export const useGameStore = create<GameState>((set, get) => ({
         updatedPlatform.status = platformTick.status;
 
         /*
+         * ОБОРОНА ПЛАТФОРМЫ — ОТ ЕЁ СОБСТВЕННОЙ СЕТКИ (bigplan.md, пункт 46;
+         * правила в core/systems/platformDefense.ts).
+         *
+         * Раньше бой читал `combat.turretCount`, который заполняло действие
+         * `updatePlatformDefenses` — а его никто не вызывал. Турели на платформе не стреляли
+         * НИКОГДА: платформа держалась только на приписанных кораблях, а панель показывала
+         * «Турели: 0» рядом с построенными турелями. Считаем заново каждым тиком, как и всё
+         * остальное на платформе: снесённая турель должна замолчать сразу.
+         */
+        const platformDefense = computePlatformDefense({
+          tiles: updatedPlatform.grid.tiles,
+          tileJobs: updatedPlatform.grid.tileJobs,
+          tileDisabled: updatedPlatform.grid.tileDisabled,
+          buildingsById: buildingsMap,
+        });
+
+        updatedPlatform.combat = {
+          ...updatedPlatform.combat,
+          turretCount: platformDefense.turretCount,
+          radarCount: platformDefense.radarCount,
+          radarRange: platformDefense.radarRange,
+          shieldRegenPerSecond: platformDefense.shieldRegenPerSecond,
+        };
+
+        /*
          * Молча вставшая платформа выглядит как баг: ресурсы не растут, а почему — не
          * сказано нигде. Предупреждаем не чаще раза в две минуты и только про самую
          * частую причину — обесточенные здания.
@@ -7291,15 +7338,21 @@ export const useGameStore = create<GameState>((set, get) => ({
         
         // Process combat if there are enemies
         if (updatedPlatform.combat.enemies.length > 0) {
-          // Calculate platform defense
-          const turretDamage = updatedPlatform.combat.turretCount * 10; // 10 DPS per turret
+          /*
+           * Огонь обороны: турели платформы (паспортный DPS из каталога, а не бывшая
+           * константа «10 за штуку») плюс приписанные к платформе корабли.
+           */
           const assignedShips = state.fleet.ships.filter(s => s.assignedTo === platform.id && s.status !== 'repairing');
           const shipDamage = assignedShips.reduce((total, ship) => {
-            return total + ship.dps.toNumber();
-          }, 0);
-          
-          const totalDefenseDPS = turretDamage + shipDamage;
-          const damageDealt = D(totalDefenseDPS).mul(dt);
+            return total.add(ship.dps);
+          }, D(0));
+
+          const totalDefenseDPS = platformDefenseDps(
+            platformDefense,
+            platformTick.status.energyEfficiency,
+            shipDamage,
+          );
+          const damageDealt = totalDefenseDPS.mul(dt);
           
           // Calculate enemy damage to platform
           let totalEnemyDamage = D(0);
@@ -11058,15 +11111,30 @@ export const useGameStore = create<GameState>((set, get) => ({
         };
       }
       
-      // Calculate platform defense
-      const turretDamage = platform.combat.turretCount * 10; // 10 DPS per turret
+      /*
+       * Огонь обороны считаем тем же модулем, что и тик: две реализации боя уже разъезжались
+       * (здесь была константа «10 DPS за турель», в тике — она же, но по счётчику, который
+       * никто не заполнял).
+       */
+      const defense = computePlatformDefense({
+        tiles: platform.grid.tiles,
+        tileJobs: platform.grid.tileJobs,
+        tileDisabled: platform.grid.tileDisabled,
+        buildingsById: new Map(state.buildings.map((b) => [b.id, b])),
+      });
       const assignedShips = state.fleet.ships.filter(s => s.assignedTo === platformId && s.status !== 'repairing');
       const shipDamage = assignedShips.reduce((total, ship) => {
-        return total + ship.dps.toNumber();
-      }, 0);
-      
-      const totalDefenseDPS = turretDamage + shipDamage;
-      const damageDealt = D(totalDefenseDPS).mul(dt);
+        return total.add(ship.dps);
+      }, D(0));
+
+      // `status` считается тиком и в сейв не пишется: до первого шага честнее считать, что
+      // энергия есть, чем молча обнулить оборону сразу после загрузки.
+      const totalDefenseDPS = platformDefenseDps(
+        defense,
+        platform.status?.energyEfficiency ?? 1,
+        shipDamage,
+      );
+      const damageDealt = totalDefenseDPS.mul(dt);
       
       // Calculate enemy damage to platform
       let totalEnemyDamage = D(0);
@@ -11178,39 +11246,30 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (platformIndex === -1) return state;
       
       const platform = state.galaxies.platforms[platformIndex];
-      
-      // Count defense buildings on platform
-      let turretCount = 0;
-      let radarCount = 0;
-      let maxRadarRange = 1;
-      let totalShieldRegen = D(5); // Base regen
-      
-      platform.buildings.forEach(building => {
-        if (building.id === 'defense_turret_mk1') {
-          turretCount += building.count;
-        } else if (building.id === 'defense_turret_mk2') {
-          turretCount += building.count * 2; // Mk2 counts as 2
-        } else if (building.id === 'radar_station_mk1') {
-          radarCount += building.count;
-          maxRadarRange = Math.max(maxRadarRange, 2);
-        } else if (building.id === 'shield_generator_mk1') {
-          totalShieldRegen = totalShieldRegen.add(D(10).mul(building.count));
-        } else if (building.id === 'shield_generator_mk2') {
-          totalShieldRegen = totalShieldRegen.add(D(25).mul(building.count));
-        } else if (building.id === 'armor_plating_mk1') {
-          // Armor handled elsewhere
-        }
+
+      /*
+       * Считаем по КЛЕТКАМ платформы, а не по `platform.buildings`: этот массив пустой у
+       * каждой платформы — постройка на платформенной сетке в него никогда не писала, и
+       * потому вся оборона платформы много версий подряд была нулевой (см. platformDefense).
+       * Тик пересчитывает то же самое каждым шагом, так что это действие нужно только тем,
+       * кто хочет обновить показания немедленно.
+       */
+      const defense = computePlatformDefense({
+        tiles: platform.grid.tiles,
+        tileJobs: platform.grid.tileJobs,
+        tileDisabled: platform.grid.tileDisabled,
+        buildingsById: new Map(state.buildings.map((b) => [b.id, b])),
       });
-      
+
       const updatedPlatforms = [...state.galaxies.platforms];
       updatedPlatforms[platformIndex] = {
         ...platform,
         combat: {
           ...platform.combat,
-          turretCount,
-          radarCount,
-          radarRange: maxRadarRange,
-          shieldRegenPerSecond: totalShieldRegen,
+          turretCount: defense.turretCount,
+          radarCount: defense.radarCount,
+          radarRange: defense.radarRange,
+          shieldRegenPerSecond: defense.shieldRegenPerSecond,
         },
       };
       

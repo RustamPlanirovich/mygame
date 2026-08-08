@@ -13,6 +13,7 @@ import type { Building } from '../../core/gameTypes';
 import { getMapDefinition } from '../../core/constants/maps';
 import type { GridType } from '../../core/gameTypes.maps';
 import { ProximityWarningModal } from './ProximityWarningModal';
+import { PlatformBanner } from './PlatformBanner';
 import { checkBuildingPlacement } from '../../hooks/useProximityWarnings';
 // Радиусы разворачиваются в poweredTiles/activeLogisticsHubs один раз в useMemo ниже,
 // поэтому пер-тайловые isInRadius / isBuildingPowered / isInLogisticsZone здесь не нужны.
@@ -43,9 +44,9 @@ import {
   BASE_SHIELD_ID,
   BASE_TURRET_ID,
   computeBaseDefenseStatus,
+  countBaseDefense,
 } from '../../core/systems/baseDefenseStatus';
 import { gameEvents, GAME_EVENTS } from '../../utils/gameEvents';
-import { GameIcon } from '../ui/icons';
 import { getIconTexture, preloadIconTextures } from '../ui/icons/pixiIcon';
 
 // Grid display mode - динамический, берётся из текущей карты.
@@ -218,6 +219,19 @@ export function FactoryGrid() {
   });
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
+  /*
+   * Турели и щиты считаются по клеткам ГЛАВНОЙ сетки, а не по счётчику каталога: тот растёт
+   * и от построек на орбитальных платформах (см. baseDefenseStatus.countBaseDefense).
+   * Подписки раздельные, а не одна на countBaseDefense: селектор возвращал бы новый массив
+   * при каждом изменении стора и перерисовывал бы всю сетку 20 раз в секунду.
+   */
+  const baseTiles = useGameStore((s) => s.grid.tiles);
+  const baseTileDisabled = useGameStore((s) => s.grid.tileDisabled);
+  const baseTileJobs = useGameStore((s) => s.grid.tileJobs);
+  const baseDefenseCounts = useMemo(
+    () => countBaseDefense(baseTiles, baseTileDisabled, baseTileJobs),
+    [baseTiles, baseTileDisabled, baseTileJobs],
+  );
   /*
    * Боевая индикация (bigplan 39) относится к ГЛАВНОЙ базе: state.combat описывает только её,
    * у платформ бой считается отдельно (galaxies.platforms[].combat). Когда открыта платформа,
@@ -1272,7 +1286,7 @@ export function FactoryGrid() {
      * чтобы карта и плашка тревоги не разошлись в трактовке.
      */
     const nowMs = Date.now();
-    const defense = computeBaseDefenseStatus(combat, buildings, nowMs, isPeacefulMap);
+    const defense = computeBaseDefenseStatus(combat, baseDefenseCounts, nowMs, isPeacefulMap);
     // На платформе рисуется чужая сетка, а combat описывает только главную базу.
     const defenseAlarm = defense.alarm && !activePlatformId;
     const shieldRatio = defense.shieldRatio;
@@ -1913,8 +1927,8 @@ export function FactoryGrid() {
       combat.enemies.length,
       // Индикация обороны относится только к базе: на платформе её не рисуем.
       activePlatformId,
-      // Число турелей и щитов берётся из каталога — от него зависит, что показывать.
-      buildings,
+      // Число турелей и щитов на сетке базы — от него зависит, что показывать.
+      baseDefenseCounts,
       isPeacefulMap,
       worldSize,
       buildingsById,
@@ -1968,38 +1982,17 @@ export function FactoryGrid() {
     };
   }, [pendingPlacement]);
 
-  // Реактивно получаем данные активной платформы для UI
-  const activePlatform = useGameStore((s) => 
-    s.galaxies.activePlatformId 
-      ? s.galaxies.platforms.find(p => p.id === s.galaxies.activePlatformId) 
-      : null
-  );
-
   return (
     <div className="h-full w-full relative" style={{ background: hexToCss(THEME_COLORS.cyberBlack) }}>
       <div ref={containerRef} className="w-full h-full" />
       
-      {/* Platform indicator */}
-      {activePlatform && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-          <div className="glass rounded-md border border-info/30 px-4 py-2 shadow-elev-3">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl"><GameIcon icon="🛰️" /></span>
-              <div>
-                <div className="text-sm font-bold text-white">{activePlatform.name}</div>
-                <div className="text-xs text-cyan-300">Управление платформой</div>
-              </div>
-              <button
-                onClick={() => useGameStore.getState().setActivePlatform(null)}
-                className="ml-2 bg-cyan-600 hover:bg-cyan-700 text-white text-xs px-3 py-1 rounded transition-all"
-              >
-                <GameIcon icon="←" /> На базу
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
+      {/*
+        Плашка платформы (имя, кнопка «На базу» и срок до разрушения) живёт отдельным
+        компонентом: платформа пересобирается каждым тиком, и подписка на неё здесь
+        перерисовывала бы всю сцену 20 раз в секунду.
+      */}
+      <PlatformBanner />
+
       {/* Модальное окно предупреждений */}
       {pendingPlacement && modalData && (
         <ProximityWarningModal

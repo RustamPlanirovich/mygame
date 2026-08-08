@@ -15,7 +15,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useGameStore } from './gameStore';
 import { D } from '../core/math/format';
-import type { ResourceType } from '../core/gameTypes';
+import type { GridState, ResourceType, SpacePlatform } from '../core/gameTypes';
+import { createPlatformEnemy } from '../core/constants/enemies';
 
 beforeEach(() => {
   useGameStore.getState().resetGame();
@@ -35,6 +36,20 @@ function makePlatform() {
   useGameStore.getState().createPlatform(galaxyId, 'Тестовая');
   return useGameStore.getState().galaxies.platforms[0];
 }
+
+/** Точечно поправить платформу в сторе, не переписывая всё дерево galaxies руками. */
+function patchPlatform(id: string, patch: (p: SpacePlatform) => Partial<SpacePlatform>) {
+  useGameStore.setState((s) => ({
+    galaxies: {
+      ...s.galaxies,
+      platforms: s.galaxies.platforms.map((p) => (p.id === id ? { ...p, ...patch(p) } : p)),
+    },
+  }));
+}
+
+const platformGrid = (p: SpacePlatform, tiles: Record<string, string>): { grid: GridState } => ({
+  grid: { ...p.grid, tiles },
+});
 
 describe('платформа: производство', () => {
   it('без энергии и без сырья завод на платформе не производит ничего', () => {
@@ -98,6 +113,107 @@ describe('платформа: производство', () => {
 
     const after = useGameStore.getState().galaxies.platforms[0];
     expect(after.resources.ore.max.toNumber()).toBeCloseTo(before.mul(1.5).toNumber());
+  });
+});
+
+/*
+ * ОБОРОНА: КТО КОГО ЗАЩИЩАЕТ.
+ *
+ * Жалоба игрока: «турели с основной базы охраняют и платформу, хотя платформа в космосе».
+ * Разбор показал склейку в обе стороны — бой базы считал турели по глобальному счётчику
+ * каталога (а тот растёт и от построек на платформе), а собственные турели платформы не
+ * стреляли вообще, потому что их считало действие, которое никто не вызывал.
+ */
+describe('платформа: оборона', () => {
+  /** Немирная карта: на «Тренировочном полигоне» волн не бывает вовсе. */
+  function hostileMap() {
+    useGameStore.setState((s) => ({ maps: { ...s.maps, currentMapId: 'map_barren_moon' } }));
+  }
+
+  it('турель, построенная на платформе, не защищает базу', () => {
+    hostileMap();
+    const platform = makePlatform();
+
+    // Ровно то, что делает placeSelectedBuildAt на платформе: клетка платформы + счётчик
+    // каталога (счётчик общий на базу и платформы, и именно он раньше шёл в бой базы).
+    patchPlatform(platform.id, (p) => platformGrid(p, { '2,2': 'turret_mk1' }));
+    useGameStore.setState((s) => ({
+      buildings: s.buildings.map((b) => (b.id === 'turret_mk1' ? { ...b, count: b.count + 3 } : b)),
+      combat: {
+        ...s.combat,
+        enemies: [{ id: 'e1', type: 'scout' as const, maxHp: D(50), hp: D(50), distance: 0.9, speed: 0.01 }],
+        waveEndsAt: Date.now() + 30_000,
+      },
+    }));
+
+    useGameStore.getState().tick(1);
+
+    const combat = useGameStore.getState().combat;
+    /*
+     * Турели на базе нет: стрелять нечем, значит и энергии оборона не просит. Проверяем
+     * именно расход и долю залпа — HP врага трогает ещё и нанорой, он работает бесплатно и
+     * к турелям отношения не имеет.
+     */
+    expect(combat.defenseEnergyNeedPerSecond.toNumber()).toBe(0);
+    expect(combat.defenseEnergyUsedPerSecond.toNumber()).toBe(0);
+    expect(combat.defenseFireRatio.toNumber()).toBe(0);
+  });
+
+  it('турель на платформе стреляет по врагам платформы', () => {
+    const platform = makePlatform();
+
+    patchPlatform(platform.id, (p) => ({
+      ...platformGrid(p, { '0,0': 'solar_panel_mk1', '1,1': 'defense_turret_mk1' }),
+      combat: { ...p.combat, enemies: [createPlatformEnemy('pirate_raider', 1)] },
+    }));
+    const hpBefore = useGameStore.getState().galaxies.platforms[0].combat.enemies[0].hp;
+
+    useGameStore.getState().tick(1);
+
+    const after = useGameStore.getState().galaxies.platforms[0];
+    // Панель наконец показывает реальное число стволов, а враг получает урон.
+    expect(after.combat.turretCount).toBe(1);
+    const enemy = after.combat.enemies[0];
+    expect(enemy === undefined || enemy.hp.lt(hpBefore)).toBe(true);
+  });
+
+  it('без энергии турель платформы не стреляет', () => {
+    const platform = makePlatform();
+
+    // Та же турель, но без электростанции: энергобаланс платформы в нуле.
+    patchPlatform(platform.id, (p) => ({
+      ...platformGrid(p, { '1,1': 'defense_turret_mk1' }),
+      combat: { ...p.combat, enemies: [createPlatformEnemy('pirate_raider', 1)] },
+    }));
+    const hpBefore = useGameStore.getState().galaxies.platforms[0].combat.enemies[0].hp;
+
+    useGameStore.getState().tick(1);
+
+    const after = useGameStore.getState().galaxies.platforms[0];
+    expect(after.combat.turretCount).toBe(1);
+    expect(after.combat.enemies[0].hp.toNumber()).toBe(hpBefore.toNumber());
+  });
+
+  it('строящаяся турель платформы в бою не участвует', () => {
+    const platform = makePlatform();
+
+    patchPlatform(platform.id, (p) => ({
+      grid: {
+        ...p.grid,
+        tiles: { '0,0': 'solar_panel_mk1', '1,1': 'defense_turret_mk1' },
+        tileJobs: {
+          '1,1': { kind: 'build', buildingId: 'defense_turret_mk1', startedAt: Date.now(), duration: 60_000 },
+        },
+      },
+      combat: { ...p.combat, enemies: [createPlatformEnemy('pirate_raider', 1)] },
+    }));
+    const hpBefore = useGameStore.getState().galaxies.platforms[0].combat.enemies[0].hp;
+
+    useGameStore.getState().tick(1);
+
+    const after = useGameStore.getState().galaxies.platforms[0];
+    expect(after.combat.turretCount).toBe(0);
+    expect(after.combat.enemies[0].hp.toNumber()).toBe(hpBefore.toNumber());
   });
 });
 

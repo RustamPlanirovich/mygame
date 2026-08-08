@@ -21,12 +21,17 @@ import {
   BASE_SHIELD_ID,
   BASE_TURRET_ID,
   computeBaseDefenseStatus,
+  countBaseDefense,
 } from '../../core/systems/baseDefenseStatus';
 import { Meter } from '../ui';
 
 export function BaseAttackOverlay() {
   const combat = useGameStore((s) => s.combat);
   const buildings = useGameStore((s) => s.buildings);
+  // Оборона считается по клеткам базы: счётчик каталога включает и постройки на платформах.
+  const tiles = useGameStore((s) => s.grid.tiles);
+  const tileDisabled = useGameStore((s) => s.grid.tileDisabled);
+  const tileJobs = useGameStore((s) => s.grid.tileJobs);
   const currentMapId = useGameStore((s) => s.maps.currentMapId);
   // Плашка про ГЛАВНУЮ базу: у платформ свой бой, и показывать её поверх чужой сетки нельзя.
   const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
@@ -42,8 +47,14 @@ export function BaseAttackOverlay() {
    * значит memo пересчитывается тогда же, и «секунд до конца волны» не застревает.
    */
   const defense = useMemo(
-    () => computeBaseDefenseStatus(combat, buildings, Date.now(), isPeacefulMap),
-    [combat, buildings, isPeacefulMap],
+    () =>
+      computeBaseDefenseStatus(
+        combat,
+        countBaseDefense(tiles, tileDisabled, tileJobs),
+        Date.now(),
+        isPeacefulMap,
+      ),
+    [combat, tiles, tileDisabled, tileJobs, isPeacefulMap],
   );
 
   // Названия берём из каталога, а не пишем текстом: иначе плашка соврёт после переименования.

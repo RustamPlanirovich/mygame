@@ -14,6 +14,13 @@
  * `defense_turret_*` и `shield_generator_*` из каталога относятся к орбитальным платформам и
  * в обороне базы не участвуют, поэтому и здесь не учитываются: иначе плашка обещала бы защиту,
  * которой в симуляции нет.
+ *
+ * СЧИТАТЬ НАДО ПО СЕТКЕ, А НЕ ПО КАТАЛОГУ (bigplan.md, пункт 46). `state.buildings[].count` —
+ * глобальный счётчик:
+ * постройка на ОРБИТАЛЬНОЙ ПЛАТФОРМЕ увеличивает его точно так же, как постройка на базе.
+ * Пока бой читал этот счётчик, турель, стоящая в другой галактике, стреляла по волне у
+ * главной базы и жгла её энергию. Правильный источник — клетки базовой сетки, и берут его
+ * все: и тик, и плашка, и подсветка (см. `countBaseDefense`).
  */
 
 import type Decimal from 'break_eternity.js';
@@ -73,6 +80,36 @@ export interface BaseDefenseCombatInput {
 export interface BaseDefenseBuildingInput {
   id: string;
   count: number;
+}
+
+/**
+ * Сколько турелей и щитов реально стоит НА СЕТКЕ БАЗЫ и участвует в бою.
+ *
+ * Строящееся и выключенное не считается: на карте такие клетки не подсвечиваются как
+ * работающая оборона, и симуляция обязана говорить то же самое. Тик передаёт сюда уже
+ * готовый `tileDisabled` (в нём и работы, и руины), UI — сырые `tileDisabled` + `tileJobs`.
+ */
+export function countBaseDefense(
+  tiles: Record<string, string>,
+  tileDisabled?: Record<string, boolean>,
+  tileJobs?: Record<string, unknown>,
+): BaseDefenseBuildingInput[] {
+  let turrets = 0;
+  let shields = 0;
+
+  for (const key in tiles) {
+    const id = tiles[key];
+    if (id !== BASE_TURRET_ID && id !== BASE_SHIELD_ID) continue;
+    if (tileDisabled?.[key]) continue;
+    if (tileJobs?.[key]) continue;
+    if (id === BASE_TURRET_ID) turrets++;
+    else shields++;
+  }
+
+  return [
+    { id: BASE_TURRET_ID, count: turrets },
+    { id: BASE_SHIELD_ID, count: shields },
+  ];
 }
 
 const ratio = (part: Decimal, whole: Decimal): number => {
