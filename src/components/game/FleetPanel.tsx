@@ -5,9 +5,30 @@ import { D } from '../../core/math/format';
 import type { Ship, ShipType } from '../../core/gameTypes';
 import { Anchor, Award, Heart, Shield, Sword, Settings, Trash2, Wrench } from 'lucide-react';
 import { notify } from '../../utils/notifications';
-import { GameIcon, IconText } from '../ui/icons';
+import { GameIcon, IconText, hasGlyph } from '../ui/icons';
+import { resourceIcon, resourceLabel } from '../../core/i18n/label';
 import { formatRemaining, progressOf, remainingMs } from '../../core/systems/jobs';
 import { useNowTicker } from '../../hooks/useNowTicker';
+
+/*
+ * Стоимость постройки печаталась сырым id («jet_engine», «titanium_alloy»): вкладка «Флот»
+ * оказалась единственным местом, куда не дошёл разбор из label.ts, а гард `npm run lint:labels`
+ * её пропустил — он ищет `{res}` как текст, а тут id был спрятан в тернарник.
+ *
+ * Кредиты — валюта, а не ресурс, в RESOURCE_LABEL их нет, поэтому подпись и значок для них
+ * заданы здесь.
+ */
+function costLabel(res: string): string {
+  return res === 'credits' ? 'Кредиты' : resourceLabel(res);
+}
+
+/*
+ * У части ресурсов RESOURCE_SHORT — не эмодзи, а текстовое сокращение («СТ» у стали).
+ * Рисуем значок только когда для него есть глиф, иначе получилось бы «СТ Сталь».
+ */
+function costIcon(res: string): string {
+  return res === 'credits' ? '💰' : resourceIcon(res);
+}
 
 export function FleetPanel() {
   const ships = useGameStore((s) => s.fleet.ships);
@@ -162,11 +183,19 @@ export function FleetPanel() {
                   </div>
                   <div className="text-[10px] text-gray-400 truncate"><IconText>{def.description}</IconText></div>
                   <div className="flex gap-2 mt-1 text-[10px] text-gray-300 flex-wrap">
-                    {Object.entries(def.buildCost).map(([res, cost]) => (
-                      <span key={res} className="whitespace-nowrap">
-                        <IconText>{res === 'credits' ? '💰' : res}</IconText>: {formatNumber(cost)}
-                      </span>
-                    ))}
+                    {Object.entries(def.buildCost).map(([res, cost]) => {
+                      const icon = costIcon(res);
+                      return (
+                        <span key={res} className="whitespace-nowrap">
+                          {hasGlyph(icon) ? (
+                            <>
+                              <GameIcon icon={icon} />{' '}
+                            </>
+                          ) : null}
+                          {costLabel(res)}: {formatNumber(cost)}
+                        </span>
+                      );
+                    })}
                     {/* Время постройки видно ДО клика: раньше buildTime вообще не работал. */}
                     <span className="whitespace-nowrap text-cyan-300">
                       ⏱ {formatRemaining(def.buildTime)}
