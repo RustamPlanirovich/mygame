@@ -52,3 +52,55 @@ export function planCargo(
   }
   return entries;
 }
+
+/**
+ * Сколько ЕЩЁ влезет в склад приёмника по одному ресурсу.
+ *
+ * `null` — лимита нет: при разгрузке (`gameStore.tick`, доставка каравана) клампа не
+ * происходит, если `max <= 0`.
+ *
+ * Отсутствие ключа — это НЕ «безлимит»: разгрузка кладёт ресурс только в уже существующую
+ * ячейку склада, иначе весь груз этого вида молча пропадает. Поэтому здесь 0.
+ */
+export function destinationRoom(
+  stock: Partial<Record<ResourceType, ResourceState>>,
+  resType: ResourceType
+): Decimal | null {
+  const target = stock[resType];
+  if (!target) return D(0);
+  if (!target.max.gt(0)) return null;
+  return target.max.sub(target.amount).max(D(0));
+}
+
+/** Строка груза после сверки со складом приёмника. */
+export interface CargoFit {
+  resType: ResourceType;
+  /** Уедет со склада источника. */
+  amount: Decimal;
+  /** Ляжет на склад приёмника. */
+  fits: Decimal;
+  /** Пропадёт при разгрузке: склад приёмника полон. */
+  excess: Decimal;
+}
+
+/**
+ * Груз + склад ПРИЁМНИКА → что доедет, а что сгорит при разгрузке.
+ *
+ * Груз сверх вместимости получателя исчезает (см. разгрузку каравана в `tick`), причём
+ * топливо за него уже списано. Панель обязана показать это ДО отправки, а не оповещением
+ * «потеряно при разгрузке» через три минуты.
+ *
+ * `destStock === null` — пункт назначения ещё не выбран: считаем, что влезает всё,
+ * ограничение появится вместе с выбором.
+ */
+export function fitCargoToDestination(
+  entries: Array<[ResourceType, Decimal]>,
+  destStock: Partial<Record<ResourceType, ResourceState>> | null
+): CargoFit[] {
+  return entries.map(([resType, amount]) => {
+    const room = destStock ? destinationRoom(destStock, resType) : null;
+    if (room === null) return { resType, amount, fits: amount, excess: D(0) };
+    const fits = amount.min(room);
+    return { resType, amount, fits, excess: amount.sub(fits) };
+  });
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCargoAmount, planCargo } from './cargoInput';
+import { parseCargoAmount, planCargo, destinationRoom, fitCargoToDestination } from './cargoInput';
 import { D } from '../../utils/bigNumber';
 import type { ResourceState, ResourceType } from '../gameTypes';
 
@@ -55,5 +55,53 @@ describe('planCargo', () => {
   it('везёт огромные запасы без потери разрядов', () => {
     const cargo = planCargo({ ore: '1e21' }, stock({ ore: '1e25' }));
     expect(cargo[0][1].eq(D('1e21'))).toBe(true);
+  });
+});
+
+/** Склад приёмника с явными лимитами: amount/max. */
+function dest(entries: Record<string, [string, string]>): Partial<Record<ResourceType, ResourceState>> {
+  const result: Partial<Record<ResourceType, ResourceState>> = {};
+  for (const [key, [amount, max]] of Object.entries(entries)) {
+    result[key as ResourceType] = { amount: D(amount), max: D(max), production: D(0) };
+  }
+  return result;
+}
+
+describe('destinationRoom', () => {
+  it('свободное место — это max минус остаток', () => {
+    expect(destinationRoom(dest({ ore: ['300', '1000'] }), 'ore')!.eq(700)).toBe(true);
+  });
+
+  it('полный склад даёт 0, переполненный — тоже 0, а не минус', () => {
+    expect(destinationRoom(dest({ ore: ['1000', '1000'] }), 'ore')!.eq(0)).toBe(true);
+    expect(destinationRoom(dest({ ore: ['1500', '1000'] }), 'ore')!.eq(0)).toBe(true);
+  });
+
+  it('max <= 0 — это безлимит, как и при разгрузке каравана', () => {
+    expect(destinationRoom(dest({ ore: ['5', '0'] }), 'ore')).toBeNull();
+  });
+
+  it('ресурса нет на складе приёмника — влезет 0: разгрузка теряет такой груз целиком', () => {
+    expect(destinationRoom(dest({ ore: ['0', '1000'] }), 'ice')!.eq(0)).toBe(true);
+  });
+});
+
+describe('fitCargoToDestination', () => {
+  it('делит груз на «доедет» и «сгорит при разгрузке»', () => {
+    const [fit] = fitCargoToDestination([['ore', D(500)]], dest({ ore: ['800', '1000'] }));
+    expect(fit.fits.eq(200)).toBe(true);
+    expect(fit.excess.eq(300)).toBe(true);
+  });
+
+  it('без выбранного пункта назначения ограничения нет', () => {
+    const [fit] = fitCargoToDestination([['ore', D(500)]], null);
+    expect(fit.fits.eq(500)).toBe(true);
+    expect(fit.excess.eq(0)).toBe(true);
+  });
+
+  it('груз в пределах свободного места проходит целиком', () => {
+    const [fit] = fitCargoToDestination([['ore', D(100)]], dest({ ore: ['0', '1000'] }));
+    expect(fit.fits.eq(100)).toBe(true);
+    expect(fit.excess.eq(0)).toBe(true);
   });
 });

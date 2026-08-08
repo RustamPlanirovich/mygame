@@ -6,7 +6,12 @@ import type { ResourceType, GalaxyId, ResourceState } from '../../core/gameTypes
 import { RESOURCE_EMOJI } from '../../core/constants/labels';
 import { resourceLabel } from '../../core/i18n/label';
 import { aggregatePolicyEffects } from '../../core/production/policyEffects';
-import { planCargo } from '../../core/logistics/cargoInput';
+import {
+  planCargo,
+  parseCargoAmount,
+  destinationRoom,
+  fitCargoToDestination,
+} from '../../core/logistics/cargoInput';
 import { totalTransportFuel } from '../../core/systems/transportFuel';
 import { D } from '../../utils/bigNumber';
 import { notify } from '../../utils/notifications';
@@ -49,6 +54,24 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
 
   const sourceName = sourcePlatform ? sourcePlatform.name : 'Главная база';
 
+  /*
+   * Склад ПРИЁМНИКА. Груз сверх его вместимости сгорает при разгрузке (см. доставку каравана
+   * в gameStore.tick), а топливо за него уже списано — поэтому свободное место показывается
+   * прямо у поля ввода, а не постфактум оповещением «потеряно при разгрузке».
+   * null — пункт назначения ещё не выбран.
+   */
+  const destPlatform = selectedTo && selectedTo !== 'main_base'
+    ? galaxies.platforms.find(p => p.id === selectedTo) ?? null
+    : null;
+  const destResources: Partial<Record<ResourceType, ResourceState>> | null = !selectedTo
+    ? null
+    : selectedTo === 'main_base'
+      ? resources
+      : destPlatform?.resources ?? null;
+  const destName = selectedTo === 'main_base'
+    ? 'Главная база'
+    : destPlatform?.name ?? '';
+
   const fromGalaxyId: GalaxyId = sourcePlatform?.galaxyId ?? 'galaxy_1_nebula_beginning';
   const toGalaxyId: GalaxyId = selectedTo === 'main_base' || !selectedTo
     ? 'galaxy_1_nebula_beginning'
@@ -63,6 +86,16 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
   const totalCargo = useMemo(
     () => cargoEntries.reduce((sum, [, amount]) => sum.plus(amount), D(0)),
     [cargoEntries]
+  );
+
+  /** Что из груза влезет в приёмник, а что сгорит при разгрузке. */
+  const cargoFits = useMemo(
+    () => fitCargoToDestination(cargoEntries, destResources),
+    [cargoEntries, destResources]
+  );
+  const totalExcess = useMemo(
+    () => cargoFits.reduce((sum, fit) => sum.plus(fit.excess), D(0)),
+    [cargoFits]
   );
 
   // Та же формула, что в sendCaravan (включая скидку политики trade_routes), иначе панель
@@ -100,7 +133,18 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
   const cargoRows = useMemo(() => {
     const query = resourceQuery.trim().toLowerCase();
     return allSourceTypes
-      .map(resType => ({ resType, available: sourceResources[resType]?.amount ?? D(0) }))
+      .map(resType => {
+        const available = sourceResources[resType]?.amount ?? D(0);
+        // room === null — у приёмника нет лимита по этому ресурсу (или он ещё не выбран).
+        const room = destResources ? destinationRoom(destResources, resType) : null;
+        return {
+          resType,
+          available,
+          room,
+          // Сколько имеет смысл отправить: больше ни со склада не взять, ни в приёмник не влезет.
+          sendable: room === null ? available : available.min(room),
+        };
+      })
       .filter(row => showEmpty || row.available.gt(0))
       .filter(row =>
         !query ||
@@ -114,7 +158,18 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
         if (aEmpty !== bEmpty) return aEmpty - bEmpty;
         return resourceLabel(a.resType).localeCompare(resourceLabel(b.resType), 'ru');
       });
-  }, [allSourceTypes, sourceResources, resourceQuery, showEmpty]);
+  }, [allSourceTypes, sourceResources, destResources, resourceQuery, showEmpty]);
+
+  /** Свести каждое поле к тому, что реально влезет получателю. */
+  const handleTrimToDestination = () => {
+    setCargoInput(prev => {
+      const next = { ...prev };
+      for (const fit of cargoFits) {
+        if (fit.excess.gt(0)) next[fit.resType] = fit.fits.toString();
+      }
+      return next;
+    });
+  };
 
   const handleSourceChange = (nextFrom: string) => {
     setSelectedFrom(nextFrom);
@@ -285,6 +340,11 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
             <label className="text-[10px] text-gray-400">
               Груз со склада «{sourceName}» ({inStockCount} из {allSourceTypes.length} с запасом):
             </label>
+            <span className="text-[9px] text-gray-500 flex-1 truncate">
+              {destResources
+                ? <><GameIcon icon="→" /> — свободно у «{destName}»</>
+                : 'выберите «Куда», чтобы увидеть свободное место'}
+            </span>
             {cargoEntries.length > 0 && (
               <button
                 onClick={() => setCargoInput({})}
@@ -321,8 +381,11 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-1 max-h-56 overflow-y-auto pr-0.5">
-              {cargoRows.map(({ resType, available }) => {
+              {cargoRows.map(({ resType, available, room, sendable }) => {
                 const empty = available.lte(0);
+                // Влезет ли то, что игрок уже набрал: перебор красим, чтобы было видно до отправки.
+                const planned = parseCargoAmount(cargoInput[resType]).min(available);
+                const overflow = room !== null && planned.gt(room);
                 return (
                   <div
                     key={resType}
@@ -334,7 +397,19 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
                     <span className="text-[10px] text-gray-200 truncate flex-1" title={resourceLabel(resType)}>
                       {resourceLabel(resType)}
                     </span>
-                    <span className="text-[9px] text-gray-400 flex-shrink-0">{formatNumber(available)}</span>
+                    <span className="text-[9px] text-gray-400 flex-shrink-0" title="Есть на складе источника">
+                      {formatNumber(available)}
+                    </span>
+                    {destResources && (
+                      <span
+                        className={`text-[9px] flex-shrink-0 w-12 text-right ${
+                          room !== null && room.lte(0) ? 'text-red-400' : 'text-cyan-300'
+                        }`}
+                        title={`Свободно на складе «${destName}»`}
+                      >
+                        <GameIcon icon="→" /> {room === null ? '∞' : formatNumber(room)}
+                      </span>
+                    )}
                     <input
                       type="text"
                       inputMode="decimal"
@@ -343,12 +418,19 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
                       onChange={(e) =>
                         setCargoInput(prev => ({ ...prev, [resType]: e.target.value }))
                       }
-                      className="w-16 flex-shrink-0 bg-gray-700 text-white p-0.5 rounded text-[10px] disabled:opacity-40"
+                      className={`w-16 flex-shrink-0 bg-gray-700 text-white p-0.5 rounded text-[10px] disabled:opacity-40 ${
+                        overflow ? 'ring-1 ring-red-500 text-red-300' : ''
+                      }`}
                       placeholder="0"
                     />
                     <button
-                      onClick={() => setCargoInput(prev => ({ ...prev, [resType]: available.toString() }))}
+                      onClick={() => setCargoInput(prev => ({ ...prev, [resType]: sendable.toString() }))}
                       disabled={empty}
+                      title={
+                        destResources
+                          ? 'Максимум, который влезет получателю'
+                          : 'Весь запас со склада источника'
+                      }
                       className="text-[9px] py-0.5 px-1 rounded flex-shrink-0 bg-gray-500 hover:bg-gray-400 disabled:opacity-40 disabled:hover:bg-gray-500"
                     >
                       Всё
@@ -367,6 +449,23 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
           </span>{' '}
           из {formatNumber(availableFuel)}
         </div>
+        {/*
+          Перебор виден ДО отправки: топливо списывается за весь груз, а лишнее сгорает при
+          разгрузке — раньше игрок узнавал об этом из оповещения через несколько минут.
+        */}
+        {totalExcess.gt(0) && (
+          <div className="text-[10px] bg-red-900/25 border border-red-700/40 rounded p-1.5 mb-1 text-red-200">
+            Не влезет в «{destName}»: {formatNumber(totalExcess)} ед. — этот груз пропадёт при
+            разгрузке, а топливо за него спишется.
+            <button
+              onClick={handleTrimToDestination}
+              className="ml-1 px-1.5 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Обрезать по приёмнику
+            </button>
+          </div>
+        )}
+
         <div className="text-[9px] text-gray-400 mb-1">
           Резерв {formatNumber(fuelSources.reserve)} · {resourceLabel('liquid_fuel')}{' '}
           {formatNumber(fuelSources.liquidFuel)} · {resourceLabel('gasoline')}{' '}
@@ -476,7 +575,8 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
           <li>Караваны перевозят ресурсы между базой и платформами</li>
           <li>Список груза — это склад выбранного источника: с платформы отправляется то, что лежит на ней</li>
           <li>Топливо одно на караваны и авто-транспорт: резерв (за кредиты) → жидкое топливо → бензин, всё с главной базы</li>
-          <li>Груз сверх вместимости склада получателя пропадает при разгрузке — следите за свободным местом</li>
+          <li>Колонка «→» — свободное место на складе получателя; «Всё» подставляет ровно столько, сколько туда влезет</li>
+          <li>Груз сверх вместимости склада получателя пропадает при разгрузке, а топливо за него всё равно списывается</li>
           <li>Есть риск атаки пиратами (зависит от опасности галактики)</li>
           <li>Улучшайте систему для более быстрой и безопасной доставки</li>
         </ul>
