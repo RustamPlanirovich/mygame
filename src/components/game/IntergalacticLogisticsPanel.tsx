@@ -7,6 +7,7 @@ import { RESOURCE_EMOJI } from '../../core/constants/labels';
 import { resourceLabel } from '../../core/i18n/label';
 import { aggregatePolicyEffects } from '../../core/production/policyEffects';
 import { planCargo } from '../../core/logistics/cargoInput';
+import { totalTransportFuel } from '../../core/systems/transportFuel';
 import { D } from '../../utils/bigNumber';
 import { notify } from '../../utils/notifications';
 import { GameIcon, IconText } from '../ui/icons';
@@ -74,8 +75,18 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
     return totalCargo.mul(0.01).mul(isIntergalactic ? 3 : 1).mul(D(discount));
   }, [totalCargo, isIntergalactic, politics.activePolicies]);
 
-  // Топливо списывается с ГЛАВНОЙ БАЗЫ даже для рейсов между платформами (см. sendCaravan).
-  const availableFuel = (resources.liquid_fuel?.amount ?? D(0)).plus(resources.gasoline?.amount ?? D(0));
+  /*
+   * Топливо перевозок — одно на караваны и авто-транспорт (bigplan.md, пункт 45): топливный
+   * резерв (покупается за кредиты) плюс жидкое топливо и бензин со склада ГЛАВНОЙ БАЗЫ —
+   * даже для рейсов между платформами. Раньше караван принимал только физическое топливо,
+   * и на карте без нефти отправить его было нечем и купить не у кого.
+   */
+  const fuelSources = {
+    reserve: galaxies.fuelReserve,
+    liquidFuel: resources.liquid_fuel?.amount ?? D(0),
+    gasoline: resources.gasoline?.amount ?? D(0),
+  };
+  const availableFuel = totalTransportFuel(fuelSources);
 
   const allSourceTypes = useMemo(
     () => Object.keys(sourceResources) as ResourceType[],
@@ -354,8 +365,40 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
           <span className={availableFuel.lt(fuelCost) ? 'text-red-400' : 'text-green-400'}>
             {formatNumber(fuelCost)}
           </span>{' '}
-          из {formatNumber(availableFuel)} на главной базе
+          из {formatNumber(availableFuel)}
         </div>
+        <div className="text-[9px] text-gray-400 mb-1">
+          Резерв {formatNumber(fuelSources.reserve)} · {resourceLabel('liquid_fuel')}{' '}
+          {formatNumber(fuelSources.liquidFuel)} · {resourceLabel('gasoline')}{' '}
+          {formatNumber(fuelSources.gasoline)} — списывается в этом порядке
+        </div>
+
+        {/*
+          Кнопка покупки прямо здесь. Игрок упирается в «нет топлива» именно на этом экране,
+          а резерв продаётся в другой панели — раньше он оставался в тупике, не зная, что
+          топливо вообще можно купить.
+        */}
+        {availableFuel.lt(fuelCost) && (
+          <div className="text-[10px] bg-amber-900/25 border border-amber-700/40 rounded p-1.5 mb-1 text-amber-200">
+            Не хватает топлива: {formatNumber(fuelCost.sub(availableFuel))}. Купите резерв за
+            кредиты — он работает на любой карте, даже там, где нет нефти.
+            <button
+              onClick={() => {
+                const need = Math.ceil(Number(fuelCost.sub(availableFuel).toString()));
+                const amount = Math.max(10, need);
+                if (currency.credits.lt(amount * 10)) {
+                  notify.warning(`Недостаточно кредитов: нужно ${formatNumber(amount * 10)}`);
+                  return;
+                }
+                useGameStore.getState().buyFuel(amount);
+                notify.success(`Куплено ${formatNumber(amount)} ед. топлива`);
+              }}
+              className="ml-1 px-1.5 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Купить
+            </button>
+          </div>
+        )}
 
         <button
           onClick={handleSendCaravan}
@@ -432,7 +475,8 @@ export const IntergalacticLogisticsPanel: React.FC = () => {
         <ul className="list-disc list-inside space-y-0.5">
           <li>Караваны перевозят ресурсы между базой и платформами</li>
           <li>Список груза — это склад выбранного источника: с платформы отправляется то, что лежит на ней</li>
-          <li>Требуется топливо (жидкое топливо или бензин) — оно всегда списывается с главной базы</li>
+          <li>Топливо одно на караваны и авто-транспорт: резерв (за кредиты) → жидкое топливо → бензин, всё с главной базы</li>
+          <li>Груз сверх вместимости склада получателя пропадает при разгрузке — следите за свободным местом</li>
           <li>Есть риск атаки пиратами (зависит от опасности галактики)</li>
           <li>Улучшайте систему для более быстрой и безопасной доставки</li>
         </ul>

@@ -8,7 +8,7 @@ import {
 } from '../../features/gameStore';
 import { D, formatNumber } from '../../core/math/format.ts';
 import type Decimal from 'break_eternity.js';
-import type { ResourceType, TradeResourceType } from '../../core/gameTypes';
+import type { PlatformTileState, ResourceType, TradeResourceType } from '../../core/gameTypes';
 import { RESOURCE_LABEL } from '../../core/constants/labels';
 import { getBuildingIcon } from '../../core/constants/buildingIcons';
 import { ArrowUp, ArrowDown, Sparkles, Zap, Power, PowerOff, Settings } from 'lucide-react';
@@ -47,6 +47,57 @@ function formatJobRemaining(job: TileJob, now: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}м ${String(seconds).padStart(2, '0')}с`;
+}
+
+/**
+ * Почему здание на платформе не работает — словами и с указанием, что делать
+ * (bigplan.md, пункт 45).
+ *
+ * Раньше платформенные здания работали без энергии и без сырья вообще, так что объяснять
+ * было нечего. Теперь правила те же, что на базе, и молчание здесь было бы худшим из
+ * возможных вариантов: снаружи неработающее здание неотличимо от бага.
+ */
+function PlatformTileNotice({ state }: { state: PlatformTileState }) {
+  const NOTICE: Record<PlatformTileState, { tone: 'ok' | 'warn' | 'info'; title: string; hint?: string }> = {
+    working: { tone: 'ok', title: 'Работает' },
+    building: { tone: 'info', title: 'Идёт стройка', hint: 'Здание начнёт работать, когда работа завершится.' },
+    support: { tone: 'info', title: 'Вспомогательное здание', hint: 'Ресурсов не производит: обороняет платформу или питает её.' },
+    no_power: {
+      tone: 'warn',
+      title: 'НЕТ ЭНЕРГИИ',
+      hint: 'Энергия с главной базы на платформу не передаётся. Постройте электростанцию прямо здесь.',
+    },
+    no_input: {
+      tone: 'warn',
+      title: 'НЕТ ВХОДНОГО СЫРЬЯ',
+      hint: 'Вход берётся со склада платформы. Привезите сырьё караваном или добывайте его на платформе.',
+    },
+    no_deposit: {
+      tone: 'warn',
+      title: 'НЕ НА СВОЕЙ ЖИЛЕ',
+      hint: 'Добытчик работает только на подходящем месторождении. Снесите и поставьте на нужную клетку.',
+    },
+    storage_full: {
+      tone: 'warn',
+      title: 'СКЛАД ПЛАТФОРМЫ ПОЛОН',
+      hint: 'Включите авто-транспортировку, отправьте караван или прокачайте «Хранилище».',
+    },
+  };
+
+  const notice = NOTICE[state];
+  const cls =
+    notice.tone === 'ok'
+      ? 'bg-green-900/20 border-green-500/30 text-green-300'
+      : notice.tone === 'warn'
+      ? 'bg-amber-900/25 border-amber-500/50 text-amber-200'
+      : 'bg-cyan-900/20 border-cyan-500/30 text-cyan-300';
+
+  return (
+    <div className={`text-xs p-2 rounded border ${cls}`}>
+      <div className="font-bold">🛰️ Платформа: {notice.title}</div>
+      {notice.hint && <div className="text-[10px] opacity-80 mt-1">{notice.hint}</div>}
+    </div>
+  );
 }
 
 export function TileInspector() {
@@ -93,6 +144,20 @@ export function TileInspector() {
       if (platform) return platform.grid.buffers;
     }
     return s.grid.buffers;
+  });
+  /*
+   * Состояние клетки на платформе (bigplan.md, пункт 45). У платформы нет ни зон
+   * энергопокрытия, ни автоматической логистики между клетками, поэтому подсказки базы
+   * («вне зоны энергопокрытия», «ресурсы доставляются автоматически») для неё — враньё.
+   * Причину простоя считает тик, здесь мы её только называем.
+   */
+  const platformTileState = useGameStore((s) => {
+    const platformId = s.galaxies.activePlatformId;
+    if (!platformId) return null;
+    const platform = s.galaxies.platforms.find(p => p.id === platformId);
+    if (!platform?.grid.selected) return null;
+    const key = `${platform.grid.selected.x},${platform.grid.selected.y}`;
+    return platform.status?.tileStates[key] ?? null;
   });
   const tileLevels = useGameStore((s) => {
     const platformId = s.galaxies.activePlatformId;
@@ -1112,8 +1177,11 @@ export function TileInspector() {
               Энергия: {formatNumber(resources.energy.amount)} / {formatNumber(resources.energy.max)}
             </div>
 
-            {/* Индикатор энергопокрытия */}
-            {powerStatus && (
+            {/* Почему здание на платформе стоит (bigplan.md, пункт 45) */}
+            {platformTileState && <PlatformTileNotice state={platformTileState} />}
+
+            {/* Индикатор энергопокрытия. На платформе зон покрытия нет: энергосеть общая. */}
+            {powerStatus && !platformTileState && (
               <div className={`text-xs p-2 rounded border ${
                 powerStatus.isPowerSource
                   ? 'bg-cyan-900/20 border-cyan-500/30 text-cyan-300'
@@ -1156,8 +1224,23 @@ export function TileInspector() {
               </div>
             )}
 
+            {/*
+              Автологистика — механика ГЛАВНОЙ БАЗЫ. На платформе клетки берут вход прямо из
+              общего склада платформы, и обещать доставку «от ближайшего производителя» там
+              нельзя: маршрутов между клетками платформы не существует.
+            */}
             <div className="text-xs text-cyber-blue bg-cyber-dark/40 p-2 rounded border border-cyber-blue/30 mb-2">
-              <GameIcon icon="🔄" /> <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Вращающийся индикатор на здании показывает, что оно работает.
+              {platformTileState ? (
+                <>
+                  <GameIcon icon="🛰️" /> <span className="font-bold">Склад платформы:</span> вход
+                  здание берёт со склада самой платформы, а не с базы. Пополнить его можно
+                  караваном из раздела «Логистика» или добычей на месте.
+                </>
+              ) : (
+                <>
+                  <GameIcon icon="🔄" /> <span className="font-bold">Автоматическая логистика:</span> Ресурсы доставляются автоматически от ближайших производителей к потребителям. Вращающийся индикатор на здании показывает, что оно работает.
+                </>
+              )}
             </div>
 
             {ioInfo?.hasInputs ? (

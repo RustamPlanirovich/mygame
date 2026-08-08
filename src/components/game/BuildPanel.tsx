@@ -128,14 +128,17 @@ export function BuildPanel() {
     }),
   );
 
-  const resources = useGameStore((s) => {
-    const platformId = s.galaxies.activePlatformId;
-    if (platformId) {
-      const platform = s.galaxies.platforms.find((p) => p.id === platformId);
-      return platform?.resources ?? s.resources;
-    }
-    return s.resources;
-  });
+  /*
+   * Доступность считается по складу ГЛАВНОЙ БАЗЫ — и когда игрок стоит на платформе тоже
+   * (bigplan.md, пункт 45).
+   *
+   * Панель раньше брала склад платформы, а `placeSelectedBuildAt` списывал стоимость с базы.
+   * Расхождение выглядело как поломка: на свежей платформе всё серое («не хватает ресурсов»),
+   * хотя стройка проходит, — или наоборот, здание подсвечено как доступное, клик ничего не
+   * делает и никто не объясняет почему.
+   */
+  const resources = useGameStore((s) => s.resources);
+  const onPlatform = useGameStore((s) => Boolean(s.galaxies.activePlatformId));
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -339,6 +342,15 @@ export function BuildPanel() {
         ) : (
           <div className="text-xs text-content-faint">
             Выберите здание — затем клетку на карте. Или сначала клетку, чтобы видеть её модификаторы.
+          </div>
+        )}
+        {/* Два разных склада — самая частая причина «почему не строится» на платформе. */}
+        {onPlatform && (
+          <div className="mt-1.5 text-[11px] leading-snug text-content-faint">
+            Вы строите на платформе. Стройматериалы списываются со склада{' '}
+            <span className="text-content-primary">главной базы</span>, а сырьё для работы зданий
+            берётся со склада <span className="text-content-primary">платформы</span> — привезите
+            его караваном. Энергия у платформы своя: без генератора заводы стоять будут.
           </div>
         )}
       </div>

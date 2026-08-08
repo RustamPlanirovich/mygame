@@ -28,6 +28,7 @@ import type {
   RandomEvent,
   RandomEventsState,
   ResearchState,
+  ResourceState,
   ResourceType,
   ShipModuleId,
   ShipState,
@@ -37,7 +38,7 @@ import type {
   MegastructureId,
   EndingId,
 } from '../core/gameTypes';
-import { D } from '../core/math/format.ts';
+import { D, formatNumber } from '../core/math/format.ts';
 import { RESOURCE_LABEL } from '../core/constants/labels';
 // NOTE: ./gameSave imports the INITIAL_* constants back from this module, so these two form
 // an import cycle. It is safe because every cross-module reference happens inside a function
@@ -172,6 +173,8 @@ import {
   selectGrantsForSlot,
 } from '../core/systems/adminGrant';
 import { computeOfflineMining } from '../core/systems/offlineProgress';
+import { computePlatformTick } from '../core/systems/platformProduction';
+import { payTransportFuel } from '../core/systems/transportFuel';
 import { playSfx } from '../core/audio/sfx';
 import { SCENARIO, type ScenarioStep } from '../core/constants/scenario';
 import { getActiveGridGeometry, setActiveGridGeometry } from '../core/math/hexGeometry';
@@ -506,6 +509,13 @@ const tickSchedule = createTickSchedule();
  * Вне стора: это защита от спама, а не игровое состояние, и в сохранение ей незачем.
  */
 let lastInfluenceWarningAt = 0;
+
+/**
+ * Антиспам для двух подсказок по космосу (bigplan.md, пункт 45): обесточенная платформа и
+ * вставший авто-транспорт. Там же, где и предупреждение о влиянии, и по той же причине.
+ */
+let lastPlatformPowerWarningAt = 0;
+let lastTransportFuelWarningAt = 0;
 
 /** Сброс расписания: новая игра или загрузка не должны наследовать фазу предыдущей. */
 export function resetTickSchedule(): void {
@@ -2601,6 +2611,29 @@ export const BASE_RESOURCE_MAX: Record<ResourceType, Decimal> = {
   ascension_essence: INITIAL_RESOURCES.ascension_essence.max,
 };
 
+/**
+ * Лимиты склада платформы при заданном уровне апгрейда «Хранилище» (bigplan.md, пункт 45).
+ *
+ * База отсчёта — паспортный лимит ресурса на главной базе; апгрейд даёт обещанные панелью
+ * +50% за уровень. Отдельная функция, потому что мест, где лимиты нужно проставить, три:
+ * создание платформы, апгрейд и починка старых сейвов в тике.
+ */
+export const platformStorageCaps = (
+  resources: Record<ResourceType, ResourceState>,
+  storageLevel: number,
+): Record<ResourceType, ResourceState> => {
+  const mult = 1 + Math.max(0, storageLevel) * 0.5;
+  const out = { ...resources };
+  for (const key of Object.keys(INITIAL_RESOURCES) as ResourceType[]) {
+    const cap = INITIAL_RESOURCES[key].max.mul(mult);
+    const cur = out[key];
+    out[key] = cur
+      ? { ...cur, max: cap, amount: cur.amount.min(cap) }
+      : { amount: D(0), max: cap, production: D(0) };
+  }
+  return out;
+};
+
 export const expandWarehouseProductionMultipliers = (
   buildingId: string,
   productionMultipliers: Partial<Record<ResourceType, Decimal>> | undefined,
@@ -3630,6 +3663,16 @@ export const useGameStore = create<GameState>((set, get) => ({
         const platform = state.galaxies.platforms[platformIndex];
         const buildId = platform.grid.selectedBuildId;
         if (!buildId) return state;
+
+        /*
+         * Границы сетки платформы (bigplan.md, пункт 45). Проверка была только у главной
+         * базы: на платформе здание можно было поставить за пределами 10×10 — на карте оно
+         * не рисуется, снести его нечем, а ресурсы за него списываются и цикл производства
+         * его считает.
+         */
+        if (pos.x < 0 || pos.y < 0 || pos.x >= platform.grid.width || pos.y >= platform.grid.height) {
+          return state;
+        }
 
         const k = keyOf(pos);
         if (platform.grid.tiles[k]) return state;
@@ -7092,16 +7135,16 @@ export const useGameStore = create<GameState>((set, get) => ({
         let updatedPlatform = { ...platform };
         const galaxy = GALAXIES[platform.galaxyId];
         
-        // Initialize platform resources if not present
+        /*
+         * Починка склада старой платформы. Раньше здесь на КАЖДЫЙ ресурс ставился плоский
+         * лимит 1000 — и он расходился с лимитами, которые платформа получает при создании
+         * (паспортные лимиты ресурса). Теперь и то, и другое считает platformStorageCaps.
+         */
         if (!updatedPlatform.resources || Object.keys(updatedPlatform.resources).length === 0) {
-          updatedPlatform.resources = {} as Record<ResourceType, import('../core/gameTypes').ResourceState>;
-          for (const r of Object.keys(newResources) as ResourceType[]) {
-            updatedPlatform.resources[r] = {
-              amount: D(0),
-              max: D(1000 * (1 + (platform.upgrades?.storage || 0) * 0.5)), // Base 1000, +50% per storage upgrade
-              production: D(0),
-            };
-          }
+          updatedPlatform.resources = platformStorageCaps(
+            {} as Record<ResourceType, ResourceState>,
+            platform.upgrades?.storage || 0,
+          );
         }
         
         // Initialize combat if not present or incomplete
@@ -7148,50 +7191,44 @@ export const useGameStore = create<GameState>((set, get) => ({
           };
         }
 
-        const platformJobs = updatedPlatform.grid.tileJobs;
+        /*
+         * ПРОИЗВОДСТВО ПЛАТФОРМЫ (bigplan.md, пункт 45).
+         *
+         * Раньше здесь стоял цикл, который просто прибавлял `building.production`: без
+         * входов, без энергии и без уровня клетки. Теперь платформа считается тем же
+         * набором правил, что и база, — в чистом модуле `platformProduction`.
+         */
+        const platformTick = computePlatformTick({
+          tiles: updatedPlatform.grid.tiles,
+          tileJobs: updatedPlatform.grid.tileJobs,
+          tileLevels: updatedPlatform.grid.tileLevels,
+          deposits: updatedPlatform.grid.deposits,
+          buildingsById: buildingsMap,
+          resources: updatedPlatform.resources,
+          dt,
+          miningBonus: 1 + (platform.upgrades?.mining || 0) * 0.5, // +50% за уровень «Добычи»
+          galaxyBonuses: galaxy?.resourceBonuses,
+          underAttack: updatedPlatform.combat.underAttack,
+        });
 
-        // Process buildings on platform grid and produce resources
-        const miningBonus = 1 + (platform.upgrades?.mining || 0) * 0.5; // +50% per mining upgrade
+        updatedPlatform.resources = platformTick.resources;
+        updatedPlatform.status = platformTick.status;
 
-        for (const [tileKey, buildingId] of Object.entries(platform.grid.tiles)) {
-          // Недостроенное здание не производит.
-          if (platformJobs?.[tileKey]) continue;
-
-          const building = state.buildings.find(b => b.id === buildingId);
-          if (!building?.production) continue;
-
-          // Check if building is on correct deposit
-          const requiredDeposit = requiredDepositForBuilding(building.id);
-          if (requiredDeposit) {
-            const tileDeposit = platform.grid.deposits?.[tileKey];
-            if (tileDeposit !== requiredDeposit) continue;
-          }
-          
-          // Produce resources
-          for (const [resType, perSecond] of Object.entries(building.production)) {
-            const rType = resType as ResourceType;
-            let produced = D(perSecond).mul(dt).mul(miningBonus);
-            
-            // Apply galaxy resource bonuses
-            if (galaxy?.resourceBonuses && galaxy.resourceBonuses[rType]) {
-              produced = produced.mul(galaxy.resourceBonuses[rType]);
-            }
-            
-            // Add to platform resources (with cap check)
-            const currentAmount = updatedPlatform.resources[rType]?.amount || D(0);
-            const maxAmount = updatedPlatform.resources[rType]?.max || D(1000);
-            
-            if (currentAmount.lt(maxAmount)) {
-              const actualProduced = produced.min(maxAmount.sub(currentAmount));
-              updatedPlatform.resources[rType] = {
-                ...updatedPlatform.resources[rType]!,
-                amount: currentAmount.add(actualProduced),
-                production: D(perSecond).mul(miningBonus),
-              };
-            }
-          }
+        /*
+         * Молча вставшая платформа выглядит как баг: ресурсы не растут, а почему — не
+         * сказано нигде. Предупреждаем не чаще раза в две минуты и только про самую
+         * частую причину — обесточенные здания.
+         */
+        if (platformTick.status.noPower > 0 && now - lastPlatformPowerWarningAt > 120_000) {
+          lastPlatformPowerWarningAt = now;
+          newNotifications.push({
+            type: 'warning' as const,
+            title: 'Платформе не хватает энергии',
+            message: `«${platform.name}»: без энергии стоит зданий — ${platformTick.status.noPower}. Постройте на платформе электростанцию или снесите лишние заводы.`,
+            platformId: platform.id,
+          });
         }
-        
+
         // Check if it's time to spawn new enemy
         if (galaxy && galaxy.enemyLevelRange && now >= platform.combat.nextWaveAt) {
           // Spawn a wave of enemies
@@ -7415,18 +7452,45 @@ export const useGameStore = create<GameState>((set, get) => ({
           : state.galaxies.activePlatformId,
       };
       
+      /*
+       * ТОПЛИВО АВТО-ТРАНСПОРТА (bigplan.md, пункт 45).
+       *
+       * Две правки к тому, что было. Во-первых, топливо теперь одно и то же у караванов и у
+       * авто-транспорта — см. core/systems/transportFuel.ts. Во-вторых, остаток ведётся
+       * НАРАСТАЮЩИМ итогом: раньше каждая платформа сверялась с `state.galaxies.fuelReserve`,
+       * то есть со значением ДО списаний этого же тика, и десять платформ уводили резерв в
+       * минус, продолжая возить бесплатно.
+       */
+      const fuelAtTickStart = {
+        reserve: D(state.galaxies.fuelReserve),
+        liquidFuel: getBuf(buffers, baseKey, 'liquid_fuel'),
+        gasoline: getBuf(buffers, baseKey, 'gasoline'),
+      };
+      let transportFuel = fuelAtTickStart;
+      let autoTransportStalled = false;
+
       const finalPlatforms = survivingPlatforms.map(platform => {
         const updatedPlatform = { ...platform };
-        
+
         if (state.galaxies.autoTransportEnabled) {
           const transportCostPerPlatform = D(0.1); // 0.1 fuel per platform per second
           const transportCost = transportCostPerPlatform.mul(dt);
-          
-          if (state.galaxies.fuelReserve.gte(transportCost)) {
+          const payment = payTransportFuel(transportFuel, transportCost);
+
+          if (!payment.paid) {
+            autoTransportStalled = true;
+          } else {
+            transportFuel = payment.next;
             // Transfer resources from platform to main base
             for (const r of Object.keys(newResources) as ResourceType[]) {
+              /*
+               * Энергия — не груз (bigplan.md, пункт 45). С тех пор как у платформы своя
+               * энергосеть, авто-вывоз «всего подряд» откачивал бы её запас на базу и гасил
+               * платформу ровно тем механизмом, который должен был ей помогать.
+               */
+              if (r === 'energy') continue;
               const platformAmount = updatedPlatform.resources[r]?.amount || D(0);
-              
+
               if (platformAmount.gt(0)) {
                 // Transfer 10% of platform resources per second (capped by base capacity)
                 const transferRate = platformAmount.mul(0.1).mul(dt);
@@ -7451,22 +7515,47 @@ export const useGameStore = create<GameState>((set, get) => ({
                 }
               }
             }
-            
-            // Deduct fuel cost
-            nextGalaxies = {
-              ...nextGalaxies,
-              fuelReserve: nextGalaxies.fuelReserve.sub(transportCost),
-            };
           }
         }
-        
+
         return updatedPlatform;
       });
-      
+
+      /*
+       * Раскладываем остатки обратно: резерв — в galaxies, физическое топливо — в буфер
+       * базы (он и есть источник правды по складу, см. syncResourcesFromBase).
+       */
       nextGalaxies = {
         ...nextGalaxies,
         platforms: finalPlatforms,
+        fuelReserve: transportFuel.reserve,
       };
+
+      if (!transportFuel.liquidFuel.eq(fuelAtTickStart.liquidFuel)) {
+        buffers = setBuf(buffers, baseKey, 'liquid_fuel', transportFuel.liquidFuel);
+      }
+      if (!transportFuel.gasoline.eq(fuelAtTickStart.gasoline)) {
+        buffers = setBuf(buffers, baseKey, 'gasoline', transportFuel.gasoline);
+      }
+      if (
+        !transportFuel.liquidFuel.eq(fuelAtTickStart.liquidFuel) ||
+        !transportFuel.gasoline.eq(fuelAtTickStart.gasoline)
+      ) {
+        newResources = syncResourcesFromBase(newResources, buffers);
+      }
+
+      /*
+       * Топливо кончилось — авто-транспорт стоит. Молчать здесь нельзя: снаружи это выглядит
+       * как «платформа перестала присылать ресурсы», и найти причину игроку негде.
+       */
+      if (autoTransportStalled && now - lastTransportFuelWarningAt > 120_000) {
+        lastTransportFuelWarningAt = now;
+        newNotifications.push({
+          type: 'warning' as const,
+          title: 'Авто-транспорт остановлен',
+          message: 'Кончилось топливо перевозок. Купите топливный резерв за кредиты в разделе «Платформы» или произведите жидкое топливо.',
+        });
+      }
 
       /*
        * Случайные научные удачи от политик. Оба шанса заданы «в секунду», поэтому
@@ -7615,15 +7704,34 @@ export const useGameStore = create<GameState>((set, get) => ({
             
             // Deliver cargo to destination
             if (caravan.toId === 'main_base') {
-              // Add to main base resources
+              /*
+               * Приход кладётся В БУФЕР БАЗЫ (bigplan.md, пункт 45). Раньше здесь стояло
+               * `resource.amount = resource.amount.add(amount)`: во-первых, это мутация
+               * объекта ресурса из ПРЕДЫДУЩЕГО состояния, во-вторых, буфер — источник
+               * правды, и после перезагрузки доставленный груз исчезал.
+               */
+              let overflow = D(0);
               Object.entries(caravan.cargo).forEach(([resType, amount]) => {
-                if (amount) {
-                  const resource = newResources[resType as import('../core/gameTypes').ResourceType];
-                  if (resource) {
-                    resource.amount = resource.amount.add(amount);
-                  }
-                }
+                if (!amount) return;
+                const rType = resType as ResourceType;
+                const resource = newResources[rType];
+                if (!resource) return;
+                const cur = getBuf(buffers, baseKey, rType);
+                const wanted = cur.add(amount);
+                const capped = resource.max.gt(0) ? wanted.min(resource.max) : wanted;
+                overflow = overflow.add(wanted.sub(capped));
+                buffers = setBuf(buffers, baseKey, rType, capped);
               });
+              newResources = syncResourcesFromBase(newResources, buffers);
+
+              // Склад полон — часть груза не влезла. Молча терять её нельзя.
+              if (overflow.gt(0)) {
+                newNotifications.push({
+                  type: 'warning',
+                  title: 'Груз не влез на склад',
+                  message: `Потеряно при разгрузке: ${formatNumber(overflow)} ед. Расширьте хранилища или разгружайте склад до прибытия каравана.`,
+                });
+              }
             } else {
               // Add to platform resources
               const platformIndex = nextGalaxies.platforms.findIndex(p => p.id === caravan.toId);
@@ -7631,13 +7739,16 @@ export const useGameStore = create<GameState>((set, get) => ({
                 const platform = { ...nextGalaxies.platforms[platformIndex] };
                 const updatedResources = { ...platform.resources };
                 
+                // Склад платформы тоже не резиновый: без клампа доставка обходила лимит,
+                // который для собственной добычи платформы соблюдается.
                 Object.entries(caravan.cargo).forEach(([resType, amount]) => {
                   if (amount) {
                     const resource = updatedResources[resType as import('../core/gameTypes').ResourceType];
                     if (resource) {
+                      const wanted = resource.amount.add(amount);
                       updatedResources[resType as import('../core/gameTypes').ResourceType] = {
                         ...resource,
-                        amount: resource.amount.add(amount),
+                        amount: resource.max.gt(0) ? wanted.min(resource.max) : wanted,
                       };
                     }
                   }
@@ -10342,16 +10453,21 @@ export const useGameStore = create<GameState>((set, get) => ({
           selectedBuildId: null,
         },
         buildings: [],
-        resources: Object.fromEntries(
-          Object.entries(INITIAL_RESOURCES).map(([key, res]) => [
-            key,
-            {
-              amount: starterFill.has(key as ResourceType) ? res.max.mul(D('0.25')) : D(0),
-              max: res.max,
-              production: D(0),
-            }
-          ])
-        ) as Record<import('../core/gameTypes').ResourceType, import('../core/gameTypes').ResourceState>,
+        // Лимиты — через общий platformStorageCaps: у новой платформы апгрейдов ещё нет,
+        // но точка расчёта должна быть одна на все три места (см. функцию).
+        resources: platformStorageCaps(
+          Object.fromEntries(
+            Object.entries(INITIAL_RESOURCES).map(([key, res]) => [
+              key,
+              {
+                amount: starterFill.has(key as ResourceType) ? res.max.mul(D('0.25')) : D(0),
+                max: res.max,
+                production: D(0),
+              }
+            ])
+          ) as Record<ResourceType, ResourceState>,
+          0,
+        ),
         maxHp: D(1000),
         hp: D(1000),
         armor: D(200),
@@ -10444,7 +10560,21 @@ export const useGameStore = create<GameState>((set, get) => ({
         updatedPlatform.shieldHp = D(platform.shieldHp).mul(1.5);
         updatedPlatform.shieldRegenRate = D(platform.shieldRegenRate || 0).mul(1.3);
       }
-      
+
+      /*
+       * Апгрейд «Хранилище» РАНЬШЕ НЕ ДЕЛАЛ НИЧЕГО (bigplan.md, пункт 45): он увеличивал
+       * счётчик уровня, а лимиты `resources[*].max` пересчитывались только в одной ветке
+       * инициализации тика, куда живая платформа не попадает никогда. Игрок платил кредиты
+       * за строку «+50% к вместимости», а склад оставался прежним.
+       *
+       * Пересчёт идёт от ПАСПОРТНОГО лимита ресурса, а не от текущего значения: умножение
+       * «текущий × 1.5» на каждом апгрейде дало бы экспоненту вместо обещанных +50% за
+       * уровень и разъехалось бы с подписью в панели.
+       */
+      if (upgradeType === 'storage') {
+        updatedPlatform.resources = platformStorageCaps(platform.resources, currentLevel + 1);
+      }
+
       const newPlatforms = [...state.galaxies.platforms];
       newPlatforms[platformIndex] = updatedPlatform;
       
@@ -11551,21 +11681,36 @@ export const useGameStore = create<GameState>((set, get) => ({
         .mul(isIntergalactic ? 3 : 1)
         .mul(D(tradeRouteDiscount));
       
-      // Check if we have enough fuel (liquid_fuel preferred, gasoline as backup)
-      const liquidFuel = state.resources.liquid_fuel?.amount || D(0);
-      const gasoline = state.resources.gasoline?.amount || D(0);
-      const totalFuel = liquidFuel.plus(gasoline);
-      
-      if (totalFuel.lt(fuelCost)) {
+      /*
+       * ТОПЛИВО КАРАВАНА (bigplan.md, пункт 45).
+       *
+       * Раньше караван принимал только `liquid_fuel`/`gasoline` со склада базы. На картах без
+       * нефтяной жилы (например, «Бесплодная Луна») их негде взять: спот-рынок торгует
+       * четырьмя базовыми ресурсами, а глобальная биржа — это другие игроки. Платформа
+       * строилась, добывала и оставалась отрезанной навсегда.
+       *
+       * Теперь и караван, и авто-транспорт жгут ОДНО топливо: резерв (покупается за кредиты)
+       * плюс жидкое топливо и бензин со склада. Правило одно на всю игру — см.
+       * core/systems/transportFuel.ts.
+       */
+      const fuelBefore = {
+        reserve: D(galaxies.fuelReserve),
+        liquidFuel: getBuf(state.grid.buffers, 'base', 'liquid_fuel'),
+        gasoline: getBuf(state.grid.buffers, 'base', 'gasoline'),
+      };
+      const fuelPayment = payTransportFuel(fuelBefore, fuelCost);
+
+      if (!fuelPayment.paid) {
         console.warn('Not enough fuel for caravan');
         return state;
       }
-      
+
       // Check if source has enough resources BEFORE deducting
       if (fromId === 'main_base') {
         for (const [resType, amount] of Object.entries(resources)) {
           if (amount) {
-            const available = state.resources[resType as import('../core/gameTypes').ResourceType]?.amount || D(0);
+            // Источник правды по складу базы — буфер, а не resources[*].amount (см. ниже).
+            const available = getBuf(state.grid.buffers, 'base', resType as ResourceType);
             if (available.lt(amount)) {
               console.warn(`Not enough ${resType} for caravan`);
               return state;
@@ -11589,38 +11734,31 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
-      // Deduct fuel
-      let remainingFuelCost = fuelCost;
-      const newResources = { ...state.resources };
-      if (liquidFuel.gte(remainingFuelCost)) {
-        newResources.liquid_fuel = {
-          ...newResources.liquid_fuel!,
-          amount: liquidFuel.minus(remainingFuelCost),
-        };
-      } else {
-        newResources.liquid_fuel = {
-          ...newResources.liquid_fuel!,
-          amount: D(0),
-        };
-        remainingFuelCost = remainingFuelCost.minus(liquidFuel);
-        newResources.gasoline = {
-          ...newResources.gasoline!,
-          amount: gasoline.minus(remainingFuelCost),
-        };
-      }
-      
+      /*
+       * СПИСАНИЕ ИДЁТ ЧЕРЕЗ БУФЕР БАЗЫ, а не через `resources[*].amount`.
+       *
+       * Тот же дефект, что был найден в улучшении зданий: `syncResourcesFromBase` при
+       * загрузке перетирает `amount` значением из `grid.buffers.base`. Караван списывал
+       * только `amount` — и после перезагрузки и груз, и топливо оказывались на месте, а
+       * караван всё равно доезжал. Буфер и есть склад.
+       */
+      let nextBuffers = state.grid.buffers;
+      nextBuffers = setBuf(nextBuffers, 'base', 'liquid_fuel', fuelPayment.next.liquidFuel);
+      nextBuffers = setBuf(nextBuffers, 'base', 'gasoline', fuelPayment.next.gasoline);
+
       // Create a copy of galaxies to avoid mutation
-      const newGalaxies = { ...galaxies, platforms: [...galaxies.platforms] };
-      
+      const newGalaxies = {
+        ...galaxies,
+        platforms: [...galaxies.platforms],
+        fuelReserve: fuelPayment.next.reserve,
+      };
+
       // Deduct resources from source
       if (fromId === 'main_base') {
         Object.entries(resources).forEach(([resType, amount]) => {
-          if (amount && newResources[resType as import('../core/gameTypes').ResourceType]) {
-            newResources[resType as import('../core/gameTypes').ResourceType] = {
-              ...newResources[resType as import('../core/gameTypes').ResourceType]!,
-              amount: newResources[resType as import('../core/gameTypes').ResourceType]!.amount.minus(amount),
-            };
-          }
+          if (!amount) return;
+          const rType = resType as ResourceType;
+          nextBuffers = setBuf(nextBuffers, 'base', rType, getBuf(nextBuffers, 'base', rType).sub(amount).max(D(0)));
         });
       } else {
         // Deduct from platform
@@ -11671,7 +11809,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       return {
         ...state,
-        resources: newResources,
+        resources: syncResourcesFromBase({ ...state.resources }, nextBuffers),
+        grid: { ...state.grid, buffers: nextBuffers },
         galaxies: newGalaxies,
         intergalacticLogistics: {
           ...intergalacticLogistics,

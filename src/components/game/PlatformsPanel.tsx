@@ -5,6 +5,8 @@ import type { SpacePlatform } from '../../core/gameTypes';
 import { Shield, Zap, Package, TrendingUp, Trash2, Wrench, Settings } from 'lucide-react';
 import { notify } from '../../utils/notifications';
 import { GameIcon, IconText } from '../ui/icons';
+import { resourceLabel } from '../../core/i18n/label';
+import { totalTransportFuel } from '../../core/systems/transportFuel';
 
 export function PlatformsPanel() {
   const currentGalaxyId = useGameStore((s) => s.galaxies.currentGalaxyId);
@@ -22,8 +24,31 @@ export function PlatformsPanel() {
   const setActivePlatform = useGameStore((s) => s.setActivePlatform);
   const activePlatformId = useGameStore((s) => s.galaxies.activePlatformId);
 
+  const resources = useGameStore((s) => s.resources);
+
   const currentGalaxy = GALAXIES[currentGalaxyId];
   const platformsInCurrentGalaxy = platforms.filter(p => p.galaxyId === currentGalaxyId);
+
+  /*
+   * Топливо перевозок — одно на караваны и авто-транспорт (bigplan.md, пункт 45). Показываем
+   * все три источника всегда, а не только при включённой авто-транспортировке: раньше игрок,
+   * у которого авто-вывоз выключен, вообще не видел ни резерва, ни кнопки покупки — и в
+   * караванах упирался в «нужно топливо», не понимая, где его взять.
+   */
+  const liquidFuel = resources.liquid_fuel?.amount ?? D(0);
+  const gasoline = resources.gasoline?.amount ?? D(0);
+  const totalFuel = totalTransportFuel({ reserve: fuelReserve, liquidFuel, gasoline });
+  const autoTransportPerSecond = D(0.1).mul(platforms.length);
+
+  const handleBuyFuel = (amount: number) => {
+    const cost = amount * 10; // 10 кредитов за единицу, см. buyFuel в сторе
+    if (credits.lt(cost)) {
+      notify.warning(`Недостаточно кредитов! Нужно ${formatNumber(cost)}`);
+      return;
+    }
+    useGameStore.getState().buyFuel(amount);
+    notify.success(`Куплено ${formatNumber(amount)} ед. топлива`);
+  };
 
   const handleCreatePlatform = () => {
     const cost = {
@@ -126,32 +151,70 @@ export function PlatformsPanel() {
           </button>
         </div>
         {autoTransportEnabled && (
-          <div className="mt-3 pt-3 border-t border-gray-700">
-            <div className="flex items-center gap-2 text-sm mb-2">
-              <span className="text-gray-400">Топливный резерв:</span>
-              <span className={`font-semibold ${fuelReserve.lt(10) ? 'text-red-400' : 'text-cyan-400'}`}>
-                {formatNumber(fuelReserve)}
-              </span>
-              <span className="text-gray-500">единиц</span>
+          <div className="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400">
+            Расход: 0.1 ед. топлива в секунду за каждую платформу — сейчас{' '}
+            <span className="text-cyan-400">{formatNumber(autoTransportPerSecond)}/сек</span>.
+            Энергия платформы не вывозится: она нужна её же зданиям.
+          </div>
+        )}
+      </div>
+
+      {/* ——— Топливо перевозок: одно на караваны и авто-транспорт ——— */}
+      <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold text-white flex items-center gap-2">
+              <GameIcon icon="⛽" /> Топливо перевозок
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (credits.gte(1000)) {
-                    useGameStore.getState().buyFuel(100);
-                    notify.success('Куплено 100 единиц топлива!');
-                  } else {
-                    notify.warning('Недостаточно кредитов! (нужно 1,000)');
-                  }
-                }}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-all"
-              >
-                <GameIcon icon="⛽" /> +100 топлива (1,000<GameIcon icon="💰" />)
-              </button>
-              <span className="text-xs text-gray-500">
-                Расход: 0.1/сек за платформу
-              </span>
+            <div className="text-xs text-gray-400 mt-0.5">
+              Его жгут и караваны, и авто-транспортировка. Списывается по порядку:
+              резерв → жидкое топливо → бензин.
             </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-gray-400">Всего</div>
+            <div className={`text-lg font-bold ${totalFuel.lt(10) ? 'text-red-400' : 'text-cyan-400'}`}>
+              {formatNumber(totalFuel)}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+          <div className="bg-gray-900/50 rounded px-2 py-1.5">
+            <div className="text-gray-400">Резерв</div>
+            <div className="text-cyan-300 font-semibold">{formatNumber(fuelReserve)}</div>
+          </div>
+          <div className="bg-gray-900/50 rounded px-2 py-1.5">
+            <div className="text-gray-400">{resourceLabel('liquid_fuel')}</div>
+            <div className="text-cyan-300 font-semibold">{formatNumber(liquidFuel)}</div>
+          </div>
+          <div className="bg-gray-900/50 rounded px-2 py-1.5">
+            <div className="text-gray-400">{resourceLabel('gasoline')}</div>
+            <div className="text-cyan-300 font-semibold">{formatNumber(gasoline)}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <button
+            onClick={() => handleBuyFuel(100)}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-all"
+          >
+            +100 (1 000<GameIcon icon="💰" />)
+          </button>
+          <button
+            onClick={() => handleBuyFuel(1000)}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-all"
+          >
+            +1 000 (10 000<GameIcon icon="💰" />)
+          </button>
+          <span className="text-xs text-gray-500">10<GameIcon icon="💰" /> за единицу</span>
+        </div>
+
+        {totalFuel.lt(10) && (
+          <div className="mt-3 text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded p-2">
+            Топлива почти нет — караваны отправить не получится, а авто-транспорт остановится.
+            Резерв покупается за кредиты и доступен на любой карте: жидкое топливо и бензин
+            делаются из нефти, а нефтяной жилы может не быть вовсе (например, на «Бесплодной Луне»).
           </div>
         )}
       </div>
@@ -200,17 +263,100 @@ export function PlatformsPanel() {
           <div className="font-semibold mb-2"><GameIcon icon="ℹ️" /> Информация о платформах</div>
           <ul className="space-y-1 text-xs text-blue-200/80">
             <li>• Нажмите кнопку <Settings className="inline" size={12} /> чтобы начать управлять платформой</li>
-            <li>• На платформах можно строить здания так же, как на главной базе</li>
-            <li>• Здания на платформах добывают ресурсы автоматически</li>
+            <li>• Платформа — маленькая база: у неё своя сетка, свой склад и <b>своя энергосеть</b></li>
+            <li>• Стройматериалы берутся со склада ГЛАВНОЙ БАЗЫ, а сырьё для работы зданий — со склада платформы</li>
+            <li>• Без электростанции на самой платформе её здания стоять будут: энергия с базы не передаётся</li>
+            <li>• Перерабатывающему заводу нужны входы — их привозят караваном или добывают тут же</li>
             <li>• Улучшение "Добыча" увеличивает скорость добычи на 50% за уровень</li>
             <li>• Улучшение "Защита" увеличивает HP (+50%), броню (+40%) и щиты (+50%, реген +30%) за уровень</li>
-            <li>• Улучшение "Хранилище" увеличивает вместимость на 50% за уровень</li>
-            <li>• При включенной авто-транспортировке ресурсы доставляются на главную станцию (10%/сек)</li>
+            <li>• Улучшение "Хранилище" увеличивает вместимость склада на 50% за уровень</li>
+            <li>• При включенной авто-транспортировке ресурсы доставляются на главную станцию (10%/сек) за топливо</li>
             <li>• Постройте турели и радары на платформах для защиты от атак</li>
             <li>• Ресурсы платформы учитывают бонусы галактики, в которой она находится</li>
           </ul>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Энергобаланс платформы и разбор простоя (bigplan.md, пункт 45).
+ *
+ * До этого платформа была чёрным ящиком: ресурсы либо росли, либо нет, и почему — не
+ * сообщалось нигде. А поскольку платформенные здания раньше работали без энергии и без
+ * сырья вообще, любое объяснение было бы враньём. Теперь правила те же, что на базе, и
+ * панель называет причину каждой вставшей клетки.
+ */
+function PlatformStatusBlock({ platform }: { platform: SpacePlatform }) {
+  const status = platform.status;
+  const tileCount = Object.keys(platform.grid.tiles ?? {}).length;
+
+  if (tileCount === 0) {
+    return (
+      <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700 text-xs text-gray-400">
+        Сетка платформы пуста. Нажмите <Settings className="inline" size={12} />, чтобы перейти на
+        неё и построить добытчики — и обязательно электростанцию: энергия у платформы своя.
+      </div>
+    );
+  }
+
+  if (!status) {
+    return null;
+  }
+
+  const efficiencyPercent = Math.round(status.energyEfficiency * 100);
+  const deficit = status.energyConsumption > status.energyProduction;
+
+  const problems: string[] = [];
+  if (status.noPower > 0) problems.push(`без энергии — ${status.noPower}`);
+  if (status.noInput > 0) problems.push(`без сырья — ${status.noInput}`);
+  if (status.noDeposit > 0) problems.push(`не на своей жиле — ${status.noDeposit}`);
+  if (status.storageFull > 0) problems.push(`склад полон — ${status.storageFull}`);
+  if (status.building > 0) problems.push(`строится — ${status.building}`);
+
+  return (
+    <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700 space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-400"><GameIcon icon="⚡" /> Энергия платформы:</span>
+        <span className={deficit ? 'text-amber-300 font-semibold' : 'text-green-400 font-semibold'}>
+          {formatNumber(D(status.energyProduction))} / {formatNumber(D(status.energyConsumption))} ⚡/с
+          {deficit ? ` · ${efficiencyPercent}% мощности` : ''}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-400">Работают:</span>
+        <span className="text-green-400 font-semibold">
+          {status.working} из {tileCount}
+        </span>
+      </div>
+
+      {problems.length > 0 && (
+        <div className="text-xs text-gray-400">Простаивают: {problems.join(', ')}</div>
+      )}
+
+      {status.noPower > 0 && (
+        <div className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded p-2">
+          Зданиям не хватает энергии. Постройте на платформе электростанцию — с базы энергия
+          не передаётся.
+        </div>
+      )}
+
+      {status.missingInputs.length > 0 && (
+        <div className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded p-2">
+          Не хватает сырья: {status.missingInputs.slice(0, 4).map(resourceLabel).join(', ')}
+          {status.missingInputs.length > 4 ? ' и др.' : ''}. Привезите его караваном в разделе
+          «Логистика» или добывайте на самой платформе.
+        </div>
+      )}
+
+      {status.storageFull > 0 && (
+        <div className="text-xs text-gray-400">
+          Склад платформы заполнен — включите авто-транспортировку, отправьте караван или
+          прокачайте «Хранилище».
+        </div>
+      )}
     </div>
   );
 }
@@ -281,7 +427,13 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
             <Settings size={18} />
           </button>
           <button
-            onClick={() => onRemove(platform.id)}
+            onClick={() => {
+              // Платформа стоит 50 000 ₡ и 1 000 влияния, возврата нет, а кнопка стоит
+              // вплотную к «управлять». Один вопрос дешевле потерянной платформы.
+              if (confirm(`Удалить платформу «${platform.name}»? Постройки и всё, что лежит на её складе, пропадут без возврата.`)) {
+                onRemove(platform.id);
+              }
+            }}
             className="text-red-400 hover:text-red-300 p-2 hover:bg-red-900/20 rounded transition-all"
             title="Удалить платформу"
           >
@@ -289,6 +441,9 @@ function PlatformCard({ platform, onUpgrade, onRemove, onRepair, onManage, calcu
           </button>
         </div>
       </div>
+
+      {/* ——— Что происходит на платформе прямо сейчас (bigplan.md, пункт 45) ——— */}
+      <PlatformStatusBlock platform={platform} />
 
       {/* Platform Resources */}
       {platform.resources && Object.keys(platform.resources).length > 0 && (

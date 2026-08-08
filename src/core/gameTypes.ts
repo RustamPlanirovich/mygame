@@ -717,6 +717,47 @@ export interface PlatformEnemy {
   };
 }
 
+/** Почему клетка платформы находится в текущем состоянии (bigplan.md, пункт 45). */
+export type PlatformTileState =
+  /** Производит. */
+  | 'working'
+  /** Идёт стройка или апгрейд. */
+  | 'building'
+  /** Добытчик стоит не на своей жиле — не производит вообще. */
+  | 'no_deposit'
+  /** Энергии в сети платформы нет. */
+  | 'no_power'
+  /** Нет входного сырья на складе платформы. */
+  | 'no_input'
+  /** Склад платформы забит по всем выпускаемым ресурсам. */
+  | 'storage_full'
+  /** Здание без производства: турель, щит, радар. */
+  | 'support';
+
+/**
+ * Итоги тика одной платформы — то, что панель платформ и инспектор клетки показывают
+ * игроку словами (bigplan.md, пункт 45). Считает `core/systems/platformProduction.ts`.
+ *
+ * Только простые значения: объект живёт один тик и в сохранение не попадает.
+ */
+export interface PlatformStatus {
+  energyProduction: number;
+  energyConsumption: number;
+  /** 0..1 — множитель выпуска при дефиците энергии. */
+  energyEfficiency: number;
+  working: number;
+  building: number;
+  noPower: number;
+  noInput: number;
+  noDeposit: number;
+  storageFull: number;
+  support: number;
+  /** Каких входов не хватило: подсказка «привезите караваном». */
+  missingInputs: ResourceType[];
+  /** Состояние каждой занятой клетки — инспектор объясняет простой конкретного здания. */
+  tileStates: Record<string, PlatformTileState>;
+}
+
 export interface SpacePlatform {
   id: string;
   galaxyId: GalaxyId;
@@ -743,6 +784,12 @@ export interface SpacePlatform {
   };
   // Combat state
   combat: PlatformCombatState;
+  /*
+   * Итоги последнего тика платформы (bigplan.md, пункт 45): энергобаланс и разбивка клеток
+   * по причинам простоя. Считается каждый тик заново, поэтому в сейв НЕ пишется — иначе в
+   * состоянии появилось бы второе, устаревающее мнение о том, работает ли платформа.
+   */
+  status?: PlatformStatus;
 }
 
 export type ShipType = 'fighter' | 'corvette' | 'cruiser' | 'dreadnought' | 'flagship';
